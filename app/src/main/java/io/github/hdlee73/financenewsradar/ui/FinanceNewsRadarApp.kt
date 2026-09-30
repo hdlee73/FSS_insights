@@ -2,7 +2,6 @@ package io.github.hdlee73.financenewsradar.ui
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -25,18 +25,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -48,7 +50,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -60,21 +61,23 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -97,6 +100,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,6 +115,15 @@ fun FinanceNewsRadarApp(viewModel: NewsViewModel = viewModel()) {
     }
     var queryText by rememberSaveable { mutableStateOf("") }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    var filtersExpanded by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val prepareSearch = {
+        dismissKeyboard()
+        filtersExpanded = false
+        scope.launch { listState.scrollToItem(0) }
+        Unit
+    }
 
     LaunchedEffect(state.error) {
         state.error?.let {
@@ -123,12 +136,19 @@ fun FinanceNewsRadarApp(viewModel: NewsViewModel = viewModel()) {
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(snackbarHost) },
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-                title = {
-                    Text("금융뉴스 레이더", fontWeight = FontWeight.Bold)
-                },
-                actions = {
+            Surface(color = MaterialTheme.colorScheme.background) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "금융뉴스 레이더",
+                        modifier = Modifier.weight(1f),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     IconButton(onClick = viewModel::toggleBookmarksOnly) {
                         Icon(
                             if (state.bookmarksOnly) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
@@ -139,65 +159,91 @@ fun FinanceNewsRadarApp(viewModel: NewsViewModel = viewModel()) {
                         Icon(Icons.Default.Settings, contentDescription = "설정")
                     }
                 }
-            )
+            }
         }
     ) { contentPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(contentPadding)
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(contentPadding),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            SearchControls(
-                query = queryText,
-                onQueryChange = { queryText = it },
-                onSearch = {
-                    if (queryText.isNotBlank()) {
-                        dismissKeyboard()
-                        viewModel.search(queryText)
-                    }
-                },
-                settings = state.settings,
-                onKeyword = {
-                    queryText = it
-                    dismissKeyboard()
-                    viewModel.search(it)
-                },
-                naverReady = state.credentials.isComplete,
-                onProvider = viewModel::setProvider,
-                onScope = viewModel::setScope,
-                onTimeRange = viewModel::setTimeRange,
-                onOpenSettings = { settingsOpen = true }
-            )
-
-            ResultHeader(
-                title = if (state.bookmarksOnly) "즐겨찾기" else state.currentTitle,
-                count = state.visibleArticles.size,
-                provider = state.settings.provider,
-                bookmarksOnly = state.bookmarksOnly,
-                fetchedCount = state.fetchedCount,
-                duplicateCount = state.duplicateCount,
-                outletExcludedCount = state.outletExcludedCount,
-                failedQueryCount = state.failedQueryCount,
-                onHome = {
-                    queryText = ""
-                    dismissKeyboard()
-                    viewModel.refreshHome()
-                },
-                onRefresh = {
-                    if (state.isHome) viewModel.refreshHome() else viewModel.search(state.query)
-                }
-            )
-
-            when {
-                state.isLoading -> LoadingView()
-                state.visibleArticles.isEmpty() -> EmptyView(bookmarksOnly = state.bookmarksOnly)
-                else -> ArticleTimeline(
-                    articles = state.visibleArticles,
-                    isLoadingMore = state.isLoadingMore,
-                    canLoadMore = state.canLoadMore && !state.bookmarksOnly,
-                    onLoadMore = viewModel::loadMore,
-                    onBookmark = viewModel::toggleBookmark
+            item(key = "search-controls") {
+                SearchControls(
+                    query = queryText,
+                    filtersExpanded = filtersExpanded,
+                    onToggleFilters = { filtersExpanded = !filtersExpanded },
+                    onQueryChange = { queryText = it },
+                    onSearch = {
+                        if (queryText.isNotBlank()) {
+                            prepareSearch()
+                            viewModel.search(queryText)
+                        }
+                    },
+                    settings = state.settings,
+                    onKeyword = {
+                        queryText = it
+                        prepareSearch()
+                        viewModel.search(it)
+                    },
+                    naverReady = state.credentials.isComplete,
+                    onProvider = viewModel::setProvider,
+                    onScope = viewModel::setScope,
+                    onTimeRange = viewModel::setTimeRange,
+                    onOpenSettings = { settingsOpen = true }
                 )
+
+            }
+            item(key = "result-header") {
+                ResultHeader(
+                    title = if (state.bookmarksOnly) "즐겨찾기" else state.currentTitle,
+                    count = state.visibleArticles.size,
+                    provider = state.settings.provider,
+                    bookmarksOnly = state.bookmarksOnly,
+                    fetchedCount = state.fetchedCount,
+                    duplicateCount = state.duplicateCount,
+                    outletExcludedCount = state.outletExcludedCount,
+                    failedQueryCount = state.failedQueryCount,
+                    onHome = {
+                        queryText = ""
+                        prepareSearch()
+                        viewModel.refreshHome()
+                    },
+                    onRefresh = {
+                        if (state.isHome) viewModel.refreshHome() else viewModel.search(state.query)
+                    }
+                )
+
+            }
+            when {
+                state.isLoading -> item(key = "loading") { LoadingView() }
+                state.visibleArticles.isEmpty() -> item(key = "empty") { EmptyView(bookmarksOnly = state.bookmarksOnly) }
+                else -> {
+                    itemsIndexed(state.visibleArticles, key = { _, article -> article.stableId }) { index, article ->
+                        val section = daySection(article.publishedAt)
+                        val previousSection = state.visibleArticles.getOrNull(index - 1)?.let { daySection(it.publishedAt) }
+                        Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (section != previousSection) {
+                                Text(
+                                    section,
+                                    modifier = Modifier.padding(top = if (index == 0) 0.dp else 8.dp, start = 4.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            ArticleCard(article = article, onBookmark = { viewModel.toggleBookmark(article) })
+                        }
+                    }
+                    if (state.isLoadingMore || (state.canLoadMore && !state.bookmarksOnly)) {
+                        item(key = "load-more") {
+                            Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                if (state.isLoadingMore) CircularProgressIndicator(Modifier.size(26.dp))
+                                else OutlinedButton(onClick = viewModel::loadMore) { Text("이전 기사 더 불러오기") }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -218,6 +264,8 @@ fun FinanceNewsRadarApp(viewModel: NewsViewModel = viewModel()) {
 @Composable
 private fun SearchControls(
     query: String,
+    filtersExpanded: Boolean,
+    onToggleFilters: () -> Unit,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     settings: AppSettings,
@@ -234,30 +282,38 @@ private fun SearchControls(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
+            Surface(
                 modifier = Modifier.weight(1f),
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                placeholder = { Text("키워드 또는 회사명 검색", style = MaterialTheme.typography.bodyMedium) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() })
-            )
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 10.dp).semantics { contentDescription = "검색어" },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                    decorationBox = { innerTextField ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Box(Modifier.weight(1f)) {
+                                if (query.isEmpty()) Text("키워드·회사명 검색", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                innerTextField()
+                            }
+                        }
+                    }
+                )
+            }
             Button(
                 onClick = onSearch,
                 enabled = query.isNotBlank(),
-                modifier = Modifier.height(56.dp),
+                modifier = Modifier.heightIn(min = 48.dp),
                 shape = RoundedCornerShape(14.dp)
             ) { Text("검색") }
         }
-        Text(
-            "공백·AND: 모두 포함 / OR: 하나 이상 / \"문구\": 정확히 일치",
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -267,52 +323,77 @@ private fun SearchControls(
             }
         }
 
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            items(NewsProviderType.entries) { provider ->
-                FilterChip(
-                    selected = settings.provider == provider,
-                    onClick = {
-                        if (provider == NewsProviderType.NAVER && !naverReady) onOpenSettings()
-                        else onProvider(provider)
-                    },
-                    label = { Text(provider.label, style = MaterialTheme.typography.labelMedium) }
-                )
-            }
-        }
-
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(OutletScope.entries) { scope ->
-                FilterChip(
-                    selected = settings.outletScope == scope,
-                    onClick = { onScope(scope) },
-                    label = { Text(scope.label, style = MaterialTheme.typography.labelMedium) }
-                )
-            }
-            item { Spacer(Modifier.width(4.dp)) }
-            items(TimeRange.entries) { range ->
-                FilterChip(
-                    selected = settings.timeRange == range,
-                    onClick = { onTimeRange(range) },
-                    label = { Text(range.label, style = MaterialTheme.typography.labelMedium) }
-                )
-            }
-        }
-
-        if (settings.provider == NewsProviderType.COMBINED && !naverReady) {
             Text(
-                "네이버 키 연결 · 통합 검색 범위 확대",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onOpenSettings)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                "${settings.provider.label} · ${settings.outletScope.label} · ${settings.timeRange.label}",
+                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            TextButton(onClick = onToggleFilters) {
+                Text("필터", style = MaterialTheme.typography.labelMedium)
+                Icon(if (filtersExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = if (filtersExpanded) "필터 접기" else "필터 펼치기", modifier = Modifier.size(18.dp))
+            }
+        }
+        if (filtersExpanded) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(NewsProviderType.entries) { provider ->
+                    FilterChip(
+                        selected = settings.provider == provider,
+                        onClick = {
+                            if (provider == NewsProviderType.NAVER && !naverReady) onOpenSettings()
+                            else onProvider(provider)
+                        },
+                        label = { Text(provider.label, style = MaterialTheme.typography.labelMedium) }
+                    )
+                }
+            }
+
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(OutletScope.entries) { scope ->
+                    FilterChip(
+                        selected = settings.outletScope == scope,
+                        onClick = { onScope(scope) },
+                        label = { Text(scope.label, style = MaterialTheme.typography.labelMedium) }
+                    )
+                }
+                item { Spacer(Modifier.width(4.dp)) }
+                items(TimeRange.entries) { range ->
+                    FilterChip(
+                        selected = settings.timeRange == range,
+                        onClick = { onTimeRange(range) },
+                        label = { Text(range.label, style = MaterialTheme.typography.labelMedium) }
+                    )
+                }
+            }
+
+            if (settings.provider == NewsProviderType.COMBINED && !naverReady) {
+                Text(
+                    "네이버 키 연결 · 통합 검색 범위 확대",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpenSettings)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Text(
+                "공백·AND: 모두 포함 / OR: 하나 이상 / \"문구\": 정확히 일치",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -331,12 +412,21 @@ private fun ResultHeader(
     onHome: () -> Unit,
     onRefresh: () -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    var detailsExpanded by rememberSaveable(title) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).clickable { detailsExpanded = !detailsExpanded }) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${count}건 표시 · 상세 ${if (detailsExpanded) "▴" else "▾"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = onHome) { Icon(Icons.Default.Home, contentDescription = "맞춤 뉴스") }
+            IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
+        }
+        if (detailsExpanded) {
             val resultSummary = if (bookmarksOnly) {
                 "${provider.label} · 즐겨찾기 ${count}건"
             } else {
@@ -347,20 +437,14 @@ private fun ResultHeader(
                     if (failedQueryCount > 0) append(" · 일부 검색 ${failedQueryCount}건 실패")
                 }
             }
-            Text(
-                resultSummary,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(resultSummary, modifier = Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        IconButton(onClick = onHome) { Icon(Icons.Default.Home, contentDescription = "맞춤 뉴스") }
-        IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
     }
 }
 
 @Composable
 private fun LoadingView() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().heightIn(min = 180.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             CircularProgressIndicator()
             Text("최신 기사를 모으고 있습니다", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -370,52 +454,13 @@ private fun LoadingView() {
 
 @Composable
 private fun EmptyView(bookmarksOnly: Boolean) {
-    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().heightIn(min = 180.dp).padding(24.dp), contentAlignment = Alignment.Center) {
         Text(
             if (bookmarksOnly) "즐겨찾기한 기사가 없습니다.\n기사 카드의 북마크 버튼을 눌러 저장해 보세요."
             else "조건에 맞는 기사를 찾지 못했습니다.\n검색 기간을 넓히거나 전체 언론으로 바꿔 보세요.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyLarge
         )
-    }
-}
-
-@Composable
-private fun ArticleTimeline(
-    articles: List<NewsArticle>,
-    isLoadingMore: Boolean,
-    canLoadMore: Boolean,
-    onLoadMore: () -> Unit,
-    onBookmark: (NewsArticle) -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        itemsIndexed(articles, key = { _, article -> article.stableId }) { index, article ->
-            val section = daySection(article.publishedAt)
-            val previousSection = articles.getOrNull(index - 1)?.let { daySection(it.publishedAt) }
-            if (section != previousSection) {
-                Text(
-                    section,
-                    modifier = Modifier.padding(top = if (index == 0) 4.dp else 12.dp, start = 4.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            ArticleCard(article = article, onBookmark = { onBookmark(article) })
-        }
-
-        if (canLoadMore || isLoadingMore) {
-            item {
-                Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                    if (isLoadingMore) CircularProgressIndicator(Modifier.size(26.dp))
-                    else OutlinedButton(onClick = onLoadMore) { Text("이전 기사 더 불러오기") }
-                }
-            }
-        }
     }
 }
 
@@ -430,13 +475,16 @@ private fun ArticleCard(article: NewsArticle, onBookmark: () -> Unit) {
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         shape = RoundedCornerShape(16.dp)
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     article.source,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.labelMedium
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
                 if (article.isPriority) {
                     Spacer(Modifier.width(8.dp))
@@ -450,49 +498,14 @@ private fun ArticleCard(article: NewsArticle, onBookmark: () -> Unit) {
                         )
                     }
                 }
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.width(6.dp))
                 Text(
                     relativeTime(article.publishedAt),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-
-            Text(
-                article.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                article.summary,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            if (article.matchedKeywords.isNotEmpty()) {
-                Text(
-                    article.matchedKeywords.joinToString(" · ") { "#$it" },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, Modifier.size(16.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("원문 열기", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = onBookmark, modifier = Modifier.size(40.dp)) {
-                    Icon(
-                        if (article.isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                        contentDescription = "즐겨찾기",
-                        tint = if (article.isBookmarked) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                IconButton(onClick = onBookmark) {
+                    Icon(if (article.isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder, contentDescription = "즐겨찾기", tint = if (article.isBookmarked) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 IconButton(
                     onClick = {
@@ -503,9 +516,33 @@ private fun ArticleCard(article: NewsArticle, onBookmark: () -> Unit) {
                             putExtra(Intent.EXTRA_TEXT, shareText)
                         }
                         context.startActivity(Intent.createChooser(intent, "기사 공유"))
-                    },
-                    modifier = Modifier.size(40.dp)
+                    }
                 ) { Icon(Icons.Default.Share, contentDescription = "공유") }
+            }
+
+            Text(
+                article.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                article.summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            if (article.matchedKeywords.isNotEmpty()) {
+                Text(
+                    article.matchedKeywords.joinToString(" · ") { "#$it" },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
