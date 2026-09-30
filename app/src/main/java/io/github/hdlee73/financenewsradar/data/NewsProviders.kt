@@ -6,6 +6,9 @@ import io.github.hdlee73.financenewsradar.model.NewsArticle
 import io.github.hdlee73.financenewsradar.model.SearchPage
 import io.github.hdlee73.financenewsradar.model.TimeRange
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
@@ -79,6 +82,30 @@ class NaverNewsProvider(private val credentials: NaverCredentials) : NewsProvide
             val next = safeStart + size
             val reachedCutoff = parsed.lastOrNull()?.publishedAt?.let { it < cutoff } ?: false
             SearchPage(filtered, hasMore = next <= total && next <= 1000 && !reachedCutoff, nextStart = next)
+        }
+}
+
+class CombinedNewsProvider(private val credentials: NaverCredentials) : NewsProvider {
+    override suspend fun search(query: String, timeRange: TimeRange, start: Int, pageSize: Int): SearchPage =
+        supervisorScope {
+            val providers = buildList<NewsProvider> {
+                add(GoogleNewsRssProvider())
+                if (credentials.isComplete) add(NaverNewsProvider(credentials))
+            }
+            val results = providers.map { provider ->
+                async { runCatching { provider.search(query, timeRange, start, pageSize) } }
+            }.awaitAll()
+            val pages = results.mapNotNull { it.getOrNull() }
+            if (pages.isEmpty()) throw results.firstNotNullOfOrNull { it.exceptionOrNull() }
+                ?: IllegalStateException("기사를 불러오지 못했습니다.")
+            val articles = pages.flatMap { it.articles }
+            SearchPage(
+                articles = articles,
+                hasMore = pages.any { it.hasMore },
+                nextStart = pages.filter { it.hasMore }.maxOfOrNull { it.nextStart } ?: 1,
+                fetchedCount = pages.sumOf { it.fetchedCount },
+                failedQueryCount = results.count { it.isFailure } + pages.sumOf { it.failedQueryCount }
+            )
         }
 }
 

@@ -152,6 +152,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setScope(scope: OutletScope) = updateSettings(_state.value.settings.copy(outletScope = scope))
     fun setTimeRange(timeRange: TimeRange) = updateSettings(_state.value.settings.copy(timeRange = timeRange))
+    fun setProvider(provider: NewsProviderType) = updateSettings(_state.value.settings.copy(provider = provider))
 
     fun saveSettings(settings: AppSettings, credentials: NaverCredentials) {
         val sanitized = settings.copy(

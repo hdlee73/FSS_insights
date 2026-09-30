@@ -29,8 +29,8 @@ class SettingsStore(context: Context) {
             .ifEmpty { AppSettings.DEFAULT_KEYWORDS }
         return AppSettings(
             keywords = keywords,
-            provider = enumValue(preferences.getString(PROVIDER, null), NewsProviderType.GOOGLE_RSS),
-            outletScope = enumValue(preferences.getString(SCOPE, null), OutletScope.MAJOR_30),
+            provider = enumValue(preferences.getString(PROVIDER, null), NewsProviderType.COMBINED),
+            outletScope = enumValue(preferences.getString(SCOPE, null), OutletScope.ALL),
             timeRange = enumValue(preferences.getString(TIME_RANGE, null), TimeRange.WEEK)
         )
     }

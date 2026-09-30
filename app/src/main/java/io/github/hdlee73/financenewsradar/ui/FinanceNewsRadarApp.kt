@@ -2,6 +2,7 @@ package io.github.hdlee73.financenewsradar.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -53,6 +55,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -71,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -117,13 +121,25 @@ fun FinanceNewsRadarApp(viewModel: NewsViewModel = viewModel()) {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 title = {
-                    Column {
-                        Text("금융뉴스 레이더", fontWeight = FontWeight.Bold)
-                        Text(
-                            "금융투자 감독 이슈를 시간순으로",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            modifier = Modifier.size(38.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("F", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Black)
+                            }
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text("금융뉴스 레이더", fontWeight = FontWeight.ExtraBold)
+                            Text(
+                                "감독·시장 이슈 모니터링",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 },
                 actions = {
@@ -154,8 +170,11 @@ fun FinanceNewsRadarApp(viewModel: NewsViewModel = viewModel()) {
                     queryText = it
                     viewModel.search(it)
                 },
+                naverReady = state.credentials.isComplete,
+                onProvider = viewModel::setProvider,
                 onScope = viewModel::setScope,
-                onTimeRange = viewModel::setTimeRange
+                onTimeRange = viewModel::setTimeRange,
+                onOpenSettings = { settingsOpen = true }
             )
 
             ResultHeader(
@@ -210,62 +229,134 @@ private fun SearchControls(
     onSearch: () -> Unit,
     settings: AppSettings,
     onKeyword: (String) -> Unit,
+    naverReady: Boolean,
+    onProvider: (NewsProviderType) -> Unit,
     onScope: (OutletScope) -> Unit,
-    onTimeRange: (TimeRange) -> Unit
+    onTimeRange: (TimeRange) -> Unit,
+    onOpenSettings: () -> Unit
 ) {
-    Surface(color = MaterialTheme.colorScheme.background) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    placeholder = { Text("키워드 또는 회사명 검색") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSearch() })
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+                .background(
+                    brush = Brush.linearGradient(listOf(Color(0xFF006C67), Color(0xFF124E78))),
+                    shape = RoundedCornerShape(24.dp)
                 )
-                Button(
-                    onClick = onSearch,
-                    enabled = query.isNotBlank(),
-                    modifier = Modifier.height(56.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) { Text("검색") }
-            }
-
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(settings.keywords) { keyword ->
-                    AssistChip(onClick = { onKeyword(keyword) }, label = { Text(keyword) })
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("오늘의 금융 이슈", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                        Text("정확한 검색식으로 놓치는 기사를 줄여보세요", color = Color.White.copy(alpha = 0.78f), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Surface(shape = CircleShape, color = Color(0xFF7EE2C7).copy(alpha = 0.2f)) {
+                        Text("● LIVE", modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp), color = Color(0xFF9FF4DC), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
                 }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        placeholder = { Text("회사명·이슈·검색식") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White,
+                            focusedBorderColor = Color(0xFF7EE2C7),
+                            unfocusedBorderColor = Color.Transparent
+                        ),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { onSearch() })
+                    )
+                    Button(
+                        onClick = onSearch,
+                        enabled = query.isNotBlank(),
+                        modifier = Modifier.height(56.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) { Text("검색", fontWeight = FontWeight.Bold) }
+                }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    item { AssistChip(onClick = { onQueryChange(appendQueryToken(query, "AND")) }, label = { Text("AND") }) }
+                    item { AssistChip(onClick = { onQueryChange(appendQueryToken(query, "OR")) }, label = { Text("OR") }) }
+                    item { AssistChip(onClick = { onQueryChange(appendQueryToken(query, "(")) }, label = { Text("(") }) }
+                    item { AssistChip(onClick = { onQueryChange(appendQueryToken(query, ")")) }, label = { Text(")") }) }
+                    item { AssistChip(onClick = { onQueryChange(appendQueryToken(query, "\"문구\"")) }, label = { Text("\"문구\"") }) }
+                }
+                Text(
+                    "예: 금감원 AND (증권사 OR 자산운용사) · 공백은 AND로 처리",
+                    color = Color.White.copy(alpha = 0.78f),
+                    style = MaterialTheme.typography.labelSmall
+                )
             }
+        }
 
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Text("빠른 검색", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(settings.keywords) { keyword ->
+                AssistChip(onClick = { onKeyword(keyword) }, label = { Text(keyword) })
+            }
+        }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(NewsProviderType.entries) { provider ->
+                FilterChip(
+                    selected = settings.provider == provider,
+                    onClick = {
+                        if (provider == NewsProviderType.NAVER && !naverReady) onOpenSettings()
+                        else onProvider(provider)
+                    },
+                    label = { Text(provider.label) }
+                )
+            }
+        }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(OutletScope.entries) { scope ->
+                FilterChip(
+                    selected = settings.outletScope == scope,
+                    onClick = { onScope(scope) },
+                    label = { Text(scope.label) }
+                )
+            }
+            item { Spacer(Modifier.width(4.dp)) }
+            items(TimeRange.entries) { range ->
+                FilterChip(
+                    selected = settings.timeRange == range,
+                    onClick = { onTimeRange(range) },
+                    label = { Text(range.label) }
+                )
+            }
+        }
+
+        if (settings.provider == NewsProviderType.COMBINED && !naverReady) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = RoundedCornerShape(14.dp)
             ) {
-                items(OutletScope.entries) { scope ->
-                    FilterChip(
-                        selected = settings.outletScope == scope,
-                        onClick = { onScope(scope) },
-                        label = { Text(scope.label) }
-                    )
-                }
-                item { Spacer(Modifier.width(4.dp)) }
-                items(TimeRange.entries) { range ->
-                    FilterChip(
-                        selected = settings.timeRange == range,
-                        onClick = { onTimeRange(range) },
-                        label = { Text(range.label) }
-                    )
+                Row(Modifier.padding(start = 12.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("네이버 키를 연결하면 통합 검색 범위가 넓어집니다.", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = onOpenSettings) { Text("연결") }
                 }
             }
         }
@@ -285,30 +376,37 @@ private fun ResultHeader(
     onHome: () -> Unit,
     onRefresh: () -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(18.dp),
+        tonalElevation = 1.dp
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            val resultSummary = if (bookmarksOnly) {
-                "${provider.label} · 즐겨찾기 ${count}건"
-            } else {
-                buildString {
-                    append("${provider.label} · 가져온 ${fetchedCount}건 중 ${count}건 표시")
-                    if (duplicateCount > 0) append(" · 중복 ${duplicateCount}건 제외")
-                    if (outletExcludedCount > 0) append(" · 언론 범위 ${outletExcludedCount}건 제외")
-                    if (failedQueryCount > 0) append(" · 일부 검색 ${failedQueryCount}건 실패")
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                val resultSummary = if (bookmarksOnly) {
+                    "${provider.label} · 즐겨찾기 ${count}건"
+                } else {
+                    buildString {
+                        append("${provider.label} · ${fetchedCount}건 수집 → ${count}건 표시")
+                        if (duplicateCount > 0) append(" · 중복 ${duplicateCount}건")
+                        if (outletExcludedCount > 0) append(" · 범위 제외 ${outletExcludedCount}건")
+                        if (failedQueryCount > 0) append(" · 실패 ${failedQueryCount}건")
+                    }
                 }
+                Text(
+                    resultSummary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            Text(
-                resultSummary,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            IconButton(onClick = onHome) { Icon(Icons.Default.Home, contentDescription = "맞춤 뉴스") }
+            IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
         }
-        IconButton(onClick = onHome) { Icon(Icons.Default.Home, contentDescription = "맞춤 뉴스") }
-        IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
     }
 }
 
@@ -381,24 +479,32 @@ private fun ArticleCard(article: NewsArticle, onBookmark: () -> Unit) {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(article.link)))
         },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        shape = RoundedCornerShape(16.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(
+            1.dp,
+            if (article.isPriority) MaterialTheme.colorScheme.secondary.copy(alpha = 0.55f)
+            else MaterialTheme.colorScheme.outlineVariant
+        ),
+        shape = RoundedCornerShape(20.dp)
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    article.source,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.labelMedium
-                )
+                Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = CircleShape) {
+                    Text(
+                        article.source,
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
                 if (article.isPriority) {
                     Spacer(Modifier.width(8.dp))
-                    Surface(color = Color(0xFFFFE0D6), shape = RoundedCornerShape(20.dp)) {
+                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = CircleShape) {
                         Text(
                             "감독 핵심",
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            color = Color(0xFF9B2F13),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -478,7 +584,8 @@ private fun SettingsDialog(
     var provider by remember(current) { mutableStateOf(current.provider) }
     var clientId by remember(credentials) { mutableStateOf(credentials.clientId) }
     var clientSecret by remember(credentials) { mutableStateOf(credentials.clientSecret) }
-    val canSave = provider != NewsProviderType.NAVER || (clientId.isNotBlank() && clientSecret.isNotBlank())
+    val naverKeyComplete = clientId.isNotBlank() && clientSecret.isNotBlank()
+    val canSave = provider != NewsProviderType.NAVER || naverKeyComplete
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -538,9 +645,11 @@ private fun SettingsDialog(
                         }
                     }
 
-                    if (provider == NewsProviderType.NAVER) {
+                    if (provider != NewsProviderType.GOOGLE_RSS) {
                         Text(
-                            "키는 이 기기의 Android Keystore로 암호화되며 GitHub 소스나 APK에 포함되지 않습니다.",
+                            if (provider == NewsProviderType.COMBINED)
+                                "네이버 키는 선택 사항입니다. 입력하면 Google과 네이버 결과를 합칩니다. 키는 Android Keystore로 암호화됩니다."
+                            else "키는 이 기기의 Android Keystore로 암호화되며 GitHub 소스나 APK에 포함되지 않습니다.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -559,7 +668,7 @@ private fun SettingsDialog(
                             singleLine = true,
                             visualTransformation = PasswordVisualTransformation()
                         )
-                        if (!canSave) {
+                        if (provider == NewsProviderType.NAVER && !naverKeyComplete) {
                             Text("두 값을 모두 입력해야 네이버 검색을 사용할 수 있습니다.", color = MaterialTheme.colorScheme.error)
                         }
                     }
@@ -603,3 +712,9 @@ private fun relativeTime(instant: Instant): String {
 }
 
 private fun absoluteTime(instant: Instant): String = instant.atZone(seoulZone).format(fullDateFormatter)
+
+private fun appendQueryToken(query: String, token: String): String = when (token) {
+    ")" -> query.trimEnd() + ")"
+    "(" -> if (query.isBlank()) "(" else query.trimEnd() + " ("
+    else -> if (query.isBlank()) "$token " else query.trimEnd() + " $token "
+}

@@ -4,6 +4,7 @@ import java.time.Duration
 import java.time.Instant
 
 enum class NewsProviderType(val label: String, val description: String) {
+    COMBINED("통합 검색", "Google과 네이버를 함께 검색하고 결과를 합침"),
     GOOGLE_RSS("바로 검색", "설정 없이 Google 뉴스 RSS로 검색"),
     NAVER("네이버 심층 검색", "API 키로 최대 1,000건까지 이어보기")
 }
@@ -21,7 +22,7 @@ enum class TimeRange(val label: String, val googleToken: String, val duration: D
 
 data class AppSettings(
     val keywords: List<String> = DEFAULT_KEYWORDS,
-    val provider: NewsProviderType = NewsProviderType.GOOGLE_RSS,
+    val provider: NewsProviderType = NewsProviderType.COMBINED,
     val outletScope: OutletScope = OutletScope.ALL,
     val timeRange: TimeRange = TimeRange.WEEK
 ) {

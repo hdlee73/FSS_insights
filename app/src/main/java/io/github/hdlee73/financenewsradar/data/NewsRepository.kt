@@ -16,15 +16,25 @@ class NewsRepository {
         settings: AppSettings,
         credentials: NaverCredentials,
         start: Int = 1
-    ): SearchPage {
+    ): SearchPage = supervisorScope {
         val provider = provider(settings.provider, credentials)
-        val page = provider.search(query, settings.timeRange, start)
-        val refined = refine(page.articles, settings, listOf(query))
-        return page.copy(
+        val plan = SearchQueryParser.parse(query)
+        val results = plan.providerQueries.map { providerQuery ->
+            async { runCatching { provider.search(providerQuery, settings.timeRange, start) } }
+        }.awaitAll()
+        val pages = results.mapNotNull { it.getOrNull() }
+        if (pages.isEmpty()) throw results.firstNotNullOfOrNull { it.exceptionOrNull() }
+            ?: IllegalStateException("기사를 불러오지 못했습니다.")
+        val fetched = pages.flatMap { it.articles }
+        val refined = refine(fetched, settings, plan.terms)
+        SearchPage(
             articles = refined.articles,
-            fetchedCount = page.articles.size,
+            hasMore = pages.any { it.hasMore },
+            nextStart = pages.filter { it.hasMore }.maxOfOrNull { it.nextStart } ?: 1,
+            fetchedCount = fetched.size,
             duplicateCount = refined.duplicateCount,
-            outletExcludedCount = refined.outletExcludedCount
+            outletExcludedCount = refined.outletExcludedCount,
+            failedQueryCount = results.count { it.isFailure } + pages.sumOf { it.failedQueryCount }
         )
     }
 
@@ -32,7 +42,9 @@ class NewsRepository {
         val provider = provider(settings.provider, credentials)
         val queries = settings.keywords
             .filter { it.isNotBlank() }
-            .flatMap { keyword -> NewsQueryPlanner.homeQueries(keyword, settings.provider) }
+            .flatMap { keyword ->
+                NewsQueryPlanner.homeQueries(keyword, settings.provider, credentials.isComplete)
+            }
             .distinct()
         val results = queries
             .map { query -> async { runCatching { provider.search(query, settings.timeRange, pageSize = 100) } } }
@@ -41,17 +53,21 @@ class NewsRepository {
         if (pages.isEmpty()) throw results.firstNotNullOfOrNull { it.exceptionOrNull() }
             ?: IllegalStateException("기사를 불러오지 못했습니다.")
         val fetched = pages.flatMap { it.articles }
-        val refined = refine(fetched, settings, settings.keywords)
+        val watchTerms = settings.keywords.flatMap { keyword ->
+            runCatching { SearchQueryParser.parse(keyword).terms }.getOrDefault(listOf(keyword))
+        }.distinct()
+        val refined = refine(fetched, settings, watchTerms)
         SearchPage(
             articles = refined.articles,
             fetchedCount = fetched.size,
             duplicateCount = refined.duplicateCount,
             outletExcludedCount = refined.outletExcludedCount,
-            failedQueryCount = results.count { it.isFailure }
+            failedQueryCount = results.count { it.isFailure } + pages.sumOf { it.failedQueryCount }
         )
     }
 
     private fun provider(type: NewsProviderType, credentials: NaverCredentials): NewsProvider = when (type) {
+        NewsProviderType.COMBINED -> CombinedNewsProvider(credentials)
         NewsProviderType.GOOGLE_RSS -> GoogleNewsRssProvider()
         NewsProviderType.NAVER -> NaverNewsProvider(credentials)
     }
@@ -94,10 +110,18 @@ class NewsRepository {
 }
 
 internal object NewsQueryPlanner {
-    fun homeQueries(keyword: String, provider: NewsProviderType): List<String> {
+    fun homeQueries(
+        keyword: String,
+        provider: NewsProviderType,
+        naverReady: Boolean = false
+    ): List<String> {
         val exact = keyword.trim()
-        if (provider != NewsProviderType.GOOGLE_RSS) return listOf(exact)
-        return listOf(exact, expandFinanceQuery(exact)).distinct()
+        val plan = runCatching { SearchQueryParser.parse(exact) }.getOrNull()
+        val baseQueries = plan?.providerQueries ?: listOf(exact)
+        val googleOnly = provider == NewsProviderType.GOOGLE_RSS ||
+            (provider == NewsProviderType.COMBINED && !naverReady)
+        if (!googleOnly || plan?.usesBooleanOperators == true) return baseQueries
+        return (baseQueries + expandFinanceQuery(exact)).distinct()
     }
 
     private fun expandFinanceQuery(keyword: String): String = when (keyword.trim()) {

@@ -21,4 +21,16 @@ class NewsQueryPlannerTest {
             NewsQueryPlanner.homeQueries("증권사", NewsProviderType.NAVER)
         )
     }
+
+    @Test
+    fun `combined search without naver key keeps google discovery query`() {
+        val queries = NewsQueryPlanner.homeQueries(
+            "증권사",
+            NewsProviderType.COMBINED,
+            naverReady = false
+        )
+
+        assertEquals("증권사", queries.first())
+        assertTrue(queries.size > 1)
+    }
 }
