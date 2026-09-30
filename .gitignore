@@ -13,3 +13,5 @@
 *.keystore
 keystore.properties
 /keystore/
+!/keystore/
+!/keystore/public-test.keystore

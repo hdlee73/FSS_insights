@@ -29,6 +29,12 @@ android {
                 keyPassword = "android"
             }
         }
+        create("publicTest") {
+            storeFile = rootProject.file("keystore/public-test.keystore")
+            storePassword = "finance-news-radar-test"
+            keyAlias = "finance-news-radar-test"
+            keyPassword = "finance-news-radar-test"
+        }
     }
 
     buildTypes {
@@ -38,7 +44,7 @@ android {
         }
         release {
             isMinifyEnabled = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("publicTest")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
