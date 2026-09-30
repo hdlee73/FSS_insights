@@ -19,7 +19,6 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: gradle
-      - uses: android-actions/setup-android@v3
       - name: Unit tests
         run: ./gradlew testDebugUnitTest
       - name: Build installable APK
@@ -53,3 +52,4 @@ jobs:
               --title "금융뉴스 레이더 v0.2.0" \
               --notes-file RELEASE_NOTES.md
           fi
+
