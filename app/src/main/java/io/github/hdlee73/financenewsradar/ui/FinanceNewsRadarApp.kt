@@ -36,6 +36,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.VerticalAlignTop
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -43,6 +45,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -71,7 +74,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -88,6 +90,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.hdlee73.financenewsradar.ArticleReaderActivity
+import io.github.hdlee73.financenewsradar.model.NaverApiType
 import io.github.hdlee73.financenewsradar.model.AppSettings
 import io.github.hdlee73.financenewsradar.model.NaverCredentials
 import io.github.hdlee73.financenewsradar.model.NewsArticle
@@ -135,6 +139,16 @@ fun FinanceNewsRadarApp(viewModel: NewsViewModel = viewModel()) {
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(snackbarHost) },
+        floatingActionButton = {
+            if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 120) {
+                SmallFloatingActionButton(onClick = {
+                    dismissKeyboard()
+                    scope.launch { listState.animateScrollToItem(0) }
+                }, containerColor = MaterialTheme.colorScheme.primaryContainer) {
+                    Icon(Icons.Default.VerticalAlignTop, contentDescription = "맨 위로 이동")
+                }
+            }
+        },
         topBar = {
             Surface(color = MaterialTheme.colorScheme.background) {
                 Row(
@@ -276,6 +290,10 @@ private fun SearchControls(
     onTimeRange: (TimeRange) -> Unit,
     onOpenSettings: () -> Unit
 ) {
+    var help by rememberSaveable { mutableStateOf<String?>(null) }
+    help?.let { topic ->
+        SearchHelpDialog(topic, onDismiss = { help = null }, onOpenSettings = { help = null; onOpenSettings() })
+    }
     Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -341,6 +359,10 @@ private fun SearchControls(
             }
         }
         if (filtersExpanded) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("검색 방식", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                IconButton(onClick = { help = "search" }) { Icon(Icons.Default.HelpOutline, contentDescription = "검색 방식과 네이버 키 발급 도움말", modifier = Modifier.size(20.dp)) }
+            }
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -357,6 +379,10 @@ private fun SearchControls(
                 }
             }
 
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("언론 범위·기간", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                IconButton(onClick = { help = "outlets" }) { Icon(Icons.Default.HelpOutline, contentDescription = "30대 언론 목록과 선정 기준", modifier = Modifier.size(20.dp)) }
+            }
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -469,7 +495,7 @@ private fun ArticleCard(article: NewsArticle, onBookmark: () -> Unit) {
     val context = LocalContext.current
     Card(
         modifier = Modifier.fillMaxWidth().clickable {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(article.link)))
+            ArticleReaderActivity.open(context, article.link, article.title)
         },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -486,18 +512,6 @@ private fun ArticleCard(article: NewsArticle, onBookmark: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                if (article.isPriority) {
-                    Spacer(Modifier.width(8.dp))
-                    Surface(color = Color(0xFFFFE0D6), shape = RoundedCornerShape(20.dp)) {
-                        Text(
-                            "감독 핵심",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            color = Color(0xFF9B2F13),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
                 Spacer(Modifier.width(6.dp))
                 Text(
                     relativeTime(article.publishedAt),
@@ -507,17 +521,9 @@ private fun ArticleCard(article: NewsArticle, onBookmark: () -> Unit) {
                 IconButton(onClick = onBookmark) {
                     Icon(if (article.isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder, contentDescription = "즐겨찾기", tint = if (article.isBookmarked) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(
-                    onClick = {
-                        val shareText = "${article.title}\n${article.source} · ${absoluteTime(article.publishedAt)}\n${article.link}"
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, article.title)
-                            putExtra(Intent.EXTRA_TEXT, shareText)
-                        }
-                        context.startActivity(Intent.createChooser(intent, "기사 공유"))
-                    }
-                ) { Icon(Icons.Default.Share, contentDescription = "공유") }
+                IconButton(onClick = { ArticleReaderActivity.open(context, article.link, article.title) }) {
+                    Icon(Icons.Default.Share, contentDescription = "원문 PDF 저장·공유")
+                }
             }
 
             Text(
@@ -561,6 +567,9 @@ private fun SettingsDialog(
     var provider by remember(current) { mutableStateOf(current.provider) }
     var clientId by remember(credentials) { mutableStateOf(credentials.clientId) }
     var clientSecret by remember(credentials) { mutableStateOf(credentials.clientSecret) }
+    var apiType by remember(credentials) { mutableStateOf(credentials.apiType) }
+    var helpOpen by rememberSaveable { mutableStateOf(false) }
+    if (helpOpen) SearchHelpDialog("search", onDismiss = { helpOpen = false }, onOpenSettings = { helpOpen = false })
     val naverKeyComplete = clientId.isNotBlank() && clientSecret.isNotBlank()
     val canSave = provider != NewsProviderType.NAVER || naverKeyComplete
 
@@ -579,7 +588,7 @@ private fun SettingsDialog(
                         onClick = {
                             onSave(
                                 current.copy(keywords = keywords, provider = provider),
-                                NaverCredentials(clientId, clientSecret)
+                                NaverCredentials(clientId, clientSecret, apiType)
                             )
                         }
                     ) { Text("저장", fontWeight = FontWeight.Bold) }
@@ -623,6 +632,13 @@ private fun SettingsDialog(
                     }
 
                     if (provider != NewsProviderType.GOOGLE_RSS) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("네이버 연결", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                            IconButton(onClick = { helpOpen = true }) { Icon(Icons.Default.HelpOutline, contentDescription = "네이버 연결 절차") }
+                        }
+                        NaverApiType.entries.forEach { type ->
+                            FilterChip(selected = apiType == type, onClick = { apiType = type }, label = { Text(type.label) })
+                        }
                         Text(
                             if (provider == NewsProviderType.COMBINED)
                                 "네이버 키는 선택 사항입니다. 입력하면 Google과 네이버 결과를 합칩니다. 키는 Android Keystore로 암호화됩니다."

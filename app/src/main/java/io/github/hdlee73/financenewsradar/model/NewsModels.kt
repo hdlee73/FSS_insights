@@ -31,7 +31,12 @@ data class AppSettings(
     }
 }
 
-data class NaverCredentials(val clientId: String = "", val clientSecret: String = "") {
+enum class NaverApiType(val label: String) {
+    API_HUB("NAVER API HUB (신규 키)"),
+    DEVELOPERS("개발자센터 (기존 키)")
+}
+
+data class NaverCredentials(val clientId: String = "", val clientSecret: String = "", val apiType: NaverApiType = NaverApiType.API_HUB) {
     val isComplete: Boolean get() = clientId.isNotBlank() && clientSecret.isNotBlank()
 }
 

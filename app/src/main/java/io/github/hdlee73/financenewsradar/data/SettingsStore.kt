@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import io.github.hdlee73.financenewsradar.model.AppSettings
+import io.github.hdlee73.financenewsradar.model.NaverApiType
 import io.github.hdlee73.financenewsradar.model.NaverCredentials
 import io.github.hdlee73.financenewsradar.model.NewsProviderType
 import io.github.hdlee73.financenewsradar.model.OutletScope
@@ -47,13 +48,16 @@ class SettingsStore(context: Context) {
 
     fun loadCredentials(): NaverCredentials = NaverCredentials(
         clientId = decrypt(preferences.getString(NAVER_ID, null)),
-        clientSecret = decrypt(preferences.getString(NAVER_SECRET, null))
+        clientSecret = decrypt(preferences.getString(NAVER_SECRET, null)),
+        apiType = enumValue(preferences.getString(NAVER_API_TYPE, null),
+            if (preferences.getString(NAVER_ID, null).isNullOrBlank()) NaverApiType.API_HUB else NaverApiType.DEVELOPERS)
     )
 
     fun saveCredentials(credentials: NaverCredentials) {
         preferences.edit()
             .putString(NAVER_ID, encrypt(credentials.clientId.trim()))
             .putString(NAVER_SECRET, encrypt(credentials.clientSecret.trim()))
+            .putString(NAVER_API_TYPE, credentials.apiType.name)
             .apply()
     }
 
@@ -83,6 +87,7 @@ class SettingsStore(context: Context) {
         private const val PROVIDER = "provider"
         private const val SCOPE = "scope"
         private const val TIME_RANGE = "time_range"
+        private const val NAVER_API_TYPE = "naver_api_type"
         private const val NAVER_ID = "naver_client_id"
         private const val NAVER_SECRET = "naver_client_secret"
         private const val BOOKMARKS = "bookmarks"

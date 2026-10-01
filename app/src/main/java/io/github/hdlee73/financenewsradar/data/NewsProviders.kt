@@ -46,14 +46,8 @@ class NaverNewsProvider(private val credentials: NaverCredentials) : NewsProvide
             val size = pageSize.coerceIn(1, 100)
             val safeStart = start.coerceIn(1, 1000)
             val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
-            val url = "https://openapi.naver.com/v1/search/news.json?query=$encoded&display=$size&start=$safeStart&sort=date"
-            val body = Http.get(
-                url,
-                mapOf(
-                    "X-Naver-Client-Id" to credentials.clientId,
-                    "X-Naver-Client-Secret" to credentials.clientSecret
-                )
-            )
+            val request = NaverApiRequest.create(credentials, encoded, size, safeStart)
+            val body = Http.get(request.url, request.headers)
             val root = JSONObject(body)
             val total = root.optInt("total", 0).coerceAtMost(1000)
             val items = root.optJSONArray("items")
