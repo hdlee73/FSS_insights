@@ -7,7 +7,7 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.print.PageRange
 import android.print.PrintAttributes
-import android.print.PrintDocumentAdapter
+import android.print.PdfCallbacks
 import android.print.PrintDocumentInfo
 import android.webkit.WebView
 import java.io.File
@@ -58,12 +58,12 @@ class WebPagePdfExporter {
                 .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
                 .build()
             adapter.onStart()
-            adapter.onLayout(null, attributes, signal, object : PrintDocumentAdapter.LayoutResultCallback() {
+            adapter.onLayout(null, attributes, signal, object : PdfCallbacks.Layout() {
                 override fun onLayoutFinished(info: PrintDocumentInfo, changed: Boolean) {
                     if (completed) return
                     runCatching {
                         adapter.onWrite(arrayOf(PageRange.ALL_PAGES), requireNotNull(descriptor), signal,
-                            object : PrintDocumentAdapter.WriteResultCallback() {
+                            object : PdfCallbacks.Write() {
                                 override fun onWriteFinished(pages: Array<out PageRange>) {
                                     if (completed) return
                                     if (destination.length() > 0) finish(Result.success(destination))
