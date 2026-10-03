@@ -83,10 +83,23 @@ class SettingsStore(context: Context) {
     /** 사용자가 편집하는 금융 사이트 링크. 저장된 적이 없으면 기본 10곳. 비워서 저장하면 빈 목록을 유지한다. */
     fun loadLinks(): List<UsefulLink> {
         val raw = preferences.getString(LINKS, null) ?: return UsefulLink.DEFAULTS
-        return raw.split(RECORD_SEPARATOR).mapNotNull { record ->
+        var links = raw.split(RECORD_SEPARATOR).mapNotNull { record ->
             val parts = record.split(KEYWORD_SEPARATOR)
             if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) UsefulLink(parts[0], parts[1]) else null
         }
+        if (!preferences.getBoolean(LINKS_MIGRATED_V051, false)) {
+            // 채권정보센터 주소 변경 반영 + 새 기본 사이트(DART·파인·KRX)를 금융위원회 아래에 한 번만 추가.
+            links = links.map {
+                if (it.url.contains("bond.kofia.or.kr")) it.copy(url = "https://www.kofiabond.or.kr") else it
+            }
+            val wanted = UsefulLink.DEFAULTS.filter { d -> listOf("dart.fss.or.kr", "fine.fss.or.kr", "krx.or.kr").any { d.url.contains(it) } }
+            val missing = wanted.filter { w -> links.none { it.url.contains(w.url.removePrefix("https://www.").removePrefix("https://")) } }
+            val at = links.indexOfFirst { it.url.contains("fsc.go.kr") }.let { if (it >= 0) it + 1 else links.size }
+            links = links.take(at) + missing + links.drop(at)
+            preferences.edit().putBoolean(LINKS_MIGRATED_V051, true).apply()
+            saveLinks(links)
+        }
+        return links
     }
 
     fun saveLinks(links: List<UsefulLink>) {
@@ -137,7 +150,8 @@ class SettingsStore(context: Context) {
         private const val NAVER_ID = "naver_client_id"
         private const val NAVER_SECRET = "naver_client_secret"
         private const val BOOKMARKS = "bookmarks"
-        private const val LINKS = "useful_links"
+        private const val LINKS_MIGRATED_V051 = "links_migrated_v051"
+        const val LINKS = "useful_links"
         private const val SAVED_RELEASES = "saved_releases"
         private const val SEEN_PREFIX = "seen_"
         private const val KEYWORD_SEPARATOR = "\u001F"

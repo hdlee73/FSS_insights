@@ -99,6 +99,34 @@ class HtmlListParserTest {
     }
 
     @Test
+    fun viewButtonLabelFallsBackToLongestTextInRow() {
+        val html = """
+            <table>
+            <tr><td>1</td><td>경제분석</td><td class="t">K-자본시장 정책시리즈 1: 초고령사회 다층노후소득을 위한 퇴직연금제도 개편</td><td>남재우</td><td>2026.09.04</td>
+              <td><a href="/flexer/view?fid=29149&amp;fgu=002002">바로보기</a></td></tr>
+            <tr><td>2</td><td>자본시장</td><td class="t">무형자산의 부상과 생산요소의 배분 효율성</td><td>정희철</td><td>2026.08.26</td>
+              <td><a href="/flexer/view?fid=29105&amp;fgu=002002">바로보기</a></td></tr>
+            </table>
+        """.trimIndent()
+        val result = HtmlListParser.extract(html, "https://www.kcmi.re.kr/report/report_list", Regex("""flexer/view\?fid=\d+"""))
+        assertEquals(2, result.size)
+        assertEquals("K-자본시장 정책시리즈 1: 초고령사회 다층노후소득을 위한 퇴직연금제도 개편", result[0].title)
+        assertEquals("무형자산의 부상과 생산요소의 배분 효율성", result[1].title)
+        assertEquals(LocalDate.of(2026, 8, 26), result[1].date)
+    }
+
+    @Test
+    fun looseExtractionKeepsOnlyDatedTitleLikeLinks() {
+        val html = """
+            <ul><li><a href="/about">연구원 소개</a></li></ul>
+            <ul><li><a href="/kif4/publication/detail?no=5">2026년 금융시장 전망과 정책 과제</a><span>2026-09-30</span></li></ul>
+        """.trimIndent()
+        val result = HtmlListParser.extractLoose(html, "https://www.kif.re.kr/kif4/publication/pub_list?mid=10")
+        assertEquals(1, result.size)
+        assertEquals("https://www.kif.re.kr/kif4/publication/detail?no=5", result[0].url)
+    }
+
+    @Test
     fun searchMatchesEveryTokenIgnoringCase() {
         assertTrue(AgencySources.matches("퇴직연금 제도 개편 방안", "퇴직연금 개편"))
         assertTrue(AgencySources.matches("Cyber Resilience Toolkit", "cyber toolkit"))

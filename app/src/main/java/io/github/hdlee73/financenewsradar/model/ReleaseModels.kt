@@ -35,9 +35,12 @@ data class UsefulLink(val name: String, val url: String) {
         val DEFAULTS = listOf(
             UsefulLink("금융감독원", "https://www.fss.or.kr"),
             UsefulLink("금융위원회", "https://www.fsc.go.kr"),
+            UsefulLink("전자공시시스템 DART", "https://dart.fss.or.kr"),
+            UsefulLink("금융소비자 정보포털 파인", "https://fine.fss.or.kr"),
+            UsefulLink("한국거래소", "https://www.krx.or.kr"),
             UsefulLink("국가법령정보센터(법령정보시스템)", "https://www.law.go.kr"),
             UsefulLink("금융투자협회 FreeSIS", "https://freesis.kofia.or.kr"),
-            UsefulLink("금융투자협회 채권정보센터", "https://www.bond.kofia.or.kr"),
+            UsefulLink("금융투자협회 채권정보센터", "https://www.kofiabond.or.kr"),
             UsefulLink("금융투자협회 전자공시서비스", "https://dis.kofia.or.kr"),
             UsefulLink("예탁결제원 SEIBro", "https://www.seibro.or.kr"),
             UsefulLink("자본시장연구원", "https://www.kcmi.re.kr"),

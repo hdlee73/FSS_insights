@@ -32,7 +32,7 @@ object HtmlListParser {
     private val boldBlock = Regex("<(b|strong)\\b[^>]*>(.*?)</\\1>", options)
     private val blockBreak = Regex("</?(p|div|li|ul|ol|tr|td|th|dl|dt|dd|h[1-6]|br|section|article|table)\\b[^>]*>", RegexOption.IGNORE_CASE)
     private val genericLabel = Regex(
-        "^(view report|cover note|read more|read|download|pdf|more|details?|view|자세히 ?보기|더 ?보기|바로가기|다운로드|보기)$",
+        "^(view report|cover note|read more|read|download|pdf|more|details?|view|자세히 ?보기|더 ?보기|바로 ?가기|바로 ?보기|원문 ?보기|다운로드|보기|상세 ?보기|첨부 ?파일?)$",
         RegexOption.IGNORE_CASE
     )
 
@@ -113,12 +113,23 @@ object HtmlListParser {
             .filter(::isTitleLike)
             .lastOrNull()
         if (bold != null) return bold
-        return tag.replace(blockBreak.replace(windowHtml, "\n"), " ")
+        // 굵은 글이 없으면 같은 행(<tr>/<li>) 안에서 가장 긴 글줄(보통 제목)을 쓴다.
+        val rowStart = rowOpen.findAll(windowHtml).lastOrNull()?.range?.first ?: 0
+        return tag.replace(blockBreak.replace(windowHtml.substring(rowStart), "\n"), " ")
             .split("\n")
             .map { compact(decodeEntities(it)) }
-            .firstOrNull(::isTitleLike)
+            .filter(::isTitleLike)
+            .maxByOrNull { it.length }
             .orEmpty()
     }
+
+    /**
+     * 링크 주소 패턴을 모를 때의 대안: 같은 행에 날짜가 있고 글자가 제목답게 긴 링크를 모두 목록으로 본다.
+     * javascript: 링크는 주소를 만들 수 없어 제외한다.
+     */
+    fun extractLoose(html: String, baseUrl: String): List<ParsedLink> =
+        extract(html, baseUrl, Regex("^(?!\\s*(javascript:|#|mailto:|tel:)).+"), minTitleLength = 8)
+            .filter { it.date != null && it.title.length >= 8 }
 
     /** 같은 행(<tr>/<li>)의 날짜를 우선하고, 행 구조가 없으면 링크에서 더 가까운 쪽(앞/뒤)의 날짜를 쓴다. */
     private fun dateFor(clean: String, hit: Hit, prevEnd: Int, nextStart: Int): LocalDate? {

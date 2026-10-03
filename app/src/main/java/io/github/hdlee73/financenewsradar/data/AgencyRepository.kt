@@ -80,7 +80,7 @@ internal object AgencySources {
     }
 }
 
-class AgencyRepository {
+class AgencyRepository(private val context: android.content.Context) {
     /** 가장 최근 [count]건. */
     suspend fun latest(agency: AgencyId, count: Int = 5): List<ReleaseItem> {
         val source = AgencySources.of(agency)
@@ -112,17 +112,38 @@ class AgencyRepository {
     }
 
     private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> {
-        val body = HtmlFetcher.get(url)
+        var parsed: List<ParsedLink> = emptyList()
+        var lastBody = ""
+        var failure: Throwable? = null
+        // 1차: 가벼운 HTTP 요청. 2차: 막히거나 목록이 비면 숨은 WebView로 실제 화면의 HTML을 읽는다.
+        for (useWebView in listOf(false, true)) {
+            val body = try {
+                if (useWebView) WebViewFetcher.get(context, url) else HtmlFetcher.get(url)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                failure = failure ?: e
+                continue
+            }
+            lastBody = body
+            parsed = parse(source, body, url)
+            if (parsed.isNotEmpty()) break
+        }
+        if (parsed.isEmpty()) {
+            val detail = if (lastBody.isEmpty()) (failure?.message ?: "응답 없음")
+            else "응답 ${lastBody.length}자 · 링크 ${HtmlListParser.anchorCount(lastBody)}개"
+            error("${agency.label} 목록을 읽지 못했습니다. 사이트가 접속을 막았거나 구조가 바뀌었을 수 있습니다. ‘사이트에서 보기’를 이용해 주세요. ($detail)")
+        }
+        return parsed.map { ReleaseItem(agency, it.title, it.url, it.date) }
+    }
+
+    private fun parse(source: AgencySources.Source, body: String, url: String): List<ParsedLink> {
         var parsed = if (source.isRss) HtmlListParser.parseRss(body, url)
         else HtmlListParser.extract(body, url, source.linkPattern)
         if (source.requireDate) parsed = parsed.filter { it.date != null }
-        if (parsed.isEmpty()) {
-            error(
-                "${agency.label} 목록을 읽지 못했습니다. 사이트 구조가 바뀌었거나 접속이 제한됐을 수 있습니다. " +
-                    "‘사이트에서 보기’를 이용해 주세요. (응답 ${body.length}자 · 링크 ${HtmlListParser.anchorCount(body)}개)"
-            )
-        }
-        return parsed.map { ReleaseItem(agency, it.title, it.url, it.date) }
+        // 링크 형식이 예상과 다르면(금융연구원 등) 날짜가 붙은 링크를 목록으로 간주하는 방식으로 한 번 더 시도한다.
+        if (parsed.isEmpty() && source.requireDate) parsed = HtmlListParser.extractLoose(body, url)
+        return parsed
     }
 
     private companion object {

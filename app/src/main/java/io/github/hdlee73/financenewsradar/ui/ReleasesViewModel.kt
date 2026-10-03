@@ -45,7 +45,7 @@ data class ReleasesUiState(
 
 class ReleasesViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsStore = SettingsStore(application)
-    private val repository = AgencyRepository()
+    private val repository = AgencyRepository(application)
     private val jobs = mutableMapOf<AgencyId, Job>()
 
     private val _state = MutableStateFlow(
