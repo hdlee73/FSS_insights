@@ -34,8 +34,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Newspaper
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.runtime.mutableIntStateOf
+import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Home
@@ -117,6 +125,10 @@ fun FinanceNewsRadarApp(viewModel: NewsViewModel = viewModel()) {
         keyboard?.hide()
         focusManager.clearFocus()
     }
+    val releasesViewModel: ReleasesViewModel = viewModel()
+    val releases by releasesViewModel.state.collectAsStateWithLifecycle()
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var linksOpen by rememberSaveable { mutableStateOf(false) }
     var queryText by rememberSaveable { mutableStateOf("") }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var filtersExpanded by rememberSaveable { mutableStateOf(false) }
@@ -140,7 +152,7 @@ fun FinanceNewsRadarApp(viewModel: NewsViewModel = viewModel()) {
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(snackbarHost) },
         floatingActionButton = {
-            if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 120) {
+            if (tab == 0 && (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 120)) {
                 SmallFloatingActionButton(onClick = {
                     dismissKeyboard()
                     scope.launch { listState.animateScrollToItem(0) }
@@ -156,26 +168,63 @@ fun FinanceNewsRadarApp(viewModel: NewsViewModel = viewModel()) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "금융뉴스 레이더",
+                        "뉴스 및 연구자료 검색",
                         modifier = Modifier.weight(1f),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    IconButton(onClick = viewModel::toggleBookmarksOnly) {
-                        Icon(
-                            if (state.bookmarksOnly) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                            contentDescription = "즐겨찾기만 보기"
-                        )
+                    if (tab == 0) {
+                        IconButton(onClick = viewModel::toggleBookmarksOnly) {
+                            Icon(
+                                if (state.bookmarksOnly) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                contentDescription = "즐겨찾기만 보기"
+                            )
+                        }
                     }
-                    IconButton(onClick = { settingsOpen = true }) {
-                        Icon(Icons.Default.Settings, contentDescription = "설정")
+                    IconButton(onClick = { linksOpen = true }) {
+                        Icon(Icons.Default.Language, contentDescription = "금융 사이트 링크")
+                    }
+                    if (tab == 0) {
+                        IconButton(onClick = { settingsOpen = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "설정")
+                        }
                     }
                 }
             }
+        },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = tab == 0,
+                    onClick = { tab = 0 },
+                    icon = { Icon(Icons.Default.Newspaper, contentDescription = null) },
+                    label = { Text("뉴스검색") }
+                )
+                NavigationBarItem(
+                    selected = tab == 1,
+                    onClick = { dismissKeyboard(); tab = 1 },
+                    icon = { Icon(Icons.Default.AccountBalance, contentDescription = null) },
+                    label = { Text("금융당국 보도자료", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                )
+                NavigationBarItem(
+                    selected = tab == 2,
+                    onClick = { dismissKeyboard(); tab = 2 },
+                    icon = { Icon(Icons.Default.MenuBook, contentDescription = null) },
+                    label = { Text("연구소 최근자료", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                )
+            }
         }
     ) { contentPadding ->
+        if (tab != 0) {
+            AgencyTab(
+                group = if (tab == 1) AgencyGroup.PRESS else AgencyGroup.RESEARCH,
+                viewModel = releasesViewModel,
+                modifier = Modifier.padding(contentPadding)
+            )
+            return@Scaffold
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().padding(contentPadding),
@@ -260,6 +309,15 @@ fun FinanceNewsRadarApp(viewModel: NewsViewModel = viewModel()) {
                 }
             }
         }
+    }
+
+    if (linksOpen) {
+        UsefulLinksDialog(
+            links = releases.links,
+            onDismiss = { linksOpen = false },
+            onSave = releasesViewModel::saveLinks,
+            onReset = releasesViewModel::resetLinks
+        )
     }
 
     if (settingsOpen) {

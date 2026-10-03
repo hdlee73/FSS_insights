@@ -56,31 +56,31 @@ jobs:
         run: ./gradlew assembleRelease
       - name: Prepare release files
         run: |
-          cp app/build/outputs/apk/release/app-release.apk finance-news-radar-v0.3.0.apk
-          sha256sum finance-news-radar-v0.3.0.apk > finance-news-radar-v0.3.0.apk.sha256
+          cp app/build/outputs/apk/release/app-release.apk finance-news-radar-v0.4.0.apk
+          sha256sum finance-news-radar-v0.4.0.apk > finance-news-radar-v0.4.0.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: finance-news-radar-apk
           path: |
-            finance-news-radar-v0.3.0.apk
-            finance-news-radar-v0.3.0.apk.sha256
+            finance-news-radar-v0.4.0.apk
+            finance-news-radar-v0.4.0.apk.sha256
       - name: Publish GitHub release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v0.3.0 >/dev/null 2>&1; then
-            gh release edit v0.3.0 --notes-file RELEASE_NOTES.md
-            gh release upload v0.3.0 \
-              finance-news-radar-v0.3.0.apk \
-              finance-news-radar-v0.3.0.apk.sha256 \
+          if gh release view v0.4.0 >/dev/null 2>&1; then
+            gh release edit v0.4.0 --notes-file RELEASE_NOTES.md
+            gh release upload v0.4.0 \
+              finance-news-radar-v0.4.0.apk \
+              finance-news-radar-v0.4.0.apk.sha256 \
               --clobber
           else
-            gh release create v0.3.0 \
-              finance-news-radar-v0.3.0.apk \
-              finance-news-radar-v0.3.0.apk.sha256 \
+            gh release create v0.4.0 \
+              finance-news-radar-v0.4.0.apk \
+              finance-news-radar-v0.4.0.apk.sha256 \
               --target "$GITHUB_SHA" \
-              --title "금융뉴스 레이더 v0.3.0" \
+              --title "뉴스 및 연구자료 검색 v0.4.0" \
               --notes-file RELEASE_NOTES.md
           fi
 

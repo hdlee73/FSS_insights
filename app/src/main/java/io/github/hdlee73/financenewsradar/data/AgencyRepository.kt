@@ -1,0 +1,152 @@
+package io.github.hdlee73.financenewsradar.data
+
+import io.github.hdlee73.financenewsradar.model.AgencyId
+import io.github.hdlee73.financenewsradar.model.ReleaseItem
+import io.github.hdlee73.financenewsradar.model.ReleasePage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URI
+import java.net.URLEncoder
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
+
+/** 기관별 목록 주소·링크 패턴. 사이트가 개편되면 이 파일만 고치면 된다. */
+internal object AgencySources {
+    class Source(
+        val listUrl: (page: Int, pageSize: Int) -> String,
+        /** 사이트 자체 검색 주소(없으면 목록을 받아 앱에서 제목을 걸러낸다). */
+        val searchUrl: ((query: String, page: Int) -> String)? = null,
+        val linkPattern: Regex = Regex(""),
+        val isRss: Boolean = false,
+        /** 페이지 이동 방식을 확인하지 못했거나 RSS처럼 한 번에 받는 경우 false. */
+        val pageable: Boolean = true,
+        val pageSize: Int = 10
+    )
+
+    private fun enc(text: String) = URLEncoder.encode(text, StandardCharsets.UTF_8.toString())
+
+    fun of(agency: AgencyId): Source = when (agency) {
+        AgencyId.FSS -> Source(
+            listUrl = { page, _ -> "https://www.fss.or.kr/fss/bbs/B0000188/list.do?menuNo=200218&pageIndex=$page" },
+            searchUrl = { q, page -> "https://www.fss.or.kr/fss/bbs/B0000188/list.do?menuNo=200218&pageIndex=$page&searchCnd=1&searchWrd=${enc(q)}" },
+            linkPattern = Regex("""view\.do\?.*nttId=\d+""")
+        )
+        AgencyId.FSC -> Source(
+            listUrl = { page, _ -> "https://www.fsc.go.kr/no010101?curPage=$page" },
+            searchUrl = { q, page -> "https://www.fsc.go.kr/no010101?curPage=$page&srchKey=sj&srchText=${enc(q)}" },
+            linkPattern = Regex("""no010101/\d+""")
+        )
+        AgencyId.KCMI -> Source(
+            listUrl = { page, size -> "https://www.kcmi.re.kr/report/report_list?pg=$page&pp=$size" },
+            linkPattern = Regex("""flexer/view\?fid=\d+"""),
+            pageSize = 30
+        )
+        AgencyId.KIF -> Source(
+            listUrl = { _, _ -> "https://www.kif.re.kr/kif4/publication/pub_list?mid=10" },
+            linkPattern = Regex("""(?i)pub_(detail|view)"""),
+            pageable = false
+        )
+        AgencyId.IOSCO -> Source(
+            listUrl = { _, _ -> "https://www.iosco.org/rss/rss.xml" },
+            isRss = true,
+            pageable = false
+        )
+    }
+
+    /** 앱 안 보기 화면에서 열 "사이트에서 직접 검색" 주소. */
+    fun siteSearchUrl(agency: AgencyId, query: String): String {
+        val q = enc(query)
+        return when (agency) {
+            AgencyId.FSS -> "https://www.fss.or.kr/fss/bbs/B0000188/list.do?menuNo=200218&searchCnd=1&searchWrd=$q"
+            AgencyId.FSC -> "https://www.fsc.go.kr/no010101?srchKey=sj&srchText=$q"
+            AgencyId.KCMI -> "https://www.google.com/search?q=site%3Akcmi.re.kr+$q"
+            AgencyId.KIF -> "https://www.google.com/search?q=site%3Akif.re.kr+$q"
+            AgencyId.IOSCO -> "https://www.iosco.org/publications/?subsection=public_reports&keywords=$q"
+        }
+    }
+
+    /** 검색어를 공백으로 나눠 모든 단어가 제목에 들어 있으면 일치. */
+    fun matches(title: String, query: String): Boolean {
+        val tokens = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        return tokens.isNotEmpty() && tokens.all { title.contains(it, ignoreCase = true) }
+    }
+}
+
+class AgencyRepository {
+    /** 가장 최근 [count]건. */
+    suspend fun latest(agency: AgencyId, count: Int = 5): List<ReleaseItem> {
+        val source = AgencySources.of(agency)
+        return fetchPage(agency, source, source.listUrl(1, source.pageSize)).take(count)
+    }
+
+    /**
+     * 과거 자료 검색. [page]부터 읽기 시작해 일치 항목이 모이거나 한도에 닿으면 멈춘다.
+     * 결과는 항상 앱에서 제목 기준으로 한 번 더 걸러 서버가 검색어를 무시해도 엉뚱한 목록이 나오지 않는다.
+     */
+    suspend fun search(agency: AgencyId, query: String, page: Int = 1): ReleasePage {
+        val source = AgencySources.of(agency)
+        val found = LinkedHashMap<String, ReleaseItem>()
+        var current = page
+        var hasMore = false
+        var scanned = 0
+        while (scanned < MAX_PAGES_PER_CALL) {
+            val url = source.searchUrl?.invoke(query, current) ?: source.listUrl(current, source.pageSize)
+            val items = if (current == page) fetchPage(agency, source, url)
+            else runCatching { fetchPage(agency, source, url) }.getOrDefault(emptyList())
+            items.filter { AgencySources.matches(it.title, query) }.forEach { found.putIfAbsent(it.link, it) }
+            scanned++
+            val canContinue = source.pageable && items.isNotEmpty() && current < MAX_PAGE
+            current++
+            hasMore = canContinue
+            if (!canContinue || found.size >= TARGET_RESULTS) break
+        }
+        return ReleasePage(found.values.toList(), hasMore = hasMore, nextPage = current)
+    }
+
+    private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> {
+        val body = HtmlFetcher.get(url)
+        val parsed = if (source.isRss) HtmlListParser.parseRss(body, url)
+        else HtmlListParser.extract(body, url, source.linkPattern)
+        if (parsed.isEmpty()) {
+            error("${agency.label} 목록을 읽지 못했습니다. 사이트 구조가 바뀌었거나 접속이 제한됐을 수 있습니다. ‘사이트에서 보기’를 이용해 주세요.")
+        }
+        return parsed.map { ReleaseItem(agency, it.title, it.url, it.date) }
+    }
+
+    private companion object {
+        const val MAX_PAGES_PER_CALL = 4
+        const val MAX_PAGE = 60
+        const val TARGET_RESULTS = 10
+    }
+}
+
+internal object HtmlFetcher {
+    private const val USER_AGENT =
+        "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36"
+
+    suspend fun get(url: String): String = withContext(Dispatchers.IO) {
+        val connection = URI(url).toURL().openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 12_000
+            connection.readTimeout = 20_000
+            connection.instanceFollowRedirects = true
+            connection.setRequestProperty("User-Agent", USER_AGENT)
+            connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            connection.setRequestProperty("Accept-Language", "ko-KR,ko;q=0.9,en;q=0.5")
+            val code = connection.responseCode
+            if (code !in 200..299) error("서버 응답 오류 ($code)")
+            val bytes = connection.inputStream.use { it.readBytes() }
+            String(bytes, detectCharset(connection.contentType, bytes))
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun detectCharset(contentType: String?, bytes: ByteArray): Charset {
+        val fromHeader = contentType?.let { Regex("charset=([\\w-]+)", RegexOption.IGNORE_CASE).find(it)?.groupValues?.get(1) }
+        val head = String(bytes, 0, minOf(bytes.size, 2048), StandardCharsets.ISO_8859_1)
+        val fromMeta = Regex("charset=[\"']?([\\w-]+)", RegexOption.IGNORE_CASE).find(head)?.groupValues?.get(1)
+        return (fromHeader ?: fromMeta)?.let { runCatching { Charset.forName(it) }.getOrNull() } ?: StandardCharsets.UTF_8
+    }
+}

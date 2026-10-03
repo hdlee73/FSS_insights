@@ -10,6 +10,7 @@ import io.github.hdlee73.financenewsradar.model.NaverCredentials
 import io.github.hdlee73.financenewsradar.model.NewsProviderType
 import io.github.hdlee73.financenewsradar.model.OutletScope
 import io.github.hdlee73.financenewsradar.model.TimeRange
+import io.github.hdlee73.financenewsradar.model.UsefulLink
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -76,6 +77,21 @@ class SettingsStore(context: Context) {
         return nowBookmarked
     }
 
+    /** 사용자가 편집하는 금융 사이트 링크. 저장된 적이 없으면 기본 10곳. 비워서 저장하면 빈 목록을 유지한다. */
+    fun loadLinks(): List<UsefulLink> {
+        val raw = preferences.getString(LINKS, null) ?: return UsefulLink.DEFAULTS
+        return raw.split(RECORD_SEPARATOR).mapNotNull { record ->
+            val parts = record.split(KEYWORD_SEPARATOR)
+            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) UsefulLink(parts[0], parts[1]) else null
+        }
+    }
+
+    fun saveLinks(links: List<UsefulLink>) {
+        preferences.edit()
+            .putString(LINKS, links.joinToString(RECORD_SEPARATOR) { "${it.name}$KEYWORD_SEPARATOR${it.url}" })
+            .apply()
+    }
+
     private fun encrypt(value: String): String = if (value.isBlank()) "" else cipher.encrypt(value)
     private fun decrypt(value: String?): String = if (value.isNullOrBlank()) "" else runCatching { cipher.decrypt(value) }.getOrDefault("")
 
@@ -91,7 +107,9 @@ class SettingsStore(context: Context) {
         private const val NAVER_ID = "naver_client_id"
         private const val NAVER_SECRET = "naver_client_secret"
         private const val BOOKMARKS = "bookmarks"
+        private const val LINKS = "useful_links"
         private const val KEYWORD_SEPARATOR = "\u001F"
+        private const val RECORD_SEPARATOR = "\u001E"
     }
 }
 
