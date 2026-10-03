@@ -4,14 +4,17 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import io.github.hdlee73.financenewsradar.model.AgencyId
 import io.github.hdlee73.financenewsradar.model.AppSettings
 import io.github.hdlee73.financenewsradar.model.NaverApiType
 import io.github.hdlee73.financenewsradar.model.NaverCredentials
 import io.github.hdlee73.financenewsradar.model.NewsProviderType
 import io.github.hdlee73.financenewsradar.model.OutletScope
+import io.github.hdlee73.financenewsradar.model.ReleaseItem
 import io.github.hdlee73.financenewsradar.model.TimeRange
 import io.github.hdlee73.financenewsradar.model.UsefulLink
 import java.security.KeyStore
+import java.time.LocalDate
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -92,6 +95,33 @@ class SettingsStore(context: Context) {
             .apply()
     }
 
+    /** 기관별로 이미 본 자료 링크. 한 번도 저장한 적이 없으면 null(첫 실행이라 NEW 표시를 하지 않는다). */
+    fun seenLinks(agency: AgencyId): List<String>? =
+        preferences.getString("$SEEN_PREFIX${agency.name}", null)?.split(KEYWORD_SEPARATOR)?.filter { it.isNotBlank() }
+
+    fun saveSeenLinks(agency: AgencyId, links: List<String>) {
+        preferences.edit()
+            .putString("$SEEN_PREFIX${agency.name}", links.distinct().takeLast(300).joinToString(KEYWORD_SEPARATOR))
+            .apply()
+    }
+
+    /** 사용자가 저장함에 담은 보도자료·보고서. */
+    fun savedReleases(): List<ReleaseItem> =
+        preferences.getString(SAVED_RELEASES, null)?.split(RECORD_SEPARATOR)?.mapNotNull { record ->
+            val parts = record.split(KEYWORD_SEPARATOR)
+            if (parts.size != 4) return@mapNotNull null
+            val agency = AgencyId.entries.firstOrNull { it.name == parts[0] } ?: return@mapNotNull null
+            ReleaseItem(agency, parts[1], parts[2], parts[3].takeIf { it.isNotBlank() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() })
+        }.orEmpty()
+
+    fun saveReleases(items: List<ReleaseItem>) {
+        preferences.edit()
+            .putString(SAVED_RELEASES, items.joinToString(RECORD_SEPARATOR) {
+                listOf(it.agency.name, it.title, it.link, it.date?.toString().orEmpty()).joinToString(KEYWORD_SEPARATOR)
+            })
+            .apply()
+    }
+
     private fun encrypt(value: String): String = if (value.isBlank()) "" else cipher.encrypt(value)
     private fun decrypt(value: String?): String = if (value.isNullOrBlank()) "" else runCatching { cipher.decrypt(value) }.getOrDefault("")
 
@@ -108,6 +138,8 @@ class SettingsStore(context: Context) {
         private const val NAVER_SECRET = "naver_client_secret"
         private const val BOOKMARKS = "bookmarks"
         private const val LINKS = "useful_links"
+        private const val SAVED_RELEASES = "saved_releases"
+        private const val SEEN_PREFIX = "seen_"
         private const val KEYWORD_SEPARATOR = "\u001F"
         private const val RECORD_SEPARATOR = "\u001E"
     }

@@ -1,0 +1,19 @@
+<!-- 원본 디자인: 돋보기(살펴보다) 안에 오르는 막대(시장·지표). 어느 기관의 로고도 사용하지 않았다. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6"
+        android:pathData="M70,48a20,20 0 1,1 -40,0a20,20 0 1,1 40,0z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:pathData="M65,63L78,76" />
+    <path
+        android:fillColor="#F2A93B"
+        android:pathData="M41,58h4v-8h-4zM49,58h4v-14h-4zM57,58h4v-20h-4z" />
+</vector>

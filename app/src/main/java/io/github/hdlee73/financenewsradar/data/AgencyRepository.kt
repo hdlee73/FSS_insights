@@ -21,7 +21,9 @@ internal object AgencySources {
         val isRss: Boolean = false,
         /** 페이지 이동 방식을 확인하지 못했거나 RSS처럼 한 번에 받는 경우 false. */
         val pageable: Boolean = true,
-        val pageSize: Int = 10
+        val pageSize: Int = 10,
+        /** 목록과 무관한 메뉴 링크를 거르기 위해 날짜가 있는 항목만 쓴다. */
+        val requireDate: Boolean = false
     )
 
     private fun enc(text: String) = URLEncoder.encode(text, StandardCharsets.UTF_8.toString())
@@ -44,13 +46,18 @@ internal object AgencySources {
         )
         AgencyId.KIF -> Source(
             listUrl = { _, _ -> "https://www.kif.re.kr/kif4/publication/pub_list?mid=10" },
-            linkPattern = Regex("""(?i)pub_(detail|view)"""),
-            pageable = false
+            // 상세 링크 형식을 확인하지 못해 publication 하위 링크·첨부 PDF를 넓게 받고, 날짜가 있는 항목만 쓴다.
+            linkPattern = Regex("""(?i)publication/(?!pub_list)|\.pdf(\?|$)|AttachInfo"""),
+            pageable = false,
+            requireDate = true
         )
         AgencyId.IOSCO -> Source(
-            listUrl = { _, _ -> "https://www.iosco.org/rss/rss.xml" },
-            isRss = true,
-            pageable = false
+            listUrl = { page, _ -> "https://www.iosco.org/publications/?subsection=public_reports" + if (page > 1) "&page=$page" else "" },
+            searchUrl = { q, page ->
+                "https://www.iosco.org/publications/?subsection=public_reports&keywords=${enc(q)}&keywordsTitle=on" +
+                    if (page > 1) "&page=$page" else ""
+            },
+            linkPattern = Regex("""(?i)pubdocs/pdf/IOSCOPD\d+\.pdf""")
         )
     }
 
@@ -106,10 +113,14 @@ class AgencyRepository {
 
     private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> {
         val body = HtmlFetcher.get(url)
-        val parsed = if (source.isRss) HtmlListParser.parseRss(body, url)
+        var parsed = if (source.isRss) HtmlListParser.parseRss(body, url)
         else HtmlListParser.extract(body, url, source.linkPattern)
+        if (source.requireDate) parsed = parsed.filter { it.date != null }
         if (parsed.isEmpty()) {
-            error("${agency.label} 목록을 읽지 못했습니다. 사이트 구조가 바뀌었거나 접속이 제한됐을 수 있습니다. ‘사이트에서 보기’를 이용해 주세요.")
+            error(
+                "${agency.label} 목록을 읽지 못했습니다. 사이트 구조가 바뀌었거나 접속이 제한됐을 수 있습니다. " +
+                    "‘사이트에서 보기’를 이용해 주세요. (응답 ${body.length}자 · 링크 ${HtmlListParser.anchorCount(body)}개)"
+            )
         }
         return parsed.map { ReleaseItem(agency, it.title, it.url, it.date) }
     }

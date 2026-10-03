@@ -27,16 +27,20 @@ data class AgencyUiState(
     val isSearching: Boolean = false,
     val searchError: String? = null,
     val canLoadMore: Boolean = false,
-    val nextPage: Int = 1
+    val nextPage: Int = 1,
+    /** 지난번 확인 이후 새로 올라온 자료의 링크. */
+    val newLinks: Set<String> = emptySet()
 ) {
     val inSearch: Boolean get() = searchQuery.isNotBlank()
 }
 
 data class ReleasesUiState(
     val agencies: Map<AgencyId, AgencyUiState> = AgencyId.entries.associateWith { AgencyUiState() },
-    val links: List<UsefulLink> = emptyList()
+    val links: List<UsefulLink> = emptyList(),
+    val saved: List<ReleaseItem> = emptyList()
 ) {
     fun of(agency: AgencyId): AgencyUiState = agencies[agency] ?: AgencyUiState()
+    val savedLinks: Set<String> get() = saved.map { it.link }.toSet()
 }
 
 class ReleasesViewModel(application: Application) : AndroidViewModel(application) {
@@ -44,7 +48,9 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
     private val repository = AgencyRepository()
     private val jobs = mutableMapOf<AgencyId, Job>()
 
-    private val _state = MutableStateFlow(ReleasesUiState(links = settingsStore.loadLinks()))
+    private val _state = MutableStateFlow(
+        ReleasesUiState(links = settingsStore.loadLinks(), saved = settingsStore.savedReleases())
+    )
     val state: StateFlow<ReleasesUiState> = _state.asStateFlow()
 
     private fun update(agency: AgencyId, change: (AgencyUiState) -> AgencyUiState) {
@@ -62,7 +68,18 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
         jobs[agency] = viewModelScope.launch {
             update(agency) { it.copy(isLoading = true, error = null) }
             runCatching { repository.latest(agency) }
-                .onSuccess { items -> update(agency) { it.copy(latest = items, latestLoaded = true, isLoading = false) } }
+                .onSuccess { items ->
+                    val links = items.map { it.link }
+                    val seen = settingsStore.seenLinks(agency)
+                    val fresh = if (seen == null) emptySet() else links.filter { it !in seen }.toSet()
+                    settingsStore.saveSeenLinks(agency, seen.orEmpty() + links)
+                    update(agency) {
+                        it.copy(
+                            latest = items, latestLoaded = true, isLoading = false,
+                            newLinks = (it.newLinks + fresh).intersect(links.toSet())
+                        )
+                    }
+                }
                 .onFailure { e ->
                     if (e is CancellationException) return@onFailure
                     update(agency) { it.copy(isLoading = false, latestLoaded = true, error = friendly(e)) }
@@ -112,6 +129,14 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
     fun clearSearch(agency: AgencyId) {
         jobs[agency]?.cancel()
         update(agency) { it.copy(searchQuery = "", results = emptyList(), isSearching = false, searchError = null, canLoadMore = false, nextPage = 1) }
+    }
+
+    /** 저장함에 담기/빼기. 이미 있으면 뺀다. */
+    fun toggleSaved(item: ReleaseItem) {
+        val current = _state.value.saved
+        val next = if (current.any { it.link == item.link }) current.filter { it.link != item.link } else listOf(item) + current
+        settingsStore.saveReleases(next)
+        _state.update { it.copy(saved = next) }
     }
 
     fun saveLinks(links: List<UsefulLink>) {

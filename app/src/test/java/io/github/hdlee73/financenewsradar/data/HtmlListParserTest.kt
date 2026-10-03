@@ -83,6 +83,22 @@ class HtmlListParserTest {
     }
 
     @Test
+    fun genericLinkLabelUsesBoldTitleAndEnglishDate() {
+        val html = """
+            <div class="item"><b>Cyber Resilience Toolkit for FMIs</b><span>08 Sep 2026</span>
+              <a href="/library/pubdocs/pdf/IOSCOPD829.pdf">View Report</a></div>
+            <div class="item"><b>Suptech Mapping Report</b><span>1 December 2026 (consultation closes)</span><span>25 Aug 2026</span>
+              <a href="/library/pubdocs/pdf/IOSCOPD826.pdf">View Report</a></div>
+        """.trimIndent()
+        val result = HtmlListParser.extract(html, "https://www.iosco.org/publications/", Regex("""(?i)pubdocs/pdf/IOSCOPD\d+\.pdf"""))
+        assertEquals(2, result.size)
+        assertEquals("Cyber Resilience Toolkit for FMIs", result[0].title)
+        assertEquals(LocalDate.of(2026, 9, 8), result[0].date)
+        assertEquals("Suptech Mapping Report", result[1].title)
+        assertEquals(LocalDate.of(2026, 8, 25), result[1].date)
+    }
+
+    @Test
     fun searchMatchesEveryTokenIgnoringCase() {
         assertTrue(AgencySources.matches("퇴직연금 제도 개편 방안", "퇴직연금 개편"))
         assertTrue(AgencySources.matches("Cyber Resilience Toolkit", "cyber toolkit"))

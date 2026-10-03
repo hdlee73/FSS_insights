@@ -11,6 +11,7 @@ data class ParsedLink(val title: String, val url: String, val date: LocalDate?)
 /**
  * 게시판 목록 HTML에서 (제목, 링크, 날짜)를 뽑는 의존성 없는 파서.
  * 사이트별 마크업에 묶이지 않도록 "링크 주소 패턴"과 "링크 근처의 날짜"만 사용한다.
+ * 링크 글자가 "View Report"처럼 제목이 아닌 경우에는 링크 앞쪽 글에서 제목을 찾는다.
  */
 object HtmlListParser {
     private val options = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
@@ -18,12 +19,27 @@ object HtmlListParser {
     private val anchor = Regex("<a\\b([^>]*)>(.*?)</a>", options)
     private val href = Regex("href\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')", RegexOption.IGNORE_CASE)
     private val tag = Regex("<[^>]+>")
-    private val date = Regex("(20\\d{2})\\s*[-./]\\s*(\\d{1,2})\\s*[-./]\\s*(\\d{1,2})")
+    private val numericDate = Regex("(20\\d{2})\\s*[-./]\\s*(\\d{1,2})\\s*[-./]\\s*(\\d{1,2})")
+    // "08 Sep 2026" 형식. 마감일 문구의 "1 December 2026"(월 전체 이름)은 일부러 제외한다.
+    private val englishDate = Regex(
+        "\\b(\\d{1,2})\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?![A-Za-z])\\.?,?\\s+(20\\d{2})",
+        RegexOption.IGNORE_CASE
+    )
+    private val months = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
     private val numericEntity = Regex("&#(x[0-9a-fA-F]+|\\d+);")
     private val rowOpen = Regex("<(tr|li)\\b", RegexOption.IGNORE_CASE)
     private val rowClose = Regex("</(tr|li)>", RegexOption.IGNORE_CASE)
+    private val boldBlock = Regex("<(b|strong)\\b[^>]*>(.*?)</\\1>", options)
+    private val blockBreak = Regex("</?(p|div|li|ul|ol|tr|td|th|dl|dt|dd|h[1-6]|br|section|article|table)\\b[^>]*>", RegexOption.IGNORE_CASE)
+    private val genericLabel = Regex(
+        "^(view report|cover note|read more|read|download|pdf|more|details?|view|자세히 ?보기|더 ?보기|바로가기|다운로드|보기)$",
+        RegexOption.IGNORE_CASE
+    )
 
     private class Hit(val start: Int, val end: Int, val url: String, val title: String)
+    private class DateHit(val date: LocalDate, val start: Int, val end: Int)
+
+    fun anchorCount(html: String): Int = anchor.findAll(html).count()
 
     fun extract(html: String, baseUrl: String, hrefPattern: Regex, minTitleLength: Int = 4): List<ParsedLink> {
         val clean = noise.replace(html, " ")
@@ -49,13 +65,11 @@ object HtmlListParser {
         }
         val ordered = byUrl.values.sortedBy { it.start }
         return ordered.mapIndexedNotNull { index, hit ->
-            if (hit.title.length < minTitleLength) return@mapIndexedNotNull null
-            // 같은 행(<tr>/<li>) 안의 날짜를 우선 사용하고, 행 구조가 없으면 링크 뒤→앞 순서로 가까운 날짜를 쓴다.
-            val nextStart = ordered.getOrNull(index + 1)?.start ?: clean.length
             val prevEnd = ordered.getOrNull(index - 1)?.end ?: 0
-            val after = clean.substring(hit.end, minOf(nextStart, hit.end + 600))
-            val before = clean.substring(maxOf(prevEnd, hit.start - 300), hit.start)
-            ParsedLink(hit.title, hit.url, rowDate(clean, hit) ?: findDate(after) ?: findDate(before))
+            val title = if (isGeneric(hit.title)) contextTitle(clean, prevEnd, hit) else hit.title
+            if (title.length < minTitleLength) return@mapIndexedNotNull null
+            val nextStart = ordered.getOrNull(index + 1)?.start ?: clean.length
+            ParsedLink(title, hit.url, dateFor(clean, hit, prevEnd, nextStart))
         }
     }
 
@@ -86,20 +100,63 @@ object HtmlListParser {
 
     fun compact(text: String): String = text.replace('\u00A0', ' ').replace(Regex("\\s+"), " ").trim()
 
+    private fun isGeneric(title: String) = title.isBlank() || genericLabel.matches(title)
+
+    private fun isTitleLike(text: String) =
+        text.length >= 6 && !genericLabel.matches(text) && findDates(text).firstOrNull()?.let { it.start == 0 && it.end >= text.length - 1 } != true
+
+    /** 링크 글자가 제목이 아닐 때: 링크 앞쪽의 굵은 글, 없으면 첫 의미 있는 글줄을 제목으로 본다. */
+    private fun contextTitle(clean: String, from: Int, hit: Hit): String {
+        val windowHtml = clean.substring(maxOf(from, hit.start - 1200), hit.start)
+        val bold = boldBlock.findAll(windowHtml)
+            .map { compact(decodeEntities(tag.replace(it.groupValues[2], " "))) }
+            .filter(::isTitleLike)
+            .lastOrNull()
+        if (bold != null) return bold
+        return tag.replace(blockBreak.replace(windowHtml, "\n"), " ")
+            .split("\n")
+            .map { compact(decodeEntities(it)) }
+            .firstOrNull(::isTitleLike)
+            .orEmpty()
+    }
+
+    /** 같은 행(<tr>/<li>)의 날짜를 우선하고, 행 구조가 없으면 링크에서 더 가까운 쪽(앞/뒤)의 날짜를 쓴다. */
+    private fun dateFor(clean: String, hit: Hit, prevEnd: Int, nextStart: Int): LocalDate? {
+        rowDate(clean, hit)?.let { return it }
+        val afterText = clean.substring(hit.end, minOf(nextStart, hit.end + 600))
+        val beforeText = clean.substring(maxOf(prevEnd, hit.start - 300), hit.start)
+        val after = findDates(afterText).firstOrNull()
+        val before = findDates(beforeText).lastOrNull()
+        return when {
+            after == null -> before?.date
+            before == null -> after.date
+            beforeText.length - before.end < after.start -> before.date
+            else -> after.date
+        }
+    }
+
     private fun rowDate(clean: String, hit: Hit): LocalDate? {
         val windowStart = maxOf(0, hit.start - 1500)
         val open = rowOpen.findAll(clean.substring(windowStart, hit.start)).lastOrNull() ?: return null
         val close = rowClose.find(clean, hit.end) ?: return null
         if (close.range.first - hit.end > 1500) return null
         val row = clean.substring(windowStart + open.range.first, hit.start) + " " + clean.substring(hit.end, close.range.first)
-        return findDate(row)
+        return findDates(row).firstOrNull()?.date
     }
 
-    private fun findDate(text: String): LocalDate? {
-        val m = date.find(text) ?: return null
-        return runCatching {
-            LocalDate.of(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt())
-        }.getOrNull()
+    /** 숫자형(2026.09.04)과 영문형(08 Sep 2026) 날짜를 등장 순서대로 찾는다. */
+    private fun findDates(text: String): List<DateHit> {
+        val found = mutableListOf<DateHit>()
+        for (m in numericDate.findAll(text)) {
+            runCatching { LocalDate.of(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt()) }
+                .getOrNull()?.let { found += DateHit(it, m.range.first, m.range.last + 1) }
+        }
+        for (m in englishDate.findAll(text)) {
+            val month = months.indexOf(m.groupValues[2].lowercase(Locale.ROOT)) + 1
+            runCatching { LocalDate.of(m.groupValues[3].toInt(), month, m.groupValues[1].toInt()) }
+                .getOrNull()?.let { found += DateHit(it, m.range.first, m.range.last + 1) }
+        }
+        return found.sortedBy { it.start }
     }
 
     private fun field(body: String, name: String): String =
@@ -113,7 +170,7 @@ object HtmlListParser {
         if (text.isBlank()) return null
         return runCatching { ZonedDateTime.parse(text, DateTimeFormatter.RFC_1123_DATE_TIME).toLocalDate() }
             .recoverCatching { ZonedDateTime.parse(text, DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US)).toLocalDate() }
-            .getOrNull() ?: findDate(text)
+            .getOrNull() ?: findDates(text).firstOrNull()?.date
     }
 
     private fun resolve(base: URI?, link: String): String? {

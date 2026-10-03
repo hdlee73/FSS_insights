@@ -10,31 +10,26 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +41,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -56,12 +52,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hdlee73.financenewsradar.ArticleReaderActivity
 import io.github.hdlee73.financenewsradar.data.AgencySources
@@ -72,11 +65,13 @@ import io.github.hdlee73.financenewsradar.model.UsefulLink
 import java.time.format.DateTimeFormatter
 
 private val releaseDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
+private const val LATEST_COUNT = 5
 
-/** PDF는 외부 앱으로, 그 외 웹 문서는 앱 안 보기 화면(PDF 저장·공유 지원)으로 연다. */
-internal fun openRelease(context: Context, title: String, url: String) {
-    val isPdf = url.substringBefore('?').endsWith(".pdf", ignoreCase = true)
-    if (isPdf) openExternal(context, url) else ArticleReaderActivity.open(context, url, title)
+/** 보도자료는 앱 안 보기(PDF 저장·공유 지원)로, 연구자료는 PDF 저장이 필요 없어 외부 브라우저로 바로 연다. */
+internal fun openItem(context: Context, item: ReleaseItem) = openSite(context, item.agency, item.link, item.title)
+
+internal fun openSite(context: Context, agency: AgencyId, url: String, title: String) {
+    if (agency.group == AgencyGroup.RESEARCH) openExternal(context, url) else ArticleReaderActivity.open(context, url, title)
 }
 
 internal fun openExternal(context: Context, url: String) {
@@ -84,237 +79,255 @@ internal fun openExternal(context: Context, url: String) {
         .onFailure { Toast.makeText(context, "링크를 열 수 있는 앱이 없습니다.", Toast.LENGTH_SHORT).show() }
 }
 
-/** 금융당국 보도자료 / 연구소 최근자료 탭 공통 화면. */
+/** 메신저에 붙여 넣기 좋은 "[기관] 제목 (날짜)\n링크" 형식으로 공유한다. */
+internal fun shareItem(context: Context, item: ReleaseItem) {
+    val date = item.date?.let { " (${it.format(releaseDateFormat)})" }.orEmpty()
+    val text = "[${item.agency.shortLabel}] ${item.title}$date\n${item.link}"
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    runCatching { context.startActivity(Intent.createChooser(intent, "공유")) }
+}
+
+/** 금융당국 보도자료 / 연구소 최근자료 탭 공통 화면: 기관별 밑줄 탭 + 검색 + 최근 5건 + 저장함. */
 @Composable
-fun AgencyTab(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: Modifier = Modifier) {
+fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val agencies = remember(group) { AgencyId.entries.filter { it.group == group } }
-    LaunchedEffect(group) { agencies.forEach(viewModel::ensureLatest) }
+    var selected by rememberSaveable(group.name) { mutableIntStateOf(0) }
+    var clearTick by remember { mutableIntStateOf(0) }
+    val agency = agencies.getOrNull(selected)
+    val savedLinks = state.savedLinks
+    LaunchedEffect(agency) { agency?.let(viewModel::ensureLatest) }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item(key = "intro") {
-            Text(
-                if (group == AgencyGroup.PRESS) "각 기관의 최근 보도자료 5건입니다. 제목을 누르면 원문이 열립니다."
-                else "각 기관의 최근 보고서 5건입니다. 제목을 누르면 원문이 열립니다.",
-                modifier = Modifier.padding(horizontal = 4.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item(key = "title") { LargeTitle(group.label) }
+        item(key = "tabs") {
+            UnderlineTabs(agencies.map { it.shortLabel } + "저장함", selected, { selected = it })
         }
-        items(agencies, key = { it.name }) { agency ->
-            AgencySection(
+        if (agency == null) {
+            val saved = state.saved.filter { it.agency.group == group }
+            item(key = "saved-label") { SectionLabel("저장한 ${if (group == AgencyGroup.PRESS) "보도자료" else "보고서"} ${saved.size}건") }
+            if (saved.isEmpty()) {
+                item(key = "saved-empty") { CenterMessage("저장한 자료가 없습니다.\n목록의 북마크 버튼을 눌러 담아 두세요.") }
+            }
+            items(saved, key = { "saved-${it.link}" }) { item ->
+                ReleaseRow(
+                    item = item, isNew = false, isSaved = true, showAgency = true,
+                    onOpen = { openItem(context, item) },
+                    onToggleSaved = { viewModel.toggleSaved(item) },
+                    onShare = { shareItem(context, item) }
+                )
+                RowDivider()
+            }
+        } else {
+            agencyItems(
                 agency = agency,
                 state = state.of(agency),
+                savedLinks = savedLinks,
+                clearTick = clearTick,
+                context = context,
                 onRefresh = { viewModel.refresh(agency) },
                 onSearch = { viewModel.search(agency, it) },
                 onLoadMore = { viewModel.loadMore(agency) },
-                onClearSearch = { viewModel.clearSearch(agency) }
+                onClear = { clearTick++; viewModel.clearSearch(agency) },
+                onToggleSaved = viewModel::toggleSaved
             )
         }
     }
 }
 
-@Composable
-private fun AgencySection(
+private fun LazyListScope.agencyItems(
     agency: AgencyId,
     state: AgencyUiState,
+    savedLinks: Set<String>,
+    clearTick: Int,
+    context: Context,
     onRefresh: () -> Unit,
     onSearch: (String) -> Unit,
     onLoadMore: () -> Unit,
-    onClearSearch: () -> Unit
+    onClear: () -> Unit,
+    onToggleSaved: (ReleaseItem) -> Unit
 ) {
-    val context = LocalContext.current
+    item(key = "search-${agency.name}") {
+        AgencySearchBar(agency = agency, clearTick = clearTick, enabled = !state.isSearching, onSearch = onSearch)
+    }
+
+    if (!state.inSearch) {
+        item(key = "latest-label") {
+            SectionLabel("최근 ${LATEST_COUNT}건") {
+                IconButton(onClick = onRefresh, enabled = !state.isLoading) {
+                    Icon(Icons.Default.Refresh, contentDescription = "${agency.label} 새로고침", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        when {
+            state.isLoading && state.latest.isEmpty() -> item(key = "latest-loading") { LoadingBlock() }
+            state.error != null && state.latest.isEmpty() -> item(key = "latest-error") {
+                CenterMessage(
+                    state.error, isError = true, actionLabel = "사이트에서 보기",
+                    onAction = { openSite(context, agency, agency.homeUrl, "${agency.label} ${agency.itemNoun}") }
+                )
+            }
+            else -> items(state.latest, key = { "latest-${it.link}" }) { item ->
+                ReleaseRow(
+                    item = item, isNew = item.link in state.newLinks, isSaved = item.link in savedLinks, showAgency = false,
+                    onOpen = { openItem(context, item) },
+                    onToggleSaved = { onToggleSaved(item) },
+                    onShare = { shareItem(context, item) }
+                )
+                RowDivider()
+            }
+        }
+        item(key = "footer") {
+            TextButton(
+                onClick = { openSite(context, agency, agency.homeUrl, "${agency.label} ${agency.itemNoun}") },
+                modifier = Modifier.padding(horizontal = 12.dp)
+            ) { Text("${agency.label} 사이트에서 전체 목록 보기") }
+        }
+    } else {
+        item(key = "result-label") {
+            SectionLabel("‘${state.searchQuery}’ 검색 결과 ${state.results.size}건") {
+                TextButton(onClick = onClear) { Text("지우기") }
+            }
+        }
+        items(state.results, key = { "result-${it.link}" }) { item ->
+            ReleaseRow(
+                item = item, isNew = false, isSaved = item.link in savedLinks, showAgency = false,
+                onOpen = { openItem(context, item) },
+                onToggleSaved = { onToggleSaved(item) },
+                onShare = { shareItem(context, item) }
+            )
+            RowDivider()
+        }
+        if (state.isSearching) item(key = "result-loading") { LoadingBlock() }
+        state.searchError?.let { message -> item(key = "result-error") { CenterMessage(message, isError = true) } }
+        if (!state.isSearching && state.searchError == null && state.results.isEmpty()) {
+            item(key = "result-empty") { CenterMessage("앱이 읽은 범위에서 일치하는 ${agency.itemNoun}이 없습니다.") }
+        }
+        item(key = "result-actions") {
+            Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (state.canLoadMore && !state.isSearching) {
+                    OutlinedButton(onClick = onLoadMore) { Text("더 오래된 항목 찾기") }
+                }
+                TextButton(onClick = {
+                    openSite(context, agency, AgencySources.siteSearchUrl(agency, state.searchQuery), "${agency.label} 검색")
+                }) { Text("사이트에서 직접 검색") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgencySearchBar(agency: AgencyId, clearTick: Int, enabled: Boolean, onSearch: (String) -> Unit) {
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
-    var text by rememberSaveable(agency.name) { mutableStateOf("") }
-    val runSearch = {
-        if (text.isNotBlank()) {
+    var text by rememberSaveable(agency.name, clearTick) { mutableStateOf("") }
+    val run = {
+        if (text.isNotBlank() && enabled) {
             keyboard?.hide()
             focus.clearFocus()
             onSearch(text)
         }
     }
+    SearchPill(
+        value = text,
+        onValueChange = { text = it },
+        placeholder = "${agency.shortLabel} 과거 ${agency.itemNoun} 제목 검색",
+        onSearch = { run() },
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+        description = "${agency.label} ${agency.itemNoun} 검색어"
+    )
+}
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "${agency.label} ${agency.itemNoun}",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                TextButton(onClick = { openRelease(context, "${agency.label} ${agency.itemNoun}", agency.homeUrl) }) {
-                    Text("사이트에서 보기", style = MaterialTheme.typography.labelMedium)
-                }
-                IconButton(onClick = onRefresh, enabled = !state.isLoading) {
-                    Icon(Icons.Default.Refresh, contentDescription = "${agency.label} 새로고침")
-                }
-            }
-
-            if (!state.inSearch) {
-                when {
-                    state.isLoading && state.latest.isEmpty() -> LoadingRow()
-                    state.error != null && state.latest.isEmpty() -> Text(
-                        state.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
-                    )
-                    else -> state.latest.forEachIndexed { index, item ->
-                        if (index > 0) HorizontalDivider()
-                        ReleaseRow(item)
-                    }
-                }
-            }
-
-            HorizontalDivider()
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("과거 ${agency.itemNoun} 제목 검색", style = MaterialTheme.typography.bodyMedium) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { runSearch() }),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                Button(onClick = runSearch, enabled = text.isNotBlank() && !state.isSearching, shape = RoundedCornerShape(14.dp)) {
-                    Text("검색")
-                }
-            }
-
-            if (state.inSearch) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "‘${state.searchQuery}’ 검색 결과 ${state.results.size}건",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    TextButton(onClick = { text = ""; onClearSearch() }) {
-                        Text("최근 5건 보기", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-                state.results.forEachIndexed { index, item ->
-                    if (index > 0) HorizontalDivider()
-                    ReleaseRow(item)
-                }
-                if (state.isSearching) LoadingRow()
-                state.searchError?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
-                if (!state.isSearching && state.searchError == null && state.results.isEmpty()) {
-                    Text(
-                        "앱이 읽은 범위에서 일치하는 항목이 없습니다. 아래 버튼으로 사이트에서 직접 검색해 보세요.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (state.canLoadMore && !state.isSearching) {
-                        OutlinedButton(onClick = onLoadMore) { Text("더 오래된 항목 찾기") }
-                    }
-                    OutlinedButton(onClick = {
-                        openRelease(context, "${agency.label} 검색", AgencySources.siteSearchUrl(agency, state.searchQuery))
-                    }) { Text("사이트에서 직접 검색") }
-                }
-            }
-        }
+@Composable
+private fun LoadingBlock() {
+    Box(Modifier.fillMaxWidth().padding(vertical = 28.dp), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp)
     }
 }
 
 @Composable
-private fun LoadingRow() {
-    Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(Modifier.size(24.dp))
-    }
-}
-
-@Composable
-private fun ReleaseRow(item: ReleaseItem) {
-    val context = LocalContext.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { openRelease(context, item.title, item.link) }
-            .padding(vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        item.date?.let {
-            Text(it.format(releaseDateFormat), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-/** 금융 사이트 링크 모음. 추가·수정·삭제·기본값 복원을 지원한다. */
-@Composable
-fun UsefulLinksDialog(
-    links: List<UsefulLink>,
-    onDismiss: () -> Unit,
-    onSave: (List<UsefulLink>) -> Unit,
-    onReset: () -> Unit
+private fun ReleaseRow(
+    item: ReleaseItem,
+    isNew: Boolean,
+    isSaved: Boolean,
+    showAgency: Boolean,
+    onOpen: () -> Unit,
+    onToggleSaved: () -> Unit,
+    onShare: () -> Unit
 ) {
+    val meta = listOfNotNull(item.agency.shortLabel.takeIf { showAgency }, item.date?.format(releaseDateFormat)).joinToString(" · ")
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 20.dp, top = 10.dp, bottom = 10.dp, end = 6.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Column(Modifier.weight(1f).padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (isNew) NewBadge()
+                if (meta.isNotBlank()) {
+                    Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        IconButton(onClick = onToggleSaved, modifier = Modifier.size(40.dp)) {
+            Icon(
+                if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                contentDescription = if (isSaved) "저장함에서 빼기" else "저장함에 담기",
+                modifier = Modifier.size(22.dp),
+                tint = if (isSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(onClick = onShare, modifier = Modifier.size(40.dp)) {
+            Icon(Icons.Default.Share, contentDescription = "제목과 링크 공유", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** 참고사이트 탭: 사용자가 추가·수정·삭제·복원할 수 있는 금융 사이트 링크 목록. */
+@Composable
+fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onReset: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    var editMode by rememberSaveable { mutableStateOf(false) }
     var editingIndex by remember { mutableStateOf<Int?>(null) }   // -1 = 새 항목
     var deleteIndex by remember { mutableStateOf<Int?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "닫기") }
-                    Text("금융 사이트", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = { editingIndex = -1 }) { Icon(Icons.Default.Add, contentDescription = "사이트 추가") }
-                }
-                Text(
-                    "누르면 브라우저로 열립니다. 오른쪽 아이콘으로 수정·삭제할 수 있습니다.",
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 8.dp)) {
-                    if (links.isEmpty()) {
-                        item {
-                            Text(
-                                "등록된 사이트가 없습니다. 오른쪽 위 + 버튼으로 추가하거나 기본값을 복원하세요.",
-                                modifier = Modifier.padding(24.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    items(links.size, key = { "${it}_${links[it].url}" }) { index ->
-                        val link = links[index]
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable { openExternal(context, link.url) }.padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(link.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(link.url, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            IconButton(onClick = { editingIndex = index }) { Icon(Icons.Default.Edit, contentDescription = "${link.name} 수정") }
-                            IconButton(onClick = { deleteIndex = index }) { Icon(Icons.Default.Delete, contentDescription = "${link.name} 삭제") }
-                        }
-                        HorizontalDivider()
-                    }
-                    item {
-                        TextButton(onClick = { confirmReset = true }, modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-                            Text("기본 10개 사이트로 복원")
-                        }
-                        Spacer(Modifier.height(16.dp))
-                    }
-                }
+    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item(key = "title") {
+            LargeTitle("참고사이트") {
+                TextButton(onClick = { editMode = !editMode }) { Text(if (editMode) "완료" else "편집", fontWeight = FontWeight.SemiBold) }
+                IconButton(onClick = { editingIndex = -1 }) { Icon(Icons.Default.Add, contentDescription = "사이트 추가") }
+            }
+        }
+        item(key = "hint") {
+            Text(
+                if (editMode) "오른쪽 아이콘으로 수정·삭제하세요." else "누르면 브라우저로 열립니다. ‘편집’에서 수정·삭제할 수 있습니다.",
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (links.isEmpty()) {
+            item(key = "empty") { CenterMessage("등록된 사이트가 없습니다.\n+ 버튼으로 추가하거나 기본값을 복원하세요.") }
+        }
+        items(links.size, key = { "site-$it-${links[it].url}" }) { index ->
+            val link = links[index]
+            SiteRow(
+                link = link,
+                editMode = editMode,
+                onOpen = { openExternal(context, link.url) },
+                onEdit = { editingIndex = index },
+                onDelete = { deleteIndex = index }
+            )
+            RowDivider(inset = 76.dp)
+        }
+        item(key = "reset") {
+            TextButton(onClick = { confirmReset = true }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text("기본 10개 사이트로 복원")
             }
         }
     }
@@ -325,8 +338,7 @@ fun UsefulLinksDialog(
             initial = existing,
             onDismiss = { editingIndex = null },
             onConfirm = { edited ->
-                val next = if (existing == null) links + edited else links.toMutableList().also { it[index] = edited }
-                onSave(next)
+                onSave(if (existing == null) links + edited else links.toMutableList().also { it[index] = edited })
                 editingIndex = null
             }
         )
@@ -349,6 +361,32 @@ fun UsefulLinksDialog(
             confirmButton = { TextButton(onClick = { onReset(); confirmReset = false }) { Text("복원") } },
             dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("취소") } }
         )
+    }
+}
+
+@Composable
+private fun SiteRow(link: UsefulLink, editMode: Boolean, onOpen: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+    val host = remember(link.url) { runCatching { Uri.parse(link.url).host.orEmpty().removePrefix("www.") }.getOrDefault("") }
+    val initial = remember(link.name) { link.name.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString() ?: "•" }
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(enabled = !editMode, onClick = onOpen).padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(40.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(initial, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            }
+        }
+        Column(Modifier.weight(1f).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(link.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(host.ifBlank { link.url }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (editMode) {
+            IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = "${link.name} 수정", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "${link.name} 삭제", tint = MaterialTheme.colorScheme.error) }
+        } else {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+        }
     }
 }
 
