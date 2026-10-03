@@ -12,11 +12,15 @@ android {
         applicationId = "io.github.hdlee73.financenewsradar"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.5.2"
+        versionCode = 11
+        versionName = "0.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+
+        // 뉴스 프록시(서버 뒤에 네이버 키를 두는 방식). CI에서 환경변수로 넣고, 없으면 비워 둔다.
+        buildConfigField("String", "NEWS_PROXY_URL", "\"${System.getenv("NEWS_PROXY_URL").orEmpty()}\"")
+        buildConfigField("String", "NEWS_PROXY_TOKEN", "\"${System.getenv("NEWS_PROXY_TOKEN").orEmpty()}\"")
     }
 
     signingConfigs {
@@ -56,7 +60,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
 }
 

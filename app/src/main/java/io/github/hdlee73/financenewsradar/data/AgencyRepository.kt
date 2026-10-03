@@ -41,7 +41,8 @@ internal object AgencySources {
         )
         AgencyId.KCMI -> Source(
             listUrl = { page, size -> "https://www.kcmi.re.kr/report/report_list?pg=$page&pp=$size" },
-            linkPattern = Regex("""flexer/view\?fid=\d+"""),
+            // 한 행에 바로보기가 둘(보도자료 fty=004010 / 보고서 fty=004003)이라 보고서 쪽만 쓴다.
+            linkPattern = Regex("""flexer/view\?[^"\s]*fty=004003"""),
             pageSize = 30
         )
         AgencyId.KIF -> Source(
@@ -131,7 +132,7 @@ class AgencyRepository(private val context: android.content.Context) {
         }
         if (parsed.isEmpty()) {
             val detail = if (lastBody.isEmpty()) (failure?.message ?: "응답 없음")
-            else "응답 ${lastBody.length}자 · 링크 ${HtmlListParser.anchorCount(lastBody)}개"
+            else "응답 ${lastBody.length}자 · 링크 ${HtmlListParser.anchorCount(lastBody)}개 · ${HtmlListParser.sampleLinks(lastBody)}"
             error("${agency.label} 목록을 읽지 못했습니다. 사이트가 접속을 막았거나 구조가 바뀌었을 수 있습니다. ‘사이트에서 보기’를 이용해 주세요. ($detail)")
         }
         return parsed.map { ReleaseItem(agency, it.title, it.url, it.date) }

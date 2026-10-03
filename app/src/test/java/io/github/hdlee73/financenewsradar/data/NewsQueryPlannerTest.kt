@@ -18,15 +18,15 @@ class NewsQueryPlannerTest {
     fun `naver search does not send undocumented boolean query syntax`() {
         assertEquals(
             listOf("증권사"),
-            NewsQueryPlanner.homeQueries("증권사", NewsProviderType.NAVER)
+            NewsQueryPlanner.homeQueries("증권사", NewsProviderType.NAVER, naverReady = true)
         )
     }
 
     @Test
-    fun `combined search without naver key keeps google discovery query`() {
+    fun `naver search without a server falls back to keeps google discovery query`() {
         val queries = NewsQueryPlanner.homeQueries(
             "증권사",
-            NewsProviderType.COMBINED,
+            NewsProviderType.NAVER,
             naverReady = false
         )
 

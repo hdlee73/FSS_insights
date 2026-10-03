@@ -177,12 +177,12 @@ fun RowDivider(inset: Dp = 20.dp) {
 /** 새로 올라온 자료 표시. */
 @Composable
 fun NewBadge(modifier: Modifier = Modifier) {
-    Surface(modifier = modifier, shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.tertiary) {
+    Surface(modifier = modifier, shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
         Text(
             "NEW",
             modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onTertiary,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
             fontWeight = FontWeight.Bold
         )
     }

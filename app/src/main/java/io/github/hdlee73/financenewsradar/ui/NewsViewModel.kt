@@ -156,7 +156,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveSettings(settings: AppSettings, credentials: NaverCredentials) {
         val sanitized = settings.copy(
-            keywords = settings.keywords.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(5)
+            keywords = settings.keywords.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(10)
                 .ifEmpty { AppSettings.DEFAULT_KEYWORDS }
         )
         settingsStore.saveSettings(sanitized)

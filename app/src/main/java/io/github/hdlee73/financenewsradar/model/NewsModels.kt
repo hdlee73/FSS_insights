@@ -3,10 +3,9 @@ package io.github.hdlee73.financenewsradar.model
 import java.time.Duration
 import java.time.Instant
 
-enum class NewsProviderType(val label: String, val description: String) {
-    COMBINED("통합 검색", "Google과 네이버를 함께 검색하고 결과를 합침"),
-    GOOGLE_RSS("바로 검색", "설정 없이 Google 뉴스 RSS로 검색"),
-    NAVER("네이버 심층 검색", "API 키로 최대 1,000건까지 이어보기")
+enum class NewsProviderType(val label: String) {
+    NAVER("네이버"),
+    GOOGLE_RSS("Google 뉴스")
 }
 
 enum class OutletScope(val label: String) {
@@ -22,12 +21,15 @@ enum class TimeRange(val label: String, val googleToken: String, val duration: D
 
 data class AppSettings(
     val keywords: List<String> = DEFAULT_KEYWORDS,
-    val provider: NewsProviderType = NewsProviderType.COMBINED,
+    val provider: NewsProviderType = NewsProviderType.NAVER,
     val outletScope: OutletScope = OutletScope.ALL,
     val timeRange: TimeRange = TimeRange.WEEK
 ) {
     companion object {
-        val DEFAULT_KEYWORDS = listOf("금융감독원", "증권사", "자산운용사", "금융투자", "금융사고")
+        val DEFAULT_KEYWORDS = listOf(
+            "금융감독원", "증권사", "자산운용사", "금융투자", "금융사고",
+            "금감원 제재", "불완전판매", "내부통제", "사모펀드", "공매도"
+        )
     }
 }
 

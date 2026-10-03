@@ -122,16 +122,8 @@ internal fun SettingsDialog(
     onSave: (AppSettings, NaverCredentials) -> Unit
 ) {
     var keywords by remember(current) {
-        mutableStateOf((current.keywords + List(5) { "" }).take(5))
+        mutableStateOf((current.keywords + List(10) { "" }).take(10))
     }
-    var provider by remember(current) { mutableStateOf(current.provider) }
-    var clientId by remember(credentials) { mutableStateOf(credentials.clientId) }
-    var clientSecret by remember(credentials) { mutableStateOf(credentials.clientSecret) }
-    var apiType by remember(credentials) { mutableStateOf(credentials.apiType) }
-    var helpOpen by rememberSaveable { mutableStateOf(false) }
-    if (helpOpen) SearchHelpDialog("search", onDismiss = { helpOpen = false }, onOpenSettings = { helpOpen = false })
-    val naverKeyComplete = clientId.isNotBlank() && clientSecret.isNotBlank()
-    val canSave = provider != NewsProviderType.NAVER || naverKeyComplete
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -144,13 +136,7 @@ internal fun SettingsDialog(
                     Text("검색 설정", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
                     TextButton(
-                        enabled = canSave,
-                        onClick = {
-                            onSave(
-                                current.copy(keywords = keywords, provider = provider),
-                                NaverCredentials(clientId, clientSecret, apiType)
-                            )
-                        }
+                        onClick = { onSave(current.copy(keywords = keywords), credentials) }
                     ) { Text("저장", fontWeight = FontWeight.Bold) }
                 }
 
@@ -160,7 +146,7 @@ internal fun SettingsDialog(
                 ) {
                     Text("맞춤 뉴스 키워드", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        "첫 화면에서 아래 5개 키워드의 최신 기사를 한꺼번에 모읍니다.",
+                        "첫 화면에서 아래 키워드의 최신 기사를 한꺼번에 모읍니다. (최대 10개)",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -174,64 +160,6 @@ internal fun SettingsDialog(
                         )
                     }
 
-                    Spacer(Modifier.height(8.dp))
-                    Text("검색 방식", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    NewsProviderType.entries.forEach { option ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth().clickable { provider = option },
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (provider == option) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surface
-                            )
-                        ) {
-                            Column(Modifier.padding(14.dp)) {
-                                Text(option.label, fontWeight = FontWeight.Bold)
-                                Text(option.description, style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-
-                    if (provider != NewsProviderType.GOOGLE_RSS) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("네이버 연결", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                            IconButton(onClick = { helpOpen = true }) { Icon(Icons.Default.HelpOutline, contentDescription = "네이버 연결 절차") }
-                        }
-                        NaverApiType.entries.forEach { type ->
-                            FilterChip(selected = apiType == type, onClick = { apiType = type }, label = { Text(type.label) })
-                        }
-                        Text(
-                            if (provider == NewsProviderType.COMBINED)
-                                "네이버 키는 선택 사항입니다. 입력하면 Google과 네이버 결과를 합칩니다. 키는 Android Keystore로 암호화됩니다."
-                            else "키는 이 기기의 Android Keystore로 암호화되며 GitHub 소스나 APK에 포함되지 않습니다.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedTextField(
-                            value = clientId,
-                            onValueChange = { clientId = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Naver Client ID") },
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = clientSecret,
-                            onValueChange = { clientSecret = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Naver Client Secret") },
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation()
-                        )
-                        if (provider == NewsProviderType.NAVER && !naverKeyComplete) {
-                            Text("두 값을 모두 입력해야 네이버 검색을 사용할 수 있습니다.", color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "‘30대 언론’은 종합지·방송·통신·경제지 30곳을 앱 내부 기준으로 선별합니다. ‘전체 언론’으로 바꾸면 지역지와 전문지를 함께 검색합니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                     Spacer(Modifier.height(24.dp))
                 }
             }

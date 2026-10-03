@@ -98,14 +98,25 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
     val agencies = remember(group) { AgencyId.entries.filter { it.group == group } }
     var selected by rememberSaveable(group.name) { mutableIntStateOf(0) }
     var clearTick by remember { mutableIntStateOf(0) }
-    val agency = agencies.getOrNull(selected)
+    var showSaved by rememberSaveable(group.name + "-saved") { mutableStateOf(false) }
+    val agency = if (showSaved) null else agencies.getOrNull(selected)
     val savedLinks = state.savedLinks
     LaunchedEffect(agency) { agency?.let(viewModel::ensureLatest) }
 
     LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-        item(key = "title") { LargeTitle(group.label) }
+        item(key = "title") {
+            LargeTitle(group.label) {
+                IconButton(onClick = { showSaved = !showSaved }) {
+                    Icon(
+                        if (showSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                        contentDescription = if (showSaved) "저장함 닫기" else "저장함 열기",
+                        tint = if (showSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
         item(key = "tabs") {
-            UnderlineTabs(agencies.map { it.shortLabel } + "저장함", selected, { selected = it })
+            UnderlineTabs(agencies.map { it.shortLabel }, if (showSaved) -1 else selected, { selected = it; showSaved = false })
         }
         if (agency == null) {
             val saved = state.saved.filter { it.agency.group == group }
@@ -265,7 +276,7 @@ private fun ReleaseRow(
         verticalAlignment = Alignment.Top
     ) {
         Column(Modifier.weight(1f).padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (isNew) NewBadge()
                 if (meta.isNotBlank()) {
@@ -327,7 +338,7 @@ fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onR
         }
         item(key = "reset") {
             TextButton(onClick = { confirmReset = true }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Text("기본 10개 사이트로 복원")
+                Text("기본 사이트로 복원")
             }
         }
     }
@@ -357,7 +368,7 @@ fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onR
         AlertDialog(
             onDismissRequest = { confirmReset = false },
             title = { Text("기본값 복원") },
-            text = { Text("지금까지 추가·수정·삭제한 내용이 사라지고 기본 10개 사이트로 돌아갑니다.") },
+            text = { Text("지금까지 추가·수정·삭제한 내용이 사라지고 기본 사이트로 돌아갑니다.") },
             confirmButton = { TextButton(onClick = { onReset(); confirmReset = false }) { Text("복원") } },
             dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("취소") } }
         )
@@ -378,7 +389,7 @@ private fun SiteRow(link: UsefulLink, editMode: Boolean, onOpen: () -> Unit, onE
             }
         }
         Column(Modifier.weight(1f).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(link.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(link.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(host.ifBlank { link.url }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (editMode) {

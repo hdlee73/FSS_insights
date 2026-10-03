@@ -29,19 +29,19 @@ class SettingsStore(context: Context) {
             ?.split(KEYWORD_SEPARATOR)
             ?.map { it.trim() }
             ?.filter { it.isNotBlank() }
-            ?.take(5)
+            ?.take(10)
             .orEmpty()
             .ifEmpty { AppSettings.DEFAULT_KEYWORDS }
         return AppSettings(
             keywords = keywords,
-            provider = enumValue(preferences.getString(PROVIDER, null), NewsProviderType.COMBINED),
+            provider = enumValue(preferences.getString(PROVIDER, null), NewsProviderType.NAVER),
             outletScope = enumValue(preferences.getString(SCOPE, null), OutletScope.ALL),
             timeRange = enumValue(preferences.getString(TIME_RANGE, null), TimeRange.WEEK)
         )
     }
 
     fun saveSettings(settings: AppSettings) {
-        val cleanKeywords = settings.keywords.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(5)
+        val cleanKeywords = settings.keywords.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(10)
         preferences.edit()
             .putString(KEYWORDS, cleanKeywords.joinToString(KEYWORD_SEPARATOR))
             .putString(PROVIDER, settings.provider.name)

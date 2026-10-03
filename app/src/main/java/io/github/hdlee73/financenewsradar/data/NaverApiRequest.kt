@@ -6,6 +6,13 @@ import io.github.hdlee73.financenewsradar.model.NaverCredentials
 /** Keeps each credential type restricted to its own service and header names. */
 data class NaverApiRequest(val url: String, val headers: Map<String, String>) {
     companion object {
+        /** 개인 키는 서버(프록시)에만 두고, 앱은 앱 토큰만 보낸다. */
+        fun proxy(baseUrl: String, token: String, encodedQuery: String, size: Int, start: Int) = NaverApiRequest(
+            "${baseUrl.trimEnd('/')}/news?query=$encodedQuery&display=$size&start=$start&sort=date",
+            mapOf("X-App-Token" to token)
+        )
+
+
         fun create(credentials: NaverCredentials, encodedQuery: String, size: Int, start: Int): NaverApiRequest {
             val parameters = "query=$encodedQuery&display=$size&start=$start&sort=date"
             return when (credentials.apiType) {

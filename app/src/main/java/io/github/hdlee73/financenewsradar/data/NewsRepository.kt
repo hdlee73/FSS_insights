@@ -43,7 +43,7 @@ class NewsRepository {
         val queries = settings.keywords
             .filter { it.isNotBlank() }
             .flatMap { keyword ->
-                NewsQueryPlanner.homeQueries(keyword, settings.provider, credentials.isComplete)
+                NewsQueryPlanner.homeQueries(keyword, settings.provider, NewsProxy.naverAvailable(credentials))
             }
             .distinct()
         val results = queries
@@ -67,9 +67,8 @@ class NewsRepository {
     }
 
     private fun provider(type: NewsProviderType, credentials: NaverCredentials): NewsProvider = when (type) {
-        NewsProviderType.COMBINED -> CombinedNewsProvider(credentials)
         NewsProviderType.GOOGLE_RSS -> GoogleNewsRssProvider()
-        NewsProviderType.NAVER -> NaverNewsProvider(credentials)
+        NewsProviderType.NAVER -> NaverFirstNewsProvider(credentials)
     }
 
     private data class RefinedArticles(
@@ -118,8 +117,7 @@ internal object NewsQueryPlanner {
         val exact = keyword.trim()
         val plan = runCatching { SearchQueryParser.parse(exact) }.getOrNull()
         val baseQueries = plan?.providerQueries ?: listOf(exact)
-        val googleOnly = provider == NewsProviderType.GOOGLE_RSS ||
-            (provider == NewsProviderType.COMBINED && !naverReady)
+        val googleOnly = provider == NewsProviderType.GOOGLE_RSS || !naverReady
         if (!googleOnly || plan?.usesBooleanOperators == true) return baseQueries
         return (baseQueries + expandFinanceQuery(exact)).distinct()
     }

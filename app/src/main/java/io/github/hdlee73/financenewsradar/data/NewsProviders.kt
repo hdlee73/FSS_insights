@@ -42,11 +42,14 @@ class GoogleNewsRssProvider : NewsProvider {
 class NaverNewsProvider(private val credentials: NaverCredentials) : NewsProvider {
     override suspend fun search(query: String, timeRange: TimeRange, start: Int, pageSize: Int): SearchPage =
         withContext(Dispatchers.IO) {
-            require(credentials.isComplete) { "네이버 Client ID와 Client Secret을 설정해 주세요." }
             val size = pageSize.coerceIn(1, 100)
             val safeStart = start.coerceIn(1, 1000)
             val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
-            val request = NaverApiRequest.create(credentials, encoded, size, safeStart)
+            val request = when {
+                credentials.isComplete -> NaverApiRequest.create(credentials, encoded, size, safeStart)
+                NewsProxy.isConfigured -> NaverApiRequest.proxy(NewsProxy.url, NewsProxy.token, encoded, size, safeStart)
+                else -> error("네이버 뉴스 서버가 연결되지 않았습니다.")
+            }
             val body = Http.get(request.url, request.headers)
             val root = JSONObject(body)
             val total = root.optInt("total", 0).coerceAtMost(1000)
@@ -79,28 +82,20 @@ class NaverNewsProvider(private val credentials: NaverCredentials) : NewsProvide
         }
 }
 
-class CombinedNewsProvider(private val credentials: NaverCredentials) : NewsProvider {
-    override suspend fun search(query: String, timeRange: TimeRange, start: Int, pageSize: Int): SearchPage =
-        supervisorScope {
-            val providers = buildList<NewsProvider> {
-                add(GoogleNewsRssProvider())
-                if (credentials.isComplete) add(NaverNewsProvider(credentials))
-            }
-            val results = providers.map { provider ->
-                async { runCatching { provider.search(query, timeRange, start, pageSize) } }
-            }.awaitAll()
-            val pages = results.mapNotNull { it.getOrNull() }
-            if (pages.isEmpty()) throw results.firstNotNullOfOrNull { it.exceptionOrNull() }
-                ?: IllegalStateException("기사를 불러오지 못했습니다.")
-            val articles = pages.flatMap { it.articles }
-            SearchPage(
-                articles = articles,
-                hasMore = pages.any { it.hasMore },
-                nextStart = pages.filter { it.hasMore }.maxOfOrNull { it.nextStart } ?: 1,
-                fetchedCount = pages.sumOf { it.fetchedCount },
-                failedQueryCount = results.count { it.isFailure } + pages.sumOf { it.failedQueryCount }
-            )
+/** 네이버를 먼저 쓰고, 서버가 없거나 실패하면 Google 뉴스로 대신 검색한다. */
+class NaverFirstNewsProvider(private val credentials: NaverCredentials) : NewsProvider {
+    override suspend fun search(query: String, timeRange: TimeRange, start: Int, pageSize: Int): SearchPage {
+        val google = GoogleNewsRssProvider()
+        if (!NewsProxy.naverAvailable(credentials)) return google.search(query, timeRange, start, pageSize)
+        return try {
+            NaverNewsProvider(credentials).search(query, timeRange, start, pageSize)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (start > 1) throw e
+            google.search(query, timeRange, start, pageSize)
         }
+    }
 }
 
 object GoogleRssParser {

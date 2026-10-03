@@ -124,12 +124,34 @@ object HtmlListParser {
     }
 
     /**
-     * 링크 주소 패턴을 모를 때의 대안: 같은 행에 날짜가 있고 글자가 제목답게 긴 링크를 모두 목록으로 본다.
-     * javascript: 링크는 주소를 만들 수 없어 제외한다.
+     * 링크 주소 패턴을 모를 때의 대안: 같은 행에 날짜가 있고 글자가 제목답게 긴 링크를 목록으로 본다.
+     * 주소를 만들 수 없는 링크(javascript: 등)는 목록 페이지 주소로 대신한다.
      */
-    fun extractLoose(html: String, baseUrl: String): List<ParsedLink> =
-        extract(html, baseUrl, Regex("^(?!\\s*(javascript:|#|mailto:|tel:)).+"), minTitleLength = 8)
-            .filter { it.date != null && it.title.length >= 8 }
+    fun extractLoose(html: String, baseUrl: String): List<ParsedLink> {
+        val clean = noise.replace(html, " ")
+        val base = runCatching { URI(baseUrl) }.getOrNull()
+        val found = LinkedHashMap<String, ParsedLink>()
+        for (match in anchor.findAll(clean)) {
+            val text = compact(decodeEntities(tag.replace(match.groupValues[2], " ")))
+            if (text.length < 8 || genericLabel.matches(text) || findDates(text).isNotEmpty()) continue
+            val hit = Hit(match.range.first, match.range.last + 1, "", text)
+            val date = rowDate(clean, hit) ?: continue
+            val rawHref = href.find(match.groupValues[1])?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } }.orEmpty()
+            val url = resolve(base, decodeEntities(rawHref).trim()) ?: baseUrl
+            found.putIfAbsent(text, ParsedLink(text, url, date))
+        }
+        return found.values.toList()
+    }
+
+    /** 오류 안내에 붙일 진단용 샘플: 글자가 긴 링크 3개의 (글자→주소 앞부분). */
+    fun sampleLinks(html: String): String = anchor.findAll(noise.replace(html, " "))
+        .mapNotNull { m ->
+            val text = compact(decodeEntities(tag.replace(m.groupValues[2], " ")))
+            if (text.length < 8) return@mapNotNull null
+            val target = href.find(m.groupValues[1])?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } }.orEmpty()
+            "${text.take(12)}→${target.take(40)}"
+        }
+        .take(3).joinToString(" / ")
 
     /** 같은 행(<tr>/<li>)의 날짜를 우선하고, 행 구조가 없으면 링크에서 더 가까운 쪽(앞/뒤)의 날짜를 쓴다. */
     private fun dateFor(clean: String, hit: Hit, prevEnd: Int, nextStart: Int): LocalDate? {

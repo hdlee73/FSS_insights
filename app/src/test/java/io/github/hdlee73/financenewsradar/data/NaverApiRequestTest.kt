@@ -12,6 +12,11 @@ class NaverApiRequestTest {
         assertEquals(mapOf("X-NCP-APIGW-API-KEY-ID" to "id", "X-NCP-APIGW-API-KEY" to "secret"), request.headers)
         assertFalse(request.url.contains("secret"))
     }
+    @Test fun proxyRequestCarriesOnlyTheAppToken() {
+        val request = NaverApiRequest.proxy("https://news.example.workers.dev/", "app-token", "bank", 100, 1)
+        assertEquals("https://news.example.workers.dev/news?query=bank&display=100&start=1&sort=date", request.url)
+        assertEquals(mapOf("X-App-Token" to "app-token"), request.headers)
+    }
     @Test fun existingCredentialsRetainOriginalEndpointAndHeaders() {
         val request = NaverApiRequest.create(NaverCredentials("old-id", "old-secret", NaverApiType.DEVELOPERS), "bank", 100, 1)
         assertTrue(request.url.startsWith("https://openapi.naver.com/v1/search/news.json?"))

@@ -117,8 +117,6 @@ fun NewsScreen(viewModel: NewsViewModel, onOpenSettings: () -> Unit, modifier: M
                         prepareSearch()
                         viewModel.search(it)
                     },
-                    naverReady = state.credentials.isComplete,
-                    onProvider = viewModel::setProvider,
                     onScope = viewModel::setScope,
                     onTimeRange = viewModel::setTimeRange,
                     onOpenSettings = onOpenSettings
@@ -199,8 +197,6 @@ private fun SearchControls(
     onSearch: () -> Unit,
     settings: AppSettings,
     onKeyword: (String) -> Unit,
-    naverReady: Boolean,
-    onProvider: (NewsProviderType) -> Unit,
     onScope: (OutletScope) -> Unit,
     onTimeRange: (TimeRange) -> Unit,
     onOpenSettings: () -> Unit
@@ -232,7 +228,7 @@ private fun SearchControls(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "${settings.provider.label} · ${settings.outletScope.label} · ${settings.timeRange.label}",
+                "${settings.outletScope.label} · ${settings.timeRange.label}",
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -249,18 +245,6 @@ private fun SearchControls(
             }
         }
         if (filtersExpanded) {
-            FilterTitle("검색 방식", helpDescription = "검색 방식과 네이버 키 발급 도움말") { help = "search" }
-            LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(NewsProviderType.entries) { provider ->
-                    PillChip(
-                        label = provider.label,
-                        selected = settings.provider == provider,
-                        onClick = {
-                            if (provider == NewsProviderType.NAVER && !naverReady) onOpenSettings() else onProvider(provider)
-                        }
-                    )
-                }
-            }
             FilterTitle("언론 범위·기간", helpDescription = "30대 언론 목록과 선정 기준") { help = "outlets" }
             LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(OutletScope.entries) { scope ->
@@ -269,14 +253,6 @@ private fun SearchControls(
                 items(TimeRange.entries) { range ->
                     PillChip(label = range.label, selected = settings.timeRange == range, onClick = { onTimeRange(range) })
                 }
-            }
-            if (settings.provider == NewsProviderType.COMBINED && !naverReady) {
-                Text(
-                    "네이버 키 연결 · 통합 검색 범위 확대",
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSettings).padding(horizontal = 20.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
             }
             Text(
                 "공백·AND: 모두 포함 / OR: 하나 이상 / \"문구\": 정확히 일치",
