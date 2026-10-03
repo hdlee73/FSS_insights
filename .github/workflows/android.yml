@@ -84,3 +84,15 @@ jobs:
               --notes-file RELEASE_NOTES.md
           fi
 
+      - name: Publish test build (pre-release, not a version release)
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete test-build --cleanup-tag --yes >/dev/null 2>&1 || true
+          gh release create test-build \
+            finance-news-radar-v0.5.2.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "테스트 빌드 (정식 릴리스 아님)" \
+            --notes "브랜치 ${GITHUB_REF_NAME} 의 테스트용 APK입니다. 기존 앱 위에 설치하면 업데이트됩니다."
