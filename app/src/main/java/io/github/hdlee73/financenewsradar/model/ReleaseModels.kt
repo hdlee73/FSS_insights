@@ -17,8 +17,8 @@ enum class AgencyId(val label: String, val shortLabel: String, val group: Agency
     /** 사용자가 직접 추가한 연구소(이름·주소는 [CustomInstitute]). */
     CUSTOM("추가한 연구소", "추가", AgencyGroup.RESEARCH, "", "자료");
 
-    /** 처음 보여 줄 최근 자료 수: 보도자료는 10건, 연구자료는 5건. */
-    val latestCount: Int get() = if (group == AgencyGroup.PRESS) 10 else 5
+    /** 처음 보여 줄 최근 자료 수: 보도자료·연구자료 모두 10건. */
+    val latestCount: Int get() = 10
 }
 
 data class ReleaseItem(

@@ -202,8 +202,6 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
     }
 }
 
-private fun Modifier: Modifier = this.then(Modifier)
-
 private fun openFile(context: android.content.Context, file: File, entry: LibraryEntry) {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.articlefiles", file)
     val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, entry.type.ifBlank { "*/*" }).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

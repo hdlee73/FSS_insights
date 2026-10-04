@@ -86,7 +86,7 @@ internal object AgencySources {
 
 class AgencyRepository(private val context: android.content.Context) {
     /** 가장 최근 [count]건. */
-    suspend fun latest(agency: AgencyId, count: Int = 5): List<ReleaseItem> {
+    suspend fun latest(agency: AgencyId, count: Int = 10): List<ReleaseItem> {
         val source = AgencySources.of(agency)
         val items = fetchPage(agency, source, source.listUrl(1, source.pageSize)).toMutableList()
         // 한 페이지에 count건이 안 되면 다음 페이지를 이어 읽는다(실패해도 이미 읽은 것은 보여 준다).
@@ -128,7 +128,7 @@ class AgencyRepository(private val context: android.content.Context) {
             .map { ReleaseItem(agency, it.title, it.url, it.date) }
 
     /** 사용자가 추가한 연구소의 목록(최근 [count]건). 주소 패턴을 모르므로 범용 추출을 쓴다. */
-    suspend fun latestCustom(institute: CustomInstitute, count: Int = 5): List<ReleaseItem> =
+    suspend fun latestCustom(institute: CustomInstitute, count: Int = 10): List<ReleaseItem> =
         fetchParsed(institute.name, institute.url) { body -> HtmlListParser.extractGeneric(body, institute.url) }
             .take(count)
             .map { ReleaseItem(AgencyId.CUSTOM, it.title, it.url, it.date, institute.name) }

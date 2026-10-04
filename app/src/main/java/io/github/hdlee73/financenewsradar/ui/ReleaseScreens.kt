@@ -207,7 +207,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 noun = "자료",
                 group = AgencyGroup.RESEARCH,
                 homeUrl = institute.url,
-                latestCount = 5,
+                latestCount = 10,
                 siteSearchUrl = { query ->
                     val host = runCatching { java.net.URI(institute.url).host }.getOrNull().orEmpty()
                     "https://www.google.com/search?q=site%3A$host+" + java.net.URLEncoder.encode(query, "UTF-8")

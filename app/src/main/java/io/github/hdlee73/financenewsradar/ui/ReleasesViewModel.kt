@@ -175,7 +175,7 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
         customJobs[institute.url]?.cancel()
         customJobs[institute.url] = viewModelScope.launch {
             updateCustom(institute.url) { it.copy(isLoading = true, error = null) }
-            runCatching { repository.latestCustom(institute, 5) }
+            runCatching { repository.latestCustom(institute, 10) }
                 .onSuccess { items ->
                     val key = "CUSTOM_${institute.url}"
                     val links = items.map { it.link }
