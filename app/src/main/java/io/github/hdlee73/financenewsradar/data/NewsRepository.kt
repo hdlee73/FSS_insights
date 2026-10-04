@@ -70,6 +70,22 @@ class NewsRepository {
         )
     }
 
+    /** 맞춤 키워드별 최근 7일 기사 수(언론 범위와 상관없이 전체). */
+    suspend fun trends(settings: AppSettings, credentials: NaverCredentials): List<KeywordTrend> = supervisorScope {
+        NewsSourceInfo.reset()
+        val provider = provider(settings.provider, credentials)
+        settings.keywords.filter { it.isNotBlank() }.map { keyword ->
+            async {
+                val query = runCatching { SearchQueryParser.parse(keyword).providerQueries.first() }.getOrDefault(keyword)
+                runCatching { provider.search(query, io.github.hdlee73.financenewsradar.model.TimeRange.WEEK, 1, KeywordTrend.FETCH_LIMIT) }
+                    .fold(
+                        onSuccess = { KeywordTrend.compute(keyword, it.articles) },
+                        onFailure = { KeywordTrend(keyword, List(KeywordTrend.DAYS) { 0 }, false, it.message ?: "실패") }
+                    )
+            }
+        }.awaitAll()
+    }
+
     private fun provider(type: NewsProviderType, credentials: NaverCredentials): NewsProvider = when (type) {
         NewsProviderType.GOOGLE_RSS -> GoogleNewsRssProvider()
         NewsProviderType.NAVER -> NaverFirstNewsProvider(credentials)

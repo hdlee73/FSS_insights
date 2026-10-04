@@ -59,31 +59,31 @@ jobs:
         run: ./gradlew assembleRelease
       - name: Prepare release files
         run: |
-          cp app/build/outputs/apk/release/app-release.apk finance-news-radar-v0.7.0.apk
-          sha256sum finance-news-radar-v0.7.0.apk > finance-news-radar-v0.7.0.apk.sha256
+          cp app/build/outputs/apk/release/app-release.apk finance-news-radar-v0.8.0.apk
+          sha256sum finance-news-radar-v0.8.0.apk > finance-news-radar-v0.8.0.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: finance-news-radar-apk
           path: |
-            finance-news-radar-v0.7.0.apk
-            finance-news-radar-v0.7.0.apk.sha256
+            finance-news-radar-v0.8.0.apk
+            finance-news-radar-v0.8.0.apk.sha256
       - name: Publish GitHub release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v0.7.0 >/dev/null 2>&1; then
-            gh release edit v0.7.0 --notes-file RELEASE_NOTES.md
-            gh release upload v0.7.0 \
-              finance-news-radar-v0.7.0.apk \
-              finance-news-radar-v0.7.0.apk.sha256 \
+          if gh release view v0.8.0 >/dev/null 2>&1; then
+            gh release edit v0.8.0 --notes-file RELEASE_NOTES.md
+            gh release upload v0.8.0 \
+              finance-news-radar-v0.8.0.apk \
+              finance-news-radar-v0.8.0.apk.sha256 \
               --clobber
           else
-            gh release create v0.7.0 \
-              finance-news-radar-v0.7.0.apk \
-              finance-news-radar-v0.7.0.apk.sha256 \
+            gh release create v0.8.0 \
+              finance-news-radar-v0.8.0.apk \
+              finance-news-radar-v0.8.0.apk.sha256 \
               --target "$GITHUB_SHA" \
-              --title "감독 인사이트 v0.7.0" \
+              --title "감독 인사이트 v0.8.0" \
               --notes-file RELEASE_NOTES.md
           fi
 
@@ -94,7 +94,7 @@ jobs:
         run: |
           gh release delete test-build --cleanup-tag --yes >/dev/null 2>&1 || true
           gh release create test-build \
-            finance-news-radar-v0.7.0.apk \
+            finance-news-radar-v0.8.0.apk \
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "테스트 빌드 (정식 릴리스 아님)" \

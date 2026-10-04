@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -65,9 +66,25 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.launch
 
-/** 뉴스검색 탭: 맞춤 키워드 피드, 직접 검색, 즐겨찾기. */
+/** 뉴스검색 탭: 맞춤 키워드 피드, 직접 검색, 즐겨찾기, 키워드 모니터링. */
 @Composable
 fun NewsScreen(viewModel: NewsViewModel, onOpenSettings: () -> Unit, modifier: Modifier = Modifier) {
+    var monitorOpen by rememberSaveable { mutableStateOf(false) }
+    if (monitorOpen) {
+        androidx.activity.compose.BackHandler { monitorOpen = false }
+        MonitorScreen(
+            viewModel = viewModel,
+            onBack = { monitorOpen = false },
+            onPick = { keyword -> monitorOpen = false; viewModel.search(keyword) },
+            modifier = modifier
+        )
+    } else {
+        NewsMain(viewModel, onOpenSettings, onOpenMonitor = { viewModel.loadTrends(); monitorOpen = true }, modifier = modifier)
+    }
+}
+
+@Composable
+private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpenMonitor: () -> Unit, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -90,11 +107,12 @@ fun NewsScreen(viewModel: NewsViewModel, onOpenSettings: () -> Unit, modifier: M
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "title") {
                 LargeTitle("뉴스") {
+                    IconButton(onClick = onOpenMonitor) { Icon(Icons.Default.Insights, contentDescription = "키워드 모니터링") }
                     IconButton(onClick = viewModel::toggleBookmarksOnly) {
                         Icon(
                             if (state.bookmarksOnly) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                             contentDescription = "즐겨찾기만 보기",
-                            tint = if (state.bookmarksOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            tint = if (state.bookmarksOnly) androidx.compose.ui.graphics.Color(0xFFFFB38F) else androidx.compose.ui.graphics.Color.White
                         )
                     }
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, contentDescription = "설정") }
@@ -353,14 +371,7 @@ private fun ArticleRow(article: NewsArticle, onBookmark: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                article.source,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            TagLabel(article.source.take(12), accent = article.isPriority)
             Text(
                 "  ·  ${relativeTime(article.publishedAt)}",
                 style = MaterialTheme.typography.labelMedium,

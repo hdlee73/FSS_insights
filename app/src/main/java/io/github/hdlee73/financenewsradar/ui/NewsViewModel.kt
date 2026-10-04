@@ -39,7 +39,9 @@ data class NewsUiState(
     val duplicateCount: Int = 0,
     val outletExcludedCount: Int = 0,
     val failedQueryCount: Int = 0,
-    val sourceNote: String? = null
+    val sourceNote: String? = null,
+    val trends: List<io.github.hdlee73.financenewsradar.data.KeywordTrend> = emptyList(),
+    val trendsLoading: Boolean = false
 ) {
     val visibleArticles: List<NewsArticle>
         get() = if (bookmarksOnly) articles.filter { it.isBookmarked } else articles
@@ -85,6 +87,16 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 .onFailure(::handleFailure)
+        }
+    }
+
+    fun loadTrends() {
+        if (_state.value.trendsLoading) return
+        viewModelScope.launch {
+            val snapshot = _state.value
+            _state.update { it.copy(trendsLoading = true) }
+            val result = runCatching { repository.trends(snapshot.settings, snapshot.credentials) }.getOrDefault(emptyList())
+            _state.update { it.copy(trends = result, trendsLoading = false) }
         }
     }
 

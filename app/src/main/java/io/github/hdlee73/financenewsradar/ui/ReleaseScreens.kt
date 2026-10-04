@@ -144,14 +144,14 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
             LargeTitle(group.label) {
                 if (group == AgencyGroup.RESEARCH) {
                     IconButton(onClick = { addOpen = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "연구소 추가", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Default.Add, contentDescription = "연구소 추가")
                     }
                 }
                 IconButton(onClick = { showSaved = !showSaved }) {
                     Icon(
                         if (showSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                         contentDescription = if (showSaved) "저장함 닫기" else "저장함 열기",
-                        tint = if (showSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (showSaved) androidx.compose.ui.graphics.Color(0xFFFFB38F) else androidx.compose.ui.graphics.Color.White
                     )
                 }
             }

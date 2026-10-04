@@ -1,6 +1,12 @@
 package io.github.hdlee73.financenewsradar.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.Color
+import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -44,21 +50,65 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** 화면 맨 위의 큰 제목(스크롤하면 목록과 함께 올라간다). */
+/** 화면 맨 위의 짙은 네이비 헤더 바(스크롤하면 목록과 함께 올라간다). 오른쪽에는 아이콘 동작을 둔다. */
 @Composable
 fun LargeTitle(title: String, modifier: Modifier = Modifier, trailing: @Composable RowScope.() -> Unit = {}) {
     Row(
-        modifier = modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
+        modifier = modifier.fillMaxWidth().background(AppColors.header).heightIn(min = 56.dp).padding(start = 18.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             title,
             modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.onBackground,
+            style = MaterialTheme.typography.titleLarge,
+            color = Color.White,
+            maxLines = 1
+        )
+        CompositionLocalProvider(LocalContentColor provides Color.White) { trailing() }
+    }
+}
+
+/** 회색 띠(구역 사이 간격). 클리앙처럼 블록을 띠로 나눈다. */
+@Composable
+fun SectionBand(height: Dp = 10.dp) {
+    Box(Modifier.fillMaxWidth().height(height).background(MaterialTheme.colorScheme.surfaceVariant))
+}
+
+/** 블록 제목 + 오른쪽 화살표(›). [accent]가 true면 주황색. */
+@Composable
+fun BlockHeader(title: String, modifier: Modifier = Modifier, accent: Boolean = false, trailing: @Composable RowScope.() -> Unit = {}) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 12.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (accent) AppColors.accent else MaterialTheme.colorScheme.secondary,
             maxLines = 1
         )
         trailing()
+    }
+}
+
+/** 제목 앞에 붙는 작은 말머리 라벨(예: 검사, 보도자료). */
+@Composable
+fun TagLabel(text: String, modifier: Modifier = Modifier, accent: Boolean = false) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(4.dp),
+        color = if (accent) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (accent) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
     }
 }
 
@@ -74,7 +124,7 @@ fun UnderlineTabs(labels: List<String>, selectedIndex: Int, onSelect: (Int) -> U
         ) {
             labels.forEachIndexed { index, label ->
                 val selected = index == selectedIndex
-                val underline = if (selected) active else androidx.compose.ui.graphics.Color.Transparent
+                val underline = if (selected) AppColors.accent else androidx.compose.ui.graphics.Color.Transparent
                 Text(
                     label,
                     modifier = Modifier

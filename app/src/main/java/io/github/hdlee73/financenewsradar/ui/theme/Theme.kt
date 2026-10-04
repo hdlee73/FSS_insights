@@ -35,7 +35,7 @@ private val LightColors = lightColorScheme(
     onBackground = Color(0xFF14171C),
     surface = Color(0xFFFFFFFF),
     onSurface = Color(0xFF14171C),
-    surfaceVariant = Color(0xFFF3F4F7),
+    surfaceVariant = Color(0xFFF0F1F4),
     onSurfaceVariant = Color(0xFF6C7482),
     surfaceContainer = Color(0xFFFFFFFF),
     surfaceContainerHigh = Color(0xFFF3F4F7),
@@ -90,6 +90,16 @@ private val AppShapes = Shapes(
     large = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
     extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
 )
+
+/** 상단 바·강조에 쓰는 색(클리앙식 짙은 네이비 헤더 + 주황 포인트). */
+object AppColors {
+    val headerLight = Color(0xFF262F40)
+    val headerDark = Color(0xFF151A23)
+    val accentLight = Color(0xFFE2622B)
+    val accentDark = Color(0xFFFF9A72)
+    val header: Color @Composable get() = if (isSystemInDarkTheme()) headerDark else headerLight
+    val accent: Color @Composable get() = if (isSystemInDarkTheme()) accentDark else accentLight
+}
 
 @Composable
 fun FinanceNewsRadarTheme(content: @Composable () -> Unit) {
