@@ -4,7 +4,7 @@ import java.time.LocalDate
 
 enum class AgencyGroup(val label: String) {
     PRESS("금융당국 보도자료"),
-    RESEARCH("연구소 최근자료")
+    RESEARCH("금융관련 연구원 자료")
 }
 
 /** 보도자료·보고서를 가져오는 기관. [homeUrl]은 기관 목록 페이지(사이트에서 직접 보기용). */

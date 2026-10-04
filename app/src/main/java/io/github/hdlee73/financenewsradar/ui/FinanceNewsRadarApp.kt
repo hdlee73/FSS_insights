@@ -63,10 +63,10 @@ import io.github.hdlee73.financenewsradar.model.AgencyGroup
 private class AppTab(val label: String, val outlined: ImageVector, val filled: ImageVector)
 
 private val appTabs = listOf(
-    AppTab("뉴스", Icons.Outlined.Newspaper, Icons.Filled.Newspaper),
+    AppTab("뉴스\n검색", Icons.Outlined.Newspaper, Icons.Filled.Newspaper),
     AppTab("금융당국\n보도자료", Icons.Outlined.AccountBalance, Icons.Filled.AccountBalance),
-    AppTab("연구자료", Icons.Outlined.MenuBook, Icons.Filled.MenuBook),
-    AppTab("자료실", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
+    AppTab("금융관련\n연구원 자료", Icons.Outlined.MenuBook, Icons.Filled.MenuBook),
+    AppTab("참고자료\n모음", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
     AppTab("금융관련\n주요사이트", Icons.Outlined.Language, Icons.Filled.Language)
 )
 

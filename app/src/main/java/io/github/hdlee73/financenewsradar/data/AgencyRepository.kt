@@ -91,12 +91,14 @@ class AgencyRepository(private val context: android.content.Context) {
         val items = fetchPage(agency, source, source.listUrl(1, source.pageSize)).toMutableList()
         // 한 페이지에 count건이 안 되면 다음 페이지를 이어 읽는다(실패해도 이미 읽은 것은 보여 준다).
         var page = 2
-        while (items.size < count && source.pageable && page <= 3) {
+        val target = if (agency == AgencyId.KCMI || agency == AgencyId.IOSCO) count * 2 else count
+        while (items.size < target && source.pageable && page <= 4) {
             val more = runCatching { fetchPage(agency, source, source.listUrl(page, source.pageSize)) }.getOrNull() ?: break
             items += more.filter { next -> items.none { it.link == next.link } }
             page++
         }
-        return items.take(count)
+        // 날짜가 있는 항목을 최신순으로(날짜 없는 항목은 뒤로). 사이트 목록 순서가 들쭉날쭉해도 '최근 N건'이 되도록.
+        return items.sortedByDescending { it.date }.take(count)
     }
 
     /**

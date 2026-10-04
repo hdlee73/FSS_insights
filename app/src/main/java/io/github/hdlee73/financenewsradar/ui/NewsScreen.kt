@@ -106,7 +106,7 @@ private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpe
     Box(modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "title") {
-                LargeTitle("뉴스") {
+                LargeTitle("뉴스검색") {
                     IconButton(onClick = onOpenMonitor) { Icon(Icons.Default.Insights, contentDescription = "키워드 모니터링") }
                     IconButton(onClick = viewModel::toggleBookmarksOnly) {
                         Icon(

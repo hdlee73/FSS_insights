@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,7 +64,10 @@ data class LibraryUiState(
     val items: List<LibraryEntry> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
-    val busyId: String? = null
+    val busyId: String? = null,
+    val tags: List<String> = emptyList(),
+    /** 비어 있지 않으면 검색 결과 보기. */
+    val query: String = ""
 )
 
 class LibraryViewModel(application: Application) : AndroidViewModel(application) {
@@ -78,12 +82,25 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             runCatching { api.list(path.lastOrNull()?.second) }
-                .onSuccess { l -> _state.update { it.copy(path = path, items = l.items, isLoading = false) } }
+                .onSuccess { l -> _state.update { it.copy(path = path, items = l.items, tags = l.tags, query = "", isLoading = false) } }
                 .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "목록을 불러오지 못했습니다.") } }
         }
     }
 
-    fun refresh() = load(_state.value.path)
+    fun refresh() = if (_state.value.query.isBlank()) load(_state.value.path) else search(_state.value.query)
+
+    fun search(query: String) {
+        val q = query.trim()
+        if (q.isBlank()) { load(_state.value.path); return }
+        viewModelScope.launch {
+            _state.update { it.copy(isLoading = true, error = null, query = q) }
+            runCatching { api.search(q) }
+                .onSuccess { l -> _state.update { it.copy(items = l.items, tags = l.tags.ifEmpty { it.tags }, isLoading = false) } }
+                .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "검색하지 못했습니다.") } }
+        }
+    }
+
+    fun clearSearch() = load(_state.value.path)
     fun enter(folder: LibraryEntry) = load(_state.value.path + (folder.name to folder.id))
     fun up(): Boolean {
         val path = _state.value.path
@@ -130,15 +147,44 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
     androidx.compose.runtime.LaunchedEffect(state.error) {
         state.error?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show(); viewModel.consumeError() }
     }
-    BackHandler(enabled = state.path.isNotEmpty()) { viewModel.up() }
+    var queryText by rememberSaveable { mutableStateOf("") }
+    BackHandler(enabled = state.query.isNotBlank() || state.path.isNotEmpty()) {
+        if (state.query.isNotBlank()) { queryText = ""; viewModel.clearSearch() } else viewModel.up()
+    }
 
     Column(modifier.fillMaxSize()) {
-        LargeTitle("자료실") {
+        LargeTitle("참고자료 모음") {
             IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
         }
         if (!viewModel.isConfigured) {
             CenterMessage("자료실 서버가 아직 연결되지 않았습니다.\n구글 드라이브 연결 설정 후 사용할 수 있습니다.")
             return@Column
+        }
+        Column(
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SearchPill(
+                value = queryText,
+                onValueChange = { queryText = it; if (it.isBlank() && state.query.isNotBlank()) viewModel.clearSearch() },
+                placeholder = "제목·설명·#태그 검색",
+                onSearch = { viewModel.search(queryText) },
+                modifier = Modifier.padding(horizontal = 16.dp),
+                containerColor = MaterialTheme.colorScheme.surface,
+                outlined = true
+            )
+            if (state.tags.isNotEmpty()) {
+                androidx.compose.foundation.lazy.LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(state.tags) { tag ->
+                        PillChip("#$tag", onPanel = true, selected = state.query == "#$tag", onClick = {
+                            queryText = "#$tag"; viewModel.search("#$tag")
+                        })
+                    }
+                }
+            }
         }
         // 현재 위치(폴더 경로)
         Row(
@@ -146,9 +192,10 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("전체", Modifier.clickable { viewModel.goTo(0) }, style = MaterialTheme.typography.labelLarge,
+            if (state.query.isNotBlank()) Text("검색 결과 ${state.items.size}건 · ‘${state.query}’", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = AppColors.accent)
+            else Text("전체", Modifier.clickable { viewModel.goTo(0) }, style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold, color = if (state.path.isEmpty()) AppColors.accent else MaterialTheme.colorScheme.secondary)
-            state.path.forEachIndexed { index, (name, _) ->
+            if (state.query.isBlank()) state.path.forEachIndexed { index, (name, _) ->
                 Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(name, Modifier.clickable { viewModel.goTo(index + 1) }, style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -159,7 +206,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             state.isLoading && state.items.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
             }
-            state.items.isEmpty() -> CenterMessage("이 폴더에는 자료가 없습니다.", actionLabel = "새로고침", onAction = viewModel::refresh)
+            state.items.isEmpty() -> CenterMessage(if (state.query.isNotBlank()) "검색 결과가 없습니다." else "이 폴더에는 자료가 없습니다.", actionLabel = "새로고침", onAction = viewModel::refresh)
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                 items(state.items, key = { it.id }) { entry ->
                     Row(
@@ -178,8 +225,15 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                         )
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(entry.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            if (entry.description.isNotBlank()) Text(
+                                entry.description, style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis
+                            )
+                            if (entry.tags.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                entry.tags.take(4).forEach { TagLabel(it) }
+                            }
                             if (!entry.isFolder) Text(
-                                listOf(sizeText(entry.size), entry.modified.take(10)).filter { it.isNotBlank() }.joinToString(" · "),
+                                listOf(entry.location, sizeText(entry.size), entry.modified.take(10)).filter { it.isNotBlank() }.joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }

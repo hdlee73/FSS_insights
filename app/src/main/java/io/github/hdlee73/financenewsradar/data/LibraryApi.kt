@@ -19,10 +19,14 @@ data class LibraryEntry(
     val size: Long,
     val modified: String,
     /** 이 항목이 들어 있는 폴더 ID(서버가 범위를 확인하는 데 쓴다). */
-    val parent: String = ""
+    val parent: String = "",
+    val description: String = "",
+    val tags: List<String> = emptyList(),
+    /** 검색 결과일 때 파일이 들어 있는 폴더 이름. */
+    val location: String = ""
 )
 
-data class LibraryListing(val folderId: String, val isRoot: Boolean, val items: List<LibraryEntry>)
+data class LibraryListing(val folderId: String, val isRoot: Boolean, val items: List<LibraryEntry>, val tags: List<String> = emptyList())
 
 /** 구글 드라이브 자료실(서버 /library)을 읽는다. 서버가 폴더 범위를 제한하고 키를 보관한다. */
 class LibraryApi(private val context: Context) {
@@ -48,20 +52,36 @@ class LibraryApi(private val context: Context) {
         }
     }
 
-    suspend fun list(folderId: String? = null): LibraryListing = withContext(Dispatchers.IO) {
-        val path = "/list" + if (folderId.isNullOrBlank()) "" else "?folder=" + URLEncoder.encode(folderId, "UTF-8")
-        val root = JSONObject(String(read(open(path)), Charsets.UTF_8))
+    private fun parse(root: JSONObject, folderId: String): LibraryListing {
         val array = root.optJSONArray("items")
         val items = (0 until (array?.length() ?: 0)).map {
             val o = array!!.getJSONObject(it)
+            val tagArray = o.optJSONArray("tags")
             LibraryEntry(
                 id = o.getString("id"), name = o.optString("name"), isFolder = o.optBoolean("folder"),
                 type = o.optString("type"), downloadName = o.optString("downloadName", o.optString("name")),
                 size = o.optLong("size"), modified = o.optString("modified"),
-                parent = root.optString("folder")
+                parent = o.optString("parent", folderId),
+                description = o.optString("description"),
+                tags = (0 until (tagArray?.length() ?: 0)).map { i -> tagArray!!.getString(i) },
+                location = o.optString("location")
             )
         }
-        LibraryListing(root.optString("folder"), root.optBoolean("root"), items)
+        val allTags = root.optJSONArray("tags")
+        return LibraryListing(
+            root.optString("folder", folderId), root.optBoolean("root"), items,
+            (0 until (allTags?.length() ?: 0)).map { allTags!!.getString(it) }
+        )
+    }
+
+    suspend fun list(folderId: String? = null): LibraryListing = withContext(Dispatchers.IO) {
+        val path = "/list" + if (folderId.isNullOrBlank()) "" else "?folder=" + URLEncoder.encode(folderId, "UTF-8")
+        parse(JSONObject(String(read(open(path)), Charsets.UTF_8)), folderId.orEmpty())
+    }
+
+    /** 자료실 전체에서 파일명·설명·#태그로 검색. `#태그`로 시작하면 태그 일치. */
+    suspend fun search(query: String): LibraryListing = withContext(Dispatchers.IO) {
+        parse(JSONObject(String(read(open("/search?q=" + URLEncoder.encode(query, "UTF-8"))), Charsets.UTF_8)), "")
     }
 
     /** 파일을 앱 캐시에 받아 둔다(이미 있으면 재사용). 반환 파일 이름은 안전하게 바꾼 이름. */
