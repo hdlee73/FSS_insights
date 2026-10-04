@@ -85,7 +85,15 @@ class AgencyRepository(private val context: android.content.Context) {
     /** 가장 최근 [count]건. */
     suspend fun latest(agency: AgencyId, count: Int = 5): List<ReleaseItem> {
         val source = AgencySources.of(agency)
-        return fetchPage(agency, source, source.listUrl(1, source.pageSize)).take(count)
+        val items = fetchPage(agency, source, source.listUrl(1, source.pageSize)).toMutableList()
+        // 한 페이지에 count건이 안 되면 다음 페이지를 이어 읽는다(실패해도 이미 읽은 것은 보여 준다).
+        var page = 2
+        while (items.size < count && source.pageable && page <= 3) {
+            val more = runCatching { fetchPage(agency, source, source.listUrl(page, source.pageSize)) }.getOrNull() ?: break
+            items += more.filter { next -> items.none { it.link == next.link } }
+            page++
+        }
+        return items.take(count)
     }
 
     /**
@@ -119,7 +127,7 @@ class AgencyRepository(private val context: android.content.Context) {
         // 1차: 가벼운 HTTP 요청. 2차: 막히거나 목록이 비면 숨은 WebView로 실제 화면의 HTML을 읽는다.
         for (useWebView in listOf(false, true)) {
             val body = try {
-                if (useWebView) WebViewFetcher.get(context, url) else HtmlFetcher.get(url)
+                if (useWebView) WebViewFetcher.get(context, url) { html -> parse(source, html, url).isNotEmpty() } else HtmlFetcher.get(url)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {

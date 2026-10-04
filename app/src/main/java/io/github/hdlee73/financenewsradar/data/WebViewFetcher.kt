@@ -19,9 +19,9 @@ import kotlin.coroutines.resumeWithException
 internal object WebViewFetcher {
     private const val TOTAL_TIMEOUT_MS = 35_000L
     private const val POLL_MS = 1_000L
-    private const val MAX_POLLS = 12
+    private const val MAX_POLLS = 15
 
-    suspend fun get(context: Context, url: String): String = withTimeout(TOTAL_TIMEOUT_MS) {
+    suspend fun get(context: Context, url: String, isReady: (String) -> Boolean = { true }): String = withTimeout(TOTAL_TIMEOUT_MS) {
         suspendCancellableCoroutine { cont ->
             val handler = Handler(Looper.getMainLooper())
             handler.post {
@@ -50,7 +50,8 @@ internal object WebViewFetcher {
                             polls++
                             val blocked = parsed.first.contains("just a moment", true) ||
                                 parsed.first.contains("access denied", true) || parsed.first.contains("attention required", true)
-                            if ((!blocked && parsed.second.length > 3_000) || polls >= MAX_POLLS) {
+                            // 목록을 나중에 불러오는 사이트가 있어, 기대한 내용이 나타날 때까지 기다린다(최대 MAX_POLLS초).
+                            if ((!blocked && parsed.second.length > 3_000 && isReady(parsed.second)) || polls >= MAX_POLLS) {
                                 finish(Result.success(parsed.second))
                             } else {
                                 handler.postDelayed(poll, POLL_MS)

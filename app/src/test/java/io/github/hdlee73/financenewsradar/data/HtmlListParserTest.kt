@@ -150,6 +150,22 @@ class HtmlListParserTest {
     }
 
     @Test
+    fun kifDetailLinksWithDatesAreListed() {
+        val html = """
+            <ul class="list">
+              <li><a href="/kif4/publication/pub_detail?mid=10&amp;nid=867&amp;sid=867&amp;vid=7358&amp;cno=344155">가계부채 관리 방향과 금융안정 과제</a><span class="date">2026-09-19</span></li>
+              <li><a href="/kif4/publication/pub_detail?mid=10&amp;nid=866&amp;sid=866&amp;vid=7357&amp;cno=344100">중소기업 금융 접근성 개선 방안</a><span class="date">2026-09-05</span></li>
+            </ul>
+        """.trimIndent()
+        val source = AgencySources.of(io.github.hdlee73.financenewsradar.model.AgencyId.KIF)
+        val result = HtmlListParser.extract(html, "https://www.kif.re.kr/kif4/publication/pub_list?mid=10", source.linkPattern)
+            .filter { it.date != null }
+        assertEquals(2, result.size)
+        assertEquals("https://www.kif.re.kr/kif4/publication/pub_detail?mid=10&nid=867&sid=867&vid=7358&cno=344155", result[0].url)
+        assertEquals(LocalDate.of(2026, 9, 5), result[1].date)
+    }
+
+    @Test
     fun searchMatchesEveryTokenIgnoringCase() {
         assertTrue(AgencySources.matches("퇴직연금 제도 개편 방안", "퇴직연금 개편"))
         assertTrue(AgencySources.matches("Cyber Resilience Toolkit", "cyber toolkit"))

@@ -13,7 +13,10 @@ enum class AgencyId(val label: String, val shortLabel: String, val group: Agency
     FSC("금융위원회", "금융위원회", AgencyGroup.PRESS, "https://www.fsc.go.kr/no010101", "보도자료"),
     KCMI("자본시장연구원", "자본시장연구원", AgencyGroup.RESEARCH, "https://www.kcmi.re.kr/report/report_list", "보고서"),
     KIF("한국금융연구원", "금융연구원", AgencyGroup.RESEARCH, "https://www.kif.re.kr/kif4/publication/pub_list?mid=10", "보고서"),
-    IOSCO("IOSCO", "IOSCO", AgencyGroup.RESEARCH, "https://www.iosco.org/publications/?subsection=public_reports", "보고서")
+    IOSCO("IOSCO", "IOSCO", AgencyGroup.RESEARCH, "https://www.iosco.org/publications/?subsection=public_reports", "보고서");
+
+    /** 처음 보여 줄 최근 자료 수: 보도자료는 10건, 연구자료는 5건. */
+    val latestCount: Int get() = if (group == AgencyGroup.PRESS) 10 else 5
 }
 
 data class ReleaseItem(

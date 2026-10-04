@@ -65,7 +65,6 @@ import io.github.hdlee73.financenewsradar.model.UsefulLink
 import java.time.format.DateTimeFormatter
 
 private val releaseDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
-private const val LATEST_COUNT = 5
 
 /** 보도자료는 앱 안 보기(PDF 저장·공유 지원)로, 연구자료는 PDF 저장이 필요 없어 외부 브라우저로 바로 연다. */
 internal fun openItem(context: Context, item: ReleaseItem) = openSite(context, item.agency, item.link, item.title)
@@ -168,7 +167,7 @@ private fun LazyListScope.agencyItems(
 
     if (!state.inSearch) {
         item(key = "latest-label") {
-            SectionLabel("최근 ${LATEST_COUNT}건") {
+            SectionLabel("최근 ${agency.latestCount}건") {
                 IconButton(onClick = onRefresh, enabled = !state.isLoading) {
                     Icon(Icons.Default.Refresh, contentDescription = "${agency.label} 새로고침", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

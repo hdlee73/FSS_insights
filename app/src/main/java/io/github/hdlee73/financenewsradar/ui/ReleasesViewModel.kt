@@ -67,7 +67,7 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
         jobs[agency]?.cancel()
         jobs[agency] = viewModelScope.launch {
             update(agency) { it.copy(isLoading = true, error = null) }
-            runCatching { repository.latest(agency) }
+            runCatching { repository.latest(agency, agency.latestCount) }
                 .onSuccess { items ->
                     val links = items.map { it.link }
                     val seen = settingsStore.seenLinks(agency)
