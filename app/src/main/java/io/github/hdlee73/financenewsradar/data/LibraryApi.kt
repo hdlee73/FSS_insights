@@ -17,7 +17,9 @@ data class LibraryEntry(
     val type: String,
     val downloadName: String,
     val size: Long,
-    val modified: String
+    val modified: String,
+    /** 이 항목이 들어 있는 폴더 ID(서버가 범위를 확인하는 데 쓴다). */
+    val parent: String = ""
 )
 
 data class LibraryListing(val folderId: String, val isRoot: Boolean, val items: List<LibraryEntry>)
@@ -55,7 +57,8 @@ class LibraryApi(private val context: Context) {
             LibraryEntry(
                 id = o.getString("id"), name = o.optString("name"), isFolder = o.optBoolean("folder"),
                 type = o.optString("type"), downloadName = o.optString("downloadName", o.optString("name")),
-                size = o.optLong("size"), modified = o.optString("modified")
+                size = o.optLong("size"), modified = o.optString("modified"),
+                parent = root.optString("folder")
             )
         }
         LibraryListing(root.optString("folder"), root.optBoolean("root"), items)
@@ -67,7 +70,7 @@ class LibraryApi(private val context: Context) {
         val safe = entry.downloadName.replace(Regex("[\\\\/:*?\"<>|]"), "_")
         val target = File(dir, "${entry.id.take(8)}_$safe")
         if (!target.exists() || target.length() == 0L) {
-            val bytes = read(open("/file/${entry.id}"))
+            val bytes = read(open("/file/${entry.id}?folder=${URLEncoder.encode(entry.parent, "UTF-8")}"))
             val tmp = File(dir, target.name + ".part")
             tmp.writeBytes(bytes)
             tmp.renameTo(target)

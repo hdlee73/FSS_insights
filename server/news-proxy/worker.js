@@ -65,19 +65,34 @@ async function drive(path, env, params) {
   return fetch(`${DRIVE}${path}?${query}`);
 }
 
-// 요청한 폴더·파일이 지정한 루트 폴더 아래(최대 6단계)에 있을 때만 허용한다.
-async function inside(id, env) {
-  let current = id;
-  for (let depth = 0; depth < 6; depth++) {
-    if (current === env.GDRIVE_FOLDER_ID) return true;
-    const res = await drive(`/${current}`, env, { fields: "parents" });
-    if (!res.ok) return false;
-    const parents = (await res.json()).parents || [];
-    if (parents.includes(env.GDRIVE_FOLDER_ID)) return true;
-    if (parents.length === 0) return false;
-    current = parents[0];
+async function listFolder(folder, env, fields, extra = "") {
+  const res = await drive("", env, {
+    q: `'${folder}' in parents and trashed = false${extra}`,
+    fields: `files(${fields})`,
+    orderBy: "folder,name_natural",
+    pageSize: "300",
+  });
+  if (!res.ok) throw new Error(`드라이브 응답 ${res.status}`);
+  return (await res.json()).files || [];
+}
+
+// 지정한 루트 폴더와 그 아래 하위 폴더(최대 4단계, 60개)의 ID 목록. 1분간 기억한다.
+// (API 키로는 파일의 parents 값을 읽을 수 없어서 위에서부터 내려가며 확인한다.)
+let allowedCache = { at: 0, root: "", ids: new Set() };
+async function allowedFolders(env) {
+  if (allowedCache.root === env.GDRIVE_FOLDER_ID && Date.now() - allowedCache.at < 60000) return allowedCache.ids;
+  const ids = new Set([env.GDRIVE_FOLDER_ID]);
+  let level = [env.GDRIVE_FOLDER_ID];
+  for (let depth = 0; depth < 4 && level.length && ids.size < 60; depth++) {
+    const next = [];
+    for (const folder of level) {
+      const subs = await listFolder(folder, env, "id", ` and mimeType = '${FOLDER}'`);
+      for (const f of subs) if (!ids.has(f.id) && ids.size < 60) { ids.add(f.id); next.push(f.id); }
+    }
+    level = next;
   }
-  return false;
+  allowedCache = { at: Date.now(), root: env.GDRIVE_FOLDER_ID, ids };
+  return ids;
 }
 
 async function library(url, env) {
@@ -87,7 +102,7 @@ async function library(url, env) {
   if (path === "/list") {
     const folder = url.searchParams.get("folder") || env.GDRIVE_FOLDER_ID;
     if (!ID.test(folder)) return fail(400, "잘못된 폴더입니다.");
-    if (folder !== env.GDRIVE_FOLDER_ID && !(await inside(folder, env))) return fail(403, "자료실 밖의 폴더입니다.");
+    if (!(await allowedFolders(env)).has(folder)) return fail(403, "자료실 밖의 폴더입니다.");
     const res = await drive("", env, {
       q: `'${folder}' in parents and trashed = false`,
       fields: "files(id,name,mimeType,size,modifiedTime)",
@@ -118,7 +133,10 @@ async function library(url, env) {
   if (m) {
     const id = m[1];
     if (!ID.test(id)) return fail(400, "잘못된 파일입니다.");
-    if (!(await inside(id, env))) return fail(403, "자료실 밖의 파일입니다.");
+    // 앱이 목록에서 본 폴더(?folder=)를 알려 주면, 그 폴더가 자료실 안이고 파일이 실제로 그 안에 있을 때만 내준다.
+    const parent = url.searchParams.get("folder") || "";
+    if (!ID.test(parent) || !(await allowedFolders(env)).has(parent)) return fail(403, "자료실 밖의 파일입니다.");
+    if (!(await listFolder(parent, env, "id")).some((f) => f.id === id)) return fail(403, "자료실 밖의 파일입니다.");
     const metaRes = await drive(`/${id}`, env, { fields: "name,mimeType,size" });
     if (!metaRes.ok) return fail(404, "파일을 찾을 수 없습니다.");
     const meta = await metaRes.json();
