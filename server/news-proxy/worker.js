@@ -76,22 +76,31 @@ function splitDescription(text) {
   return { tags: [...new Set(tags)], body };
 }
 
+// 파일 이름 속 #태그("제목 #검사 #자산운용.pdf")도 태그로 읽고, 이름에서는 뺀다.
+function splitName(name) {
+  const tags = [];
+  const clean = String(name || "").replace(/(^|\s)#([^\s#.]{1,20})/g, (m, sp, tag) => { tags.push(tag); return sp; }).replace(/\s+(\.[A-Za-z0-9]+)$/, "$1").replace(/\s+/g, " ").trim();
+  return { tags, name: clean || name };
+}
+
 function toItem(f, parent) {
   const isFolder = f.mimeType === FOLDER;
   const exp = EXPORTS[f.mimeType];
   const native = f.mimeType.startsWith("application/vnd.google-apps.");
   if (!isFolder && native && !exp) return null; // 바로가기·양식 등 내려받을 수 없는 형식은 숨김
   const d = splitDescription(f.description);
+  const n = splitName(f.name);
+  const name = n.name;
   return {
     id: f.id,
-    name: f.name,
+    name,
     folder: isFolder,
     type: exp ? exp[0] : f.mimeType,
-    downloadName: exp && !f.name.toLowerCase().endsWith(exp[1]) ? f.name + exp[1] : f.name,
+    downloadName: exp && !name.toLowerCase().endsWith(exp[1]) ? name + exp[1] : name,
     size: Number(f.size || 0),
     modified: f.modifiedTime || "",
     description: d.body,
-    tags: d.tags,
+    tags: [...new Set([...n.tags, ...d.tags])],
     parent,
   };
 }

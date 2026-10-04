@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Refresh
@@ -144,6 +144,16 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
         cachedForSave = null
     }
 
+    // 누르면 '다운로드' 폴더에 저장한다(안드로이드 10+는 바로, 그 아래 버전은 저장 위치를 묻는다).
+    val download: (File, LibraryEntry) -> Unit = { file, entry ->
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            val ok = runCatching { saveToDownloads(context, file, entry) }.getOrDefault(false)
+            Toast.makeText(context, if (ok) "다운로드 폴더에 저장했습니다: ${entry.downloadName}" else "저장하지 못했습니다.", Toast.LENGTH_LONG).show()
+        } else {
+            cachedForSave = file; pendingSave = entry; saver.launch(entry.downloadName)
+        }
+    }
+
     androidx.compose.runtime.LaunchedEffect(state.error) {
         state.error?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show(); viewModel.consumeError() }
     }
@@ -212,7 +222,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             if (entry.isFolder) viewModel.enter(entry)
-                            else scope.launch { viewModel.fetch(entry)?.let { openFile(context, it, entry) } }
+                            else scope.launch { viewModel.fetch(entry)?.let { download(it, entry) } }
                         }.padding(start = 18.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -242,10 +252,8 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                                 CircularProgressIndicator(Modifier.padding(12.dp).size(22.dp), strokeWidth = 2.dp)
                             } else {
                                 IconButton(onClick = {
-                                    scope.launch {
-                                        viewModel.fetch(entry)?.let { cachedForSave = it; pendingSave = entry; saver.launch(entry.downloadName) }
-                                    }
-                                }) { Icon(Icons.Default.Download, contentDescription = "기기에 저장", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                    scope.launch { viewModel.fetch(entry)?.let { openFile(context, it, entry) } }
+                                }) { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "열기", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
                         }
                     }
@@ -254,6 +262,19 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+@androidx.annotation.RequiresApi(29)
+private fun saveToDownloads(context: android.content.Context, file: File, entry: LibraryEntry): Boolean {
+    val values = android.content.ContentValues().apply {
+        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, entry.downloadName)
+        put(android.provider.MediaStore.Downloads.MIME_TYPE, entry.type.ifBlank { "application/octet-stream" })
+        put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/FSS Insights")
+    }
+    val resolver = context.contentResolver
+    val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
+    resolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } } ?: return false
+    return true
 }
 
 private fun openFile(context: android.content.Context, file: File, entry: LibraryEntry) {
