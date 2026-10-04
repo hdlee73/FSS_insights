@@ -27,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +65,19 @@ fun LargeTitle(title: String, modifier: Modifier = Modifier, trailing: @Composab
             color = Color.White,
             maxLines = 1
         )
+        CompositionLocalProvider(LocalContentColor provides Color.White) { trailing() }
+    }
+}
+
+/** 뒤로가기가 있는 네이비 헤더. */
+@Composable
+internal fun BackHeader(title: String, onBack: () -> Unit, trailing: @Composable RowScope.() -> Unit = {}) {
+    Row(
+        Modifier.fillMaxWidth().background(AppColors.header).height(56.dp).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로", tint = Color.White) }
+        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = Color.White, maxLines = 1)
         CompositionLocalProvider(LocalContentColor provides Color.White) { trailing() }
     }
 }

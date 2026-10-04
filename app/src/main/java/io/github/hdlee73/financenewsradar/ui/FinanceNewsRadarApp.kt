@@ -19,12 +19,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.outlined.AccountBalance
-import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Newspaper
@@ -66,7 +66,7 @@ private val appTabs = listOf(
     AppTab("뉴스", Icons.Outlined.Newspaper, Icons.Filled.Newspaper),
     AppTab("금융당국\n보도자료", Icons.Outlined.AccountBalance, Icons.Filled.AccountBalance),
     AppTab("연구자료", Icons.Outlined.MenuBook, Icons.Filled.MenuBook),
-    AppTab("감독·검사\n팁", Icons.Outlined.Forum, Icons.Filled.Forum),
+    AppTab("자료실", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
     AppTab("금융관련\n주요사이트", Icons.Outlined.Language, Icons.Filled.Language)
 )
 
@@ -75,7 +75,7 @@ private val appTabs = listOf(
 fun FinanceNewsRadarApp(
     newsViewModel: NewsViewModel = viewModel(),
     releasesViewModel: ReleasesViewModel = viewModel(),
-    boardViewModel: BoardViewModel = viewModel()
+    libraryViewModel: LibraryViewModel = viewModel()
 ) {
     val newsState by newsViewModel.state.collectAsStateWithLifecycle()
     val releases by releasesViewModel.state.collectAsStateWithLifecycle()
@@ -123,7 +123,7 @@ fun FinanceNewsRadarApp(
                     0 -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     1 -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
                     2 -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
-                    3 -> BoardScreen(boardViewModel)
+                    3 -> LibraryScreen(libraryViewModel)
                     else -> SitesScreen(
                         links = releases.links,
                         onSave = releasesViewModel::saveLinks,
