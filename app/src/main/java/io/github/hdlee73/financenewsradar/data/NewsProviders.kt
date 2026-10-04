@@ -82,17 +82,31 @@ class NaverNewsProvider(private val credentials: NaverCredentials) : NewsProvide
         }
 }
 
+/** 마지막 검색에서 실제로 쓰인 경로. 네이버가 조용히 Google로 대체되는 일을 화면에서 확인하기 위한 기록. */
+internal object NewsSourceInfo {
+    @Volatile private var fallback: String? = null
+    @Volatile private var naverOk = false
+    fun reset() { fallback = null; naverOk = false }
+    fun naverUsed() { naverOk = true }
+    fun fellBack(reason: String) { if (fallback == null) fallback = reason }
+    fun take(): String? = fallback ?: if (naverOk) "네이버 API" else null
+}
+
 /** 네이버를 먼저 쓰고, 서버가 없거나 실패하면 Google 뉴스로 대신 검색한다. */
 class NaverFirstNewsProvider(private val credentials: NaverCredentials) : NewsProvider {
     override suspend fun search(query: String, timeRange: TimeRange, start: Int, pageSize: Int): SearchPage {
         val google = GoogleNewsRssProvider()
-        if (!NewsProxy.naverAvailable(credentials)) return google.search(query, timeRange, start, pageSize)
+        if (!NewsProxy.naverAvailable(credentials)) {
+            NewsSourceInfo.fellBack("Google 뉴스 (네이버 서버 주소가 앱에 설정되지 않음)")
+            return google.search(query, timeRange, start, pageSize)
+        }
         return try {
-            NaverNewsProvider(credentials).search(query, timeRange, start, pageSize)
+            NaverNewsProvider(credentials).search(query, timeRange, start, pageSize).also { NewsSourceInfo.naverUsed() }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             if (start > 1) throw e
+            NewsSourceInfo.fellBack("Google 뉴스 (네이버 오류로 대체: ${e.message?.take(80) ?: e.javaClass.simpleName})")
             google.search(query, timeRange, start, pageSize)
         }
     }

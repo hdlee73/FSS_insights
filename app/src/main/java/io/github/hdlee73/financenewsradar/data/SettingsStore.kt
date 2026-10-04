@@ -8,6 +8,7 @@ import io.github.hdlee73.financenewsradar.model.AgencyId
 import io.github.hdlee73.financenewsradar.model.AppSettings
 import io.github.hdlee73.financenewsradar.model.NaverApiType
 import io.github.hdlee73.financenewsradar.model.NaverCredentials
+import io.github.hdlee73.financenewsradar.model.CustomInstitute
 import io.github.hdlee73.financenewsradar.model.NewsProviderType
 import io.github.hdlee73.financenewsradar.model.OutletScope
 import io.github.hdlee73.financenewsradar.model.ReleaseItem
@@ -109,12 +110,29 @@ class SettingsStore(context: Context) {
     }
 
     /** 기관별로 이미 본 자료 링크. 한 번도 저장한 적이 없으면 null(첫 실행이라 NEW 표시를 하지 않는다). */
-    fun seenLinks(agency: AgencyId): List<String>? =
-        preferences.getString("$SEEN_PREFIX${agency.name}", null)?.split(KEYWORD_SEPARATOR)?.filter { it.isNotBlank() }
+    fun seenLinks(agency: AgencyId): List<String>? = seenLinks(agency.name)
 
-    fun saveSeenLinks(agency: AgencyId, links: List<String>) {
+    fun saveSeenLinks(agency: AgencyId, links: List<String>) = saveSeenLinks(agency.name, links)
+
+    fun seenLinks(key: String): List<String>? =
+        preferences.getString("$SEEN_PREFIX$key", null)?.split(KEYWORD_SEPARATOR)?.filter { it.isNotBlank() }
+
+    fun saveSeenLinks(key: String, links: List<String>) {
         preferences.edit()
-            .putString("$SEEN_PREFIX${agency.name}", links.distinct().takeLast(300).joinToString(KEYWORD_SEPARATOR))
+            .putString("$SEEN_PREFIX$key", links.distinct().takeLast(300).joinToString(KEYWORD_SEPARATOR))
+            .apply()
+    }
+
+    /** 사용자가 추가한 연구소(이름, 주소). */
+    fun loadInstitutes(): List<CustomInstitute> =
+        preferences.getString(INSTITUTES, null)?.split(RECORD_SEPARATOR)?.mapNotNull { record ->
+            val parts = record.split(KEYWORD_SEPARATOR)
+            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) CustomInstitute(parts[0], parts[1]) else null
+        }.orEmpty()
+
+    fun saveInstitutes(items: List<CustomInstitute>) {
+        preferences.edit()
+            .putString(INSTITUTES, items.joinToString(RECORD_SEPARATOR) { "${it.name}$KEYWORD_SEPARATOR${it.url}" })
             .apply()
     }
 
@@ -122,15 +140,19 @@ class SettingsStore(context: Context) {
     fun savedReleases(): List<ReleaseItem> =
         preferences.getString(SAVED_RELEASES, null)?.split(RECORD_SEPARATOR)?.mapNotNull { record ->
             val parts = record.split(KEYWORD_SEPARATOR)
-            if (parts.size != 4) return@mapNotNull null
+            if (parts.size != 4 && parts.size != 5) return@mapNotNull null
             val agency = AgencyId.entries.firstOrNull { it.name == parts[0] } ?: return@mapNotNull null
-            ReleaseItem(agency, parts[1], parts[2], parts[3].takeIf { it.isNotBlank() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() })
+            ReleaseItem(
+                agency, parts[1], parts[2],
+                parts[3].takeIf { it.isNotBlank() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
+                parts.getOrNull(4)?.takeIf { it.isNotBlank() }
+            )
         }.orEmpty()
 
     fun saveReleases(items: List<ReleaseItem>) {
         preferences.edit()
             .putString(SAVED_RELEASES, items.joinToString(RECORD_SEPARATOR) {
-                listOf(it.agency.name, it.title, it.link, it.date?.toString().orEmpty()).joinToString(KEYWORD_SEPARATOR)
+                listOf(it.agency.name, it.title, it.link, it.date?.toString().orEmpty(), it.sourceLabel.orEmpty()).joinToString(KEYWORD_SEPARATOR)
             })
             .apply()
     }
@@ -142,6 +164,7 @@ class SettingsStore(context: Context) {
         enumValues<T>().firstOrNull { it.name == raw } ?: fallback
 
     companion object {
+        private const val INSTITUTES = "custom_institutes"
         private const val KEYWORDS = "keywords"
         private const val PROVIDER = "provider"
         private const val SCOPE = "scope"

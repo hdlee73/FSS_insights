@@ -38,7 +38,8 @@ data class NewsUiState(
     val fetchedCount: Int = 0,
     val duplicateCount: Int = 0,
     val outletExcludedCount: Int = 0,
-    val failedQueryCount: Int = 0
+    val failedQueryCount: Int = 0,
+    val sourceNote: String? = null
 ) {
     val visibleArticles: List<NewsArticle>
         get() = if (bookmarksOnly) articles.filter { it.isBookmarked } else articles
@@ -78,7 +79,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                             fetchedCount = page.fetchedCount,
                             duplicateCount = page.duplicateCount,
                             outletExcludedCount = page.outletExcludedCount,
-                            failedQueryCount = page.failedQueryCount
+                            failedQueryCount = page.failedQueryCount,
+                            sourceNote = page.sourceNote
                         )
                     }
                 }
@@ -114,7 +116,8 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                             fetchedCount = page.fetchedCount,
                             duplicateCount = page.duplicateCount,
                             outletExcludedCount = page.outletExcludedCount,
-                            failedQueryCount = page.failedQueryCount
+                            failedQueryCount = page.failedQueryCount,
+                            sourceNote = page.sourceNote
                         )
                     }
                 }

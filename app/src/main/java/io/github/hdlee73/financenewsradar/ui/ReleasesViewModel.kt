@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.AgencyRepository
 import io.github.hdlee73.financenewsradar.data.SettingsStore
 import io.github.hdlee73.financenewsradar.model.AgencyId
+import io.github.hdlee73.financenewsradar.model.CustomInstitute
 import io.github.hdlee73.financenewsradar.model.ReleaseItem
 import io.github.hdlee73.financenewsradar.model.UsefulLink
 import kotlinx.coroutines.CancellationException
@@ -37,9 +38,13 @@ data class AgencyUiState(
 data class ReleasesUiState(
     val agencies: Map<AgencyId, AgencyUiState> = AgencyId.entries.associateWith { AgencyUiState() },
     val links: List<UsefulLink> = emptyList(),
-    val saved: List<ReleaseItem> = emptyList()
+    val saved: List<ReleaseItem> = emptyList(),
+    /** 사용자가 추가한 연구소와, 주소별 화면 상태. */
+    val institutes: List<CustomInstitute> = emptyList(),
+    val custom: Map<String, AgencyUiState> = emptyMap()
 ) {
     fun of(agency: AgencyId): AgencyUiState = agencies[agency] ?: AgencyUiState()
+    fun ofCustom(url: String): AgencyUiState = custom[url] ?: AgencyUiState()
     val savedLinks: Set<String> get() = saved.map { it.link }.toSet()
 }
 
@@ -47,9 +52,10 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
     private val settingsStore = SettingsStore(application)
     private val repository = AgencyRepository(application)
     private val jobs = mutableMapOf<AgencyId, Job>()
+    private val customJobs = mutableMapOf<String, Job>()
 
     private val _state = MutableStateFlow(
-        ReleasesUiState(links = settingsStore.loadLinks(), saved = settingsStore.savedReleases())
+        ReleasesUiState(links = settingsStore.loadLinks(), saved = settingsStore.savedReleases(), institutes = settingsStore.loadInstitutes())
     )
     val state: StateFlow<ReleasesUiState> = _state.asStateFlow()
 
@@ -137,6 +143,74 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
         val next = if (current.any { it.link == item.link }) current.filter { it.link != item.link } else listOf(item) + current
         settingsStore.saveReleases(next)
         _state.update { it.copy(saved = next) }
+    }
+
+    // ---- 사용자가 추가한 연구소 ----
+    private fun updateCustom(url: String, change: (AgencyUiState) -> AgencyUiState) {
+        _state.update { it.copy(custom = it.custom + (url to change(it.ofCustom(url)))) }
+    }
+
+    fun addInstitute(name: String, rawUrl: String) {
+        val url = normalizeUrl(rawUrl)
+        val clean = name.trim()
+        if (clean.isBlank() || url.isBlank()) return
+        val next = _state.value.institutes.filter { it.url != url } + CustomInstitute(clean, url)
+        settingsStore.saveInstitutes(next)
+        _state.update { it.copy(institutes = next) }
+    }
+
+    fun removeInstitute(institute: CustomInstitute) {
+        customJobs.remove(institute.url)?.cancel()
+        val next = _state.value.institutes.filter { it.url != institute.url }
+        settingsStore.saveInstitutes(next)
+        _state.update { it.copy(institutes = next, custom = it.custom - institute.url) }
+    }
+
+    fun ensureCustom(institute: CustomInstitute) {
+        val current = _state.value.ofCustom(institute.url)
+        if (!current.latestLoaded && !current.isLoading) refreshCustom(institute)
+    }
+
+    fun refreshCustom(institute: CustomInstitute) {
+        customJobs[institute.url]?.cancel()
+        customJobs[institute.url] = viewModelScope.launch {
+            updateCustom(institute.url) { it.copy(isLoading = true, error = null) }
+            runCatching { repository.latestCustom(institute, 5) }
+                .onSuccess { items ->
+                    val key = "CUSTOM_${institute.url}"
+                    val links = items.map { it.link }
+                    val seen = settingsStore.seenLinks(key)
+                    val fresh = if (seen == null) emptySet() else links.filter { it !in seen }.toSet()
+                    settingsStore.saveSeenLinks(key, seen.orEmpty() + links)
+                    updateCustom(institute.url) {
+                        it.copy(latest = items, latestLoaded = true, isLoading = false, newLinks = (it.newLinks + fresh).intersect(links.toSet()))
+                    }
+                }
+                .onFailure { e ->
+                    if (e is CancellationException) return@onFailure
+                    updateCustom(institute.url) { it.copy(isLoading = false, latestLoaded = true, error = friendly(e)) }
+                }
+        }
+    }
+
+    fun searchCustom(institute: CustomInstitute, query: String) {
+        val clean = query.trim()
+        if (clean.isBlank()) return
+        customJobs[institute.url]?.cancel()
+        customJobs[institute.url] = viewModelScope.launch {
+            updateCustom(institute.url) { it.copy(searchQuery = clean, results = emptyList(), isSearching = true, searchError = null, canLoadMore = false) }
+            runCatching { repository.searchCustom(institute, clean) }
+                .onSuccess { items -> updateCustom(institute.url) { it.copy(results = items, isSearching = false) } }
+                .onFailure { e ->
+                    if (e is CancellationException) return@onFailure
+                    updateCustom(institute.url) { it.copy(isSearching = false, searchError = friendly(e)) }
+                }
+        }
+    }
+
+    fun clearCustomSearch(institute: CustomInstitute) {
+        customJobs[institute.url]?.cancel()
+        updateCustom(institute.url) { it.copy(searchQuery = "", results = emptyList(), isSearching = false, searchError = null) }
     }
 
     fun saveLinks(links: List<UsefulLink>) {

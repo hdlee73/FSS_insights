@@ -17,6 +17,7 @@ class NewsRepository {
         credentials: NaverCredentials,
         start: Int = 1
     ): SearchPage = supervisorScope {
+        NewsSourceInfo.reset()
         val provider = provider(settings.provider, credentials)
         val plan = SearchQueryParser.parse(query)
         val results = plan.providerQueries.map { providerQuery ->
@@ -34,11 +35,13 @@ class NewsRepository {
             fetchedCount = fetched.size,
             duplicateCount = refined.duplicateCount,
             outletExcludedCount = refined.outletExcludedCount,
+            sourceNote = if (settings.provider == NewsProviderType.NAVER) NewsSourceInfo.take() else "Google 뉴스",
             failedQueryCount = results.count { it.isFailure } + pages.sumOf { it.failedQueryCount }
         )
     }
 
     suspend fun home(settings: AppSettings, credentials: NaverCredentials): SearchPage = supervisorScope {
+        NewsSourceInfo.reset()
         val provider = provider(settings.provider, credentials)
         val queries = settings.keywords
             .filter { it.isNotBlank() }
@@ -62,6 +65,7 @@ class NewsRepository {
             fetchedCount = fetched.size,
             duplicateCount = refined.duplicateCount,
             outletExcludedCount = refined.outletExcludedCount,
+            sourceNote = if (settings.provider == NewsProviderType.NAVER) NewsSourceInfo.take() else "Google 뉴스",
             failedQueryCount = results.count { it.isFailure } + pages.sumOf { it.failedQueryCount }
         )
     }

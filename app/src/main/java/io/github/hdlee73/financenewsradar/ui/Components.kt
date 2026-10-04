@@ -102,9 +102,16 @@ fun SearchPill(
     placeholder: String,
     onSearch: () -> Unit,
     modifier: Modifier = Modifier,
-    description: String = "검색어"
+    description: String = "검색어",
+    containerColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.surfaceVariant,
+    outlined: Boolean = false
 ) {
-    Surface(modifier = modifier, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = containerColor,
+        border = if (outlined) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
+    ) {
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -136,13 +143,21 @@ fun SearchPill(
 
 /** 둥근 알약 모양 칩(키워드·필터). */
 @Composable
-fun PillChip(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false) {
+fun PillChip(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onPanel: Boolean = false
+) {
     Surface(
         onClick = onClick,
         modifier = modifier,
         shape = RoundedCornerShape(50),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-        border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)) else null
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer
+        else if (onPanel) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant,
+        border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+        else if (onPanel) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
     ) {
         Text(
             label,

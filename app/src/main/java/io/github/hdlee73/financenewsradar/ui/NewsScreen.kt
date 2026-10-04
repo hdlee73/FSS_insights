@@ -1,5 +1,6 @@
 package io.github.hdlee73.financenewsradar.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -132,6 +133,7 @@ fun NewsScreen(viewModel: NewsViewModel, onOpenSettings: () -> Unit, modifier: M
                     duplicateCount = state.duplicateCount,
                     outletExcludedCount = state.outletExcludedCount,
                     failedQueryCount = state.failedQueryCount,
+                    sourceNote = state.sourceNote,
                     onHome = {
                         queryText = ""
                         prepareSearch()
@@ -205,9 +207,19 @@ private fun SearchControls(
     help?.let { topic ->
         SearchHelpDialog(topic, onDismiss = { help = null }, onOpenSettings = { help = null; onOpenSettings() })
     }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    // 검색 조건 영역: 색이 다른 패널로 감싸 아래 '결과'와 확실히 구분한다.
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant,
+                androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+            )
+            .padding(top = 10.dp, bottom = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -216,12 +228,14 @@ private fun SearchControls(
                 onValueChange = onQueryChange,
                 placeholder = "키워드·회사명 검색",
                 onSearch = onSearch,
+                containerColor = MaterialTheme.colorScheme.surface,
+                outlined = true,
                 modifier = Modifier.weight(1f)
             )
             TextButton(onClick = onSearch, enabled = query.isNotBlank()) { Text("검색", fontWeight = FontWeight.SemiBold) }
         }
         LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(settings.keywords) { keyword -> PillChip(label = keyword, onClick = { onKeyword(keyword) }) }
+            items(settings.keywords) { keyword -> PillChip(label = keyword, onPanel = true, onClick = { onKeyword(keyword) }) }
         }
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
@@ -248,10 +262,10 @@ private fun SearchControls(
             FilterTitle("언론 범위·기간", helpDescription = "30대 언론 목록과 선정 기준") { help = "outlets" }
             LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(OutletScope.entries) { scope ->
-                    PillChip(label = scope.label, selected = settings.outletScope == scope, onClick = { onScope(scope) })
+                    PillChip(label = scope.label, onPanel = true, selected = settings.outletScope == scope, onClick = { onScope(scope) })
                 }
                 items(TimeRange.entries) { range ->
-                    PillChip(label = range.label, selected = settings.timeRange == range, onClick = { onTimeRange(range) })
+                    PillChip(label = range.label, onPanel = true, selected = settings.timeRange == range, onClick = { onTimeRange(range) })
                 }
             }
             Text(
@@ -284,16 +298,17 @@ private fun ResultHeader(
     duplicateCount: Int,
     outletExcludedCount: Int,
     failedQueryCount: Int,
+    sourceNote: String?,
     onHome: () -> Unit,
     onRefresh: () -> Unit
 ) {
     var detailsExpanded by rememberSaveable(title) { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 6.dp)) {
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).clickable { detailsExpanded = !detailsExpanded }.padding(vertical = 4.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    "${count}건 표시 · 상세 ${if (detailsExpanded) "▴" else "▾"}",
+                    "${count}건 · ${if (bookmarksOnly) "즐겨찾기" else (sourceNote?.substringBefore(" (") ?: provider.label)} · 상세 ${if (detailsExpanded) "▴" else "▾"}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -303,10 +318,10 @@ private fun ResultHeader(
         }
         if (detailsExpanded) {
             val resultSummary = if (bookmarksOnly) {
-                "${provider.label} · 즐겨찾기 ${count}건"
+                "즐겨찾기 ${count}건"
             } else {
                 buildString {
-                    append("${provider.label} · 가져온 ${fetchedCount}건 중 ${count}건 표시")
+                    append("${sourceNote ?: provider.label} · 가져온 ${fetchedCount}건 중 ${count}건 표시")
                     if (duplicateCount > 0) append(" · 중복 ${duplicateCount}건 제외")
                     if (outletExcludedCount > 0) append(" · 언론 범위 ${outletExcludedCount}건 제외")
                     if (failedQueryCount > 0) append(" · 일부 검색 ${failedQueryCount}건 실패")

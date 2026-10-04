@@ -60,6 +60,7 @@ import io.github.hdlee73.financenewsradar.ArticleReaderActivity
 import io.github.hdlee73.financenewsradar.data.AgencySources
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.model.AgencyId
+import io.github.hdlee73.financenewsradar.model.CustomInstitute
 import io.github.hdlee73.financenewsradar.model.ReleaseItem
 import io.github.hdlee73.financenewsradar.model.UsefulLink
 import java.time.format.DateTimeFormatter
@@ -69,9 +70,16 @@ private val releaseDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("
 /** 보도자료는 앱 안 보기(PDF 저장·공유 지원)로, 연구자료는 PDF 저장이 필요 없어 외부 브라우저로 바로 연다. */
 internal fun openItem(context: Context, item: ReleaseItem) = openSite(context, item.agency, item.link, item.title)
 
-internal fun openSite(context: Context, agency: AgencyId, url: String, title: String) {
-    if (agency.group == AgencyGroup.RESEARCH) openExternal(context, url) else ArticleReaderActivity.open(context, url, title)
+internal fun openSite(context: Context, agency: AgencyId, url: String, title: String) = openSite(context, agency.group, url, title)
+
+internal fun openSite(context: Context, group: AgencyGroup, url: String, title: String) {
+    if (group == AgencyGroup.RESEARCH) openExternal(context, url) else ArticleReaderActivity.open(context, url, title)
 }
+
+/** KIF처럼 "2026-09"(년-월)만 알 수 있는 항목은 일(日)을 빼고 보여 준다. */
+internal fun ReleaseItem.dateText(): String? = date?.format(
+    if (agency == AgencyId.KIF) DateTimeFormatter.ofPattern("yyyy.MM") else releaseDateFormat
+)
 
 internal fun openExternal(context: Context, url: String) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
@@ -80,8 +88,8 @@ internal fun openExternal(context: Context, url: String) {
 
 /** 메신저에 붙여 넣기 좋은 "[기관] 제목 (날짜)\n링크" 형식으로 공유한다. */
 internal fun shareItem(context: Context, item: ReleaseItem) {
-    val date = item.date?.let { " (${it.format(releaseDateFormat)})" }.orEmpty()
-    val text = "[${item.agency.shortLabel}] ${item.title}$date\n${item.link}"
+    val date = item.dateText()?.let { " ($it)" }.orEmpty()
+    val text = "[${item.label}] ${item.title}$date\n${item.link}"
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, text)
@@ -94,17 +102,51 @@ internal fun shareItem(context: Context, item: ReleaseItem) {
 fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val agencies = remember(group) { AgencyId.entries.filter { it.group == group } }
+    val agencies = remember(group) { AgencyId.entries.filter { it.group == group && it != AgencyId.CUSTOM } }
+    val institutes = if (group == AgencyGroup.RESEARCH) state.institutes else emptyList()
     var selected by rememberSaveable(group.name) { mutableIntStateOf(0) }
     var clearTick by remember { mutableIntStateOf(0) }
     var showSaved by rememberSaveable(group.name + "-saved") { mutableStateOf(false) }
+    var addOpen by rememberSaveable { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<CustomInstitute?>(null) }
+    if (selected >= agencies.size + institutes.size) selected = 0
     val agency = if (showSaved) null else agencies.getOrNull(selected)
+    val institute = if (showSaved) null else institutes.getOrNull(selected - agencies.size)
     val savedLinks = state.savedLinks
     LaunchedEffect(agency) { agency?.let(viewModel::ensureLatest) }
+    LaunchedEffect(institute?.url) { institute?.let(viewModel::ensureCustom) }
+
+    if (addOpen) {
+        AddInstituteDialog(
+            onDismiss = { addOpen = false },
+            onAdd = { name, url ->
+                viewModel.addInstitute(name, url)
+                addOpen = false
+                showSaved = false
+                selected = agencies.size + institutes.size
+            }
+        )
+    }
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("${target.name} 삭제") },
+            text = { Text("이 연구소를 목록에서 뺍니다.") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.removeInstitute(target); deleteTarget = null; selected = 0 }) { Text("삭제") }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("취소") } }
+        )
+    }
 
     LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "title") {
             LargeTitle(group.label) {
+                if (group == AgencyGroup.RESEARCH) {
+                    IconButton(onClick = { addOpen = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "연구소 추가", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 IconButton(onClick = { showSaved = !showSaved }) {
                     Icon(
                         if (showSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
@@ -115,9 +157,13 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
             }
         }
         item(key = "tabs") {
-            UnderlineTabs(agencies.map { it.shortLabel }, if (showSaved) -1 else selected, { selected = it; showSaved = false })
+            UnderlineTabs(
+                agencies.map { it.shortLabel } + institutes.map { it.name },
+                if (showSaved) -1 else selected,
+                { selected = it; showSaved = false }
+            )
         }
-        if (agency == null) {
+        if (showSaved) {
             val saved = state.saved.filter { it.agency.group == group }
             item(key = "saved-label") { SectionLabel("저장한 ${if (group == AgencyGroup.PRESS) "보도자료" else "보고서"} ${saved.size}건") }
             if (saved.isEmpty()) {
@@ -132,9 +178,16 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 )
                 RowDivider()
             }
-        } else {
+        } else if (agency != null) {
             agencyItems(
-                agency = agency,
+                key = agency.name,
+                name = agency.label,
+                shortName = agency.shortLabel,
+                noun = agency.itemNoun,
+                group = agency.group,
+                homeUrl = agency.homeUrl,
+                latestCount = agency.latestCount,
+                siteSearchUrl = { AgencySources.siteSearchUrl(agency, it) },
                 state = state.of(agency),
                 savedLinks = savedLinks,
                 clearTick = clearTick,
@@ -143,14 +196,70 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 onSearch = { viewModel.search(agency, it) },
                 onLoadMore = { viewModel.loadMore(agency) },
                 onClear = { clearTick++; viewModel.clearSearch(agency) },
-                onToggleSaved = viewModel::toggleSaved
+                onToggleSaved = viewModel::toggleSaved,
+                onDelete = null
+            )
+        } else if (institute != null) {
+            agencyItems(
+                key = "custom-${institute.url}",
+                name = institute.name,
+                shortName = institute.name,
+                noun = "자료",
+                group = AgencyGroup.RESEARCH,
+                homeUrl = institute.url,
+                latestCount = 5,
+                siteSearchUrl = { query ->
+                    val host = runCatching { java.net.URI(institute.url).host }.getOrNull().orEmpty()
+                    "https://www.google.com/search?q=site%3A$host+" + java.net.URLEncoder.encode(query, "UTF-8")
+                },
+                state = state.ofCustom(institute.url),
+                savedLinks = savedLinks,
+                clearTick = clearTick,
+                context = context,
+                onRefresh = { viewModel.refreshCustom(institute) },
+                onSearch = { viewModel.searchCustom(institute, it) },
+                onLoadMore = {},
+                onClear = { clearTick++; viewModel.clearCustomSearch(institute) },
+                onToggleSaved = viewModel::toggleSaved,
+                onDelete = { deleteTarget = institute }
             )
         }
     }
 }
 
+/** 연구소 이름과 목록 주소를 받아 추가한다. 목록은 앱이 해당 페이지에서 직접 읽는다. */
+@Composable
+private fun AddInstituteDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var url by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("연구소 추가") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("연구소 이름") }, singleLine = true)
+                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("보고서 목록 주소(URL)") }, singleLine = true)
+                Text(
+                    "보고서·간행물 목록이 보이는 페이지 주소를 넣으면, 앱이 그 페이지에서 최근 자료를 읽어 옵니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = { TextButton(enabled = name.isNotBlank() && url.isNotBlank(), onClick = { onAdd(name, url) }) { Text("추가") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
+    )
+}
+
 private fun LazyListScope.agencyItems(
-    agency: AgencyId,
+    key: String,
+    name: String,
+    shortName: String,
+    noun: String,
+    group: AgencyGroup,
+    homeUrl: String,
+    latestCount: Int,
+    siteSearchUrl: (String) -> String,
     state: AgencyUiState,
     savedLinks: Set<String>,
     clearTick: Int,
@@ -159,17 +268,23 @@ private fun LazyListScope.agencyItems(
     onSearch: (String) -> Unit,
     onLoadMore: () -> Unit,
     onClear: () -> Unit,
-    onToggleSaved: (ReleaseItem) -> Unit
+    onToggleSaved: (ReleaseItem) -> Unit,
+    onDelete: (() -> Unit)?
 ) {
-    item(key = "search-${agency.name}") {
-        AgencySearchBar(agency = agency, clearTick = clearTick, enabled = !state.isSearching, onSearch = onSearch)
+    item(key = "search-$key") {
+        AgencySearchBar(key = key, shortName = shortName, noun = noun, clearTick = clearTick, enabled = !state.isSearching, onSearch = onSearch)
     }
 
     if (!state.inSearch) {
         item(key = "latest-label") {
-            SectionLabel("최근 ${agency.latestCount}건") {
+            SectionLabel("최근 ${latestCount}건") {
+                if (onDelete != null) {
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Default.Delete, contentDescription = "$name 삭제", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 IconButton(onClick = onRefresh, enabled = !state.isLoading) {
-                    Icon(Icons.Default.Refresh, contentDescription = "${agency.label} 새로고침", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Default.Refresh, contentDescription = "$name 새로고침", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -178,7 +293,7 @@ private fun LazyListScope.agencyItems(
             state.error != null && state.latest.isEmpty() -> item(key = "latest-error") {
                 CenterMessage(
                     state.error, isError = true, actionLabel = "사이트에서 보기",
-                    onAction = { openSite(context, agency, agency.homeUrl, "${agency.label} ${agency.itemNoun}") }
+                    onAction = { openSite(context, group, homeUrl, "$name $noun") }
                 )
             }
             else -> items(state.latest, key = { "latest-${it.link}" }) { item ->
@@ -193,9 +308,9 @@ private fun LazyListScope.agencyItems(
         }
         item(key = "footer") {
             TextButton(
-                onClick = { openSite(context, agency, agency.homeUrl, "${agency.label} ${agency.itemNoun}") },
+                onClick = { openSite(context, group, homeUrl, "$name $noun") },
                 modifier = Modifier.padding(horizontal = 12.dp)
-            ) { Text("${agency.label} 사이트에서 전체 목록 보기") }
+            ) { Text("$name 사이트에서 전체 목록 보기") }
         }
     } else {
         item(key = "result-label") {
@@ -215,7 +330,7 @@ private fun LazyListScope.agencyItems(
         if (state.isSearching) item(key = "result-loading") { LoadingBlock() }
         state.searchError?.let { message -> item(key = "result-error") { CenterMessage(message, isError = true) } }
         if (!state.isSearching && state.searchError == null && state.results.isEmpty()) {
-            item(key = "result-empty") { CenterMessage("앱이 읽은 범위에서 일치하는 ${agency.itemNoun}이 없습니다.") }
+            item(key = "result-empty") { CenterMessage("앱이 읽은 범위에서 일치하는 ${noun}이 없습니다.") }
         }
         item(key = "result-actions") {
             Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -223,7 +338,7 @@ private fun LazyListScope.agencyItems(
                     OutlinedButton(onClick = onLoadMore) { Text("더 오래된 항목 찾기") }
                 }
                 TextButton(onClick = {
-                    openSite(context, agency, AgencySources.siteSearchUrl(agency, state.searchQuery), "${agency.label} 검색")
+                    openSite(context, group, siteSearchUrl(state.searchQuery), "$name 검색")
                 }) { Text("사이트에서 직접 검색") }
             }
         }
@@ -231,10 +346,10 @@ private fun LazyListScope.agencyItems(
 }
 
 @Composable
-private fun AgencySearchBar(agency: AgencyId, clearTick: Int, enabled: Boolean, onSearch: (String) -> Unit) {
+private fun AgencySearchBar(key: String, shortName: String, noun: String, clearTick: Int, enabled: Boolean, onSearch: (String) -> Unit) {
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
-    var text by rememberSaveable(agency.name, clearTick) { mutableStateOf("") }
+    var text by rememberSaveable(key, clearTick) { mutableStateOf("") }
     val run = {
         if (text.isNotBlank() && enabled) {
             keyboard?.hide()
@@ -245,10 +360,10 @@ private fun AgencySearchBar(agency: AgencyId, clearTick: Int, enabled: Boolean, 
     SearchPill(
         value = text,
         onValueChange = { text = it },
-        placeholder = "${agency.shortLabel} 과거 ${agency.itemNoun} 제목 검색",
+        placeholder = "$shortName 과거 $noun 제목 검색",
         onSearch = { run() },
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-        description = "${agency.label} ${agency.itemNoun} 검색어"
+        description = "$shortName $noun 검색어"
     )
 }
 
@@ -269,7 +384,7 @@ private fun ReleaseRow(
     onToggleSaved: () -> Unit,
     onShare: () -> Unit
 ) {
-    val meta = listOfNotNull(item.agency.shortLabel.takeIf { showAgency }, item.date?.format(releaseDateFormat)).joinToString(" · ")
+    val meta = listOfNotNull(item.label.takeIf { showAgency }, item.dateText()).joinToString(" · ")
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 20.dp, top = 10.dp, bottom = 10.dp, end = 6.dp),
         verticalAlignment = Alignment.Top
@@ -308,7 +423,7 @@ fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onR
 
     LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "title") {
-            LargeTitle("참고사이트") {
+            LargeTitle("금융관련 주요사이트") {
                 TextButton(onClick = { editMode = !editMode }) { Text(if (editMode) "완료" else "편집", fontWeight = FontWeight.SemiBold) }
                 IconButton(onClick = { editingIndex = -1 }) { Icon(Icons.Default.Add, contentDescription = "사이트 추가") }
             }

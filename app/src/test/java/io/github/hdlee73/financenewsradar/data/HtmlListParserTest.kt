@@ -166,6 +166,38 @@ class HtmlListParserTest {
     }
 
     @Test
+    fun kifRelativeLinksWithYearMonthDatesAreListed() {
+        val html = """
+            <ul class="list">
+              <li><a href="pub_detail?mid=10&amp;nid=867&amp;vid=7358">가계부채 관리 방향과 금융안정 과제</a><span class="date">2026-09</span></li>
+              <li><a href="pub_detail?mid=10&amp;nid=866&amp;vid=7357">중소기업 금융 접근성 개선 방안</a><span class="date">2026-08</span></li>
+              <li><a href="pub_list?mid=10">목록으로 돌아가기 메뉴</a></li>
+            </ul>
+        """.trimIndent()
+        val source = AgencySources.of(io.github.hdlee73.financenewsradar.model.AgencyId.KIF)
+        val result = HtmlListParser.extract(html, "https://www.kif.re.kr/kif4/publication/pub_list?mid=10", source.linkPattern)
+            .filter { it.date != null }.sortedByDescending { it.date }
+        assertEquals(2, result.size)
+        assertEquals("https://www.kif.re.kr/kif4/publication/pub_detail?mid=10&nid=867&vid=7358", result[0].url)
+        assertEquals(LocalDate.of(2026, 9, 1), result[0].date)
+    }
+
+    @Test
+    fun genericExtractionFallsBackToSameSiteTitleLinksWithoutDates() {
+        val html = """
+            <header><a href="/about/intro-page">연구원 소개 페이지 안내문</a></header>
+            <ul>
+              <li><a href="/reports/101">가계부채 관리 방향과 금융안정 과제</a></li>
+              <li><a href="/reports/102">중소기업 금융 접근성 개선 방안</a></li>
+              <li><a href="https://other.example.com/x">외부 사이트의 긴 제목 링크 하나</a></li>
+              <li><a href="/reports/103">더보기</a></li>
+            </ul>
+        """.trimIndent()
+        val result = HtmlListParser.extractGeneric(html, "https://www.example.re.kr/reports")
+        assertEquals(listOf("https://www.example.re.kr/reports/101", "https://www.example.re.kr/reports/102"), result.map { it.url })
+    }
+
+    @Test
     fun searchMatchesEveryTokenIgnoringCase() {
         assertTrue(AgencySources.matches("퇴직연금 제도 개편 방안", "퇴직연금 개편"))
         assertTrue(AgencySources.matches("Cyber Resilience Toolkit", "cyber toolkit"))

@@ -1,6 +1,7 @@
 package io.github.hdlee73.financenewsradar.data
 
 import io.github.hdlee73.financenewsradar.model.AgencyId
+import io.github.hdlee73.financenewsradar.model.CustomInstitute
 import io.github.hdlee73.financenewsradar.model.ReleaseItem
 import io.github.hdlee73.financenewsradar.model.ReleasePage
 import kotlinx.coroutines.Dispatchers
@@ -47,11 +48,12 @@ internal object AgencySources {
         )
         AgencyId.KIF -> Source(
             listUrl = { _, _ -> "https://www.kif.re.kr/kif4/publication/pub_list?mid=10" },
-            // 상세 링크 형식을 확인하지 못해 publication 하위 링크·첨부 PDF를 넓게 받고, 날짜가 있는 항목만 쓴다.
-            linkPattern = Regex("""(?i)publication/(?!pub_list)|\.pdf(\?|$)|AttachInfo"""),
+            // 목록의 상세 링크는 상대경로 `pub_detail?mid=10&nid=…`. 날짜는 "2026-09"(년-월)만 있다.
+            linkPattern = Regex("""pub_detail\?[^"\s]*mid=10(&|$)"""),
             pageable = false,
             requireDate = true
         )
+        AgencyId.CUSTOM -> error("사용자가 추가한 연구소는 별도 경로로 읽습니다.")
         AgencyId.IOSCO -> Source(
             listUrl = { page, _ -> "https://www.iosco.org/publications/?subsection=public_reports" + if (page > 1) "&page=$page" else "" },
             searchUrl = { q, page ->
@@ -71,6 +73,7 @@ internal object AgencySources {
             AgencyId.KCMI -> "https://www.google.com/search?q=site%3Akcmi.re.kr+$q"
             AgencyId.KIF -> "https://www.google.com/search?q=site%3Akif.re.kr+$q"
             AgencyId.IOSCO -> "https://www.iosco.org/publications/?subsection=public_reports&keywords=$q"
+            AgencyId.CUSTOM -> "https://www.google.com/search?q=$q"
         }
     }
 
@@ -120,14 +123,28 @@ class AgencyRepository(private val context: android.content.Context) {
         return ReleasePage(found.values.toList(), hasMore = hasMore, nextPage = current)
     }
 
-    private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> {
+    private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> =
+        fetchParsed(agency.label, url) { body -> parse(source, body, url) }
+            .map { ReleaseItem(agency, it.title, it.url, it.date) }
+
+    /** 사용자가 추가한 연구소의 목록(최근 [count]건). 주소 패턴을 모르므로 범용 추출을 쓴다. */
+    suspend fun latestCustom(institute: CustomInstitute, count: Int = 5): List<ReleaseItem> =
+        fetchParsed(institute.name, institute.url) { body -> HtmlListParser.extractGeneric(body, institute.url) }
+            .take(count)
+            .map { ReleaseItem(AgencyId.CUSTOM, it.title, it.url, it.date, institute.name) }
+
+    /** 추가한 연구소는 검색 주소를 모르므로 읽어 온 목록(최대 30건)에서 제목을 걸러 낸다. */
+    suspend fun searchCustom(institute: CustomInstitute, query: String): List<ReleaseItem> =
+        latestCustom(institute, 30).filter { AgencySources.matches(it.title, query) }
+
+    private suspend fun fetchParsed(label: String, url: String, parse: (String) -> List<ParsedLink>): List<ParsedLink> {
         var parsed: List<ParsedLink> = emptyList()
         var lastBody = ""
         var failure: Throwable? = null
         // 1차: 가벼운 HTTP 요청. 2차: 막히거나 목록이 비면 숨은 WebView로 실제 화면의 HTML을 읽는다.
         for (useWebView in listOf(false, true)) {
             val body = try {
-                if (useWebView) WebViewFetcher.get(context, url) { html -> parse(source, html, url).isNotEmpty() } else HtmlFetcher.get(url)
+                if (useWebView) WebViewFetcher.get(context, url) { html -> parse(html).isNotEmpty() } else HtmlFetcher.get(url)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -135,21 +152,21 @@ class AgencyRepository(private val context: android.content.Context) {
                 continue
             }
             lastBody = body
-            parsed = parse(source, body, url)
+            parsed = parse(body)
             if (parsed.isNotEmpty()) break
         }
         if (parsed.isEmpty()) {
             val detail = if (lastBody.isEmpty()) (failure?.message ?: "응답 없음")
             else "응답 ${lastBody.length}자 · 링크 ${HtmlListParser.anchorCount(lastBody)}개 · ${HtmlListParser.sampleLinks(lastBody)}"
-            error("${agency.label} 목록을 읽지 못했습니다. 사이트가 접속을 막았거나 구조가 바뀌었을 수 있습니다. ‘사이트에서 보기’를 이용해 주세요. ($detail)")
+            error("$label 목록을 읽지 못했습니다. 사이트가 접속을 막았거나 구조가 바뀌었을 수 있습니다. ‘사이트에서 보기’를 이용해 주세요. ($detail)")
         }
-        return parsed.map { ReleaseItem(agency, it.title, it.url, it.date) }
+        return parsed
     }
 
     private fun parse(source: AgencySources.Source, body: String, url: String): List<ParsedLink> {
         var parsed = if (source.isRss) HtmlListParser.parseRss(body, url)
         else HtmlListParser.extract(body, url, source.linkPattern)
-        if (source.requireDate) parsed = parsed.filter { it.date != null }
+        if (source.requireDate) parsed = parsed.filter { it.date != null }.sortedByDescending { it.date }
         // 링크 형식이 예상과 다르면(금융연구원 등) 날짜가 붙은 링크를 목록으로 간주하는 방식으로 한 번 더 시도한다.
         if (parsed.isEmpty() && source.requireDate) parsed = HtmlListParser.extractLoose(body, url)
         return parsed

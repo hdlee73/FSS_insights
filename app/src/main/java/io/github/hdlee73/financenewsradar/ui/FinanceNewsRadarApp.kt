@@ -48,6 +48,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
@@ -56,9 +57,9 @@ private class AppTab(val label: String, val outlined: ImageVector, val filled: I
 
 private val appTabs = listOf(
     AppTab("뉴스", Icons.Outlined.Newspaper, Icons.Filled.Newspaper),
-    AppTab("보도자료", Icons.Outlined.AccountBalance, Icons.Filled.AccountBalance),
+    AppTab("금융당국\n보도자료", Icons.Outlined.AccountBalance, Icons.Filled.AccountBalance),
     AppTab("연구자료", Icons.Outlined.MenuBook, Icons.Filled.MenuBook),
-    AppTab("참고사이트", Icons.Outlined.Language, Icons.Filled.Language)
+    AppTab("금융관련\n주요사이트", Icons.Outlined.Language, Icons.Filled.Language)
 )
 
 /** 앱의 뼈대: 4개 하단 탭(뉴스 / 금융당국 보도자료 / 연구소 최근자료 / 참고사이트). */
@@ -125,12 +126,12 @@ fun FinanceNewsRadarApp(
     }
 }
 
-/** 높이를 줄인 하단 탭(아이콘 + 글자 52dp). 시스템 제스처 영역만큼만 아래 여백을 둔다. */
+/** 높이를 줄인 하단 탭(아이콘 + 글자 56dp). 시스템 제스처 영역만큼만 아래 여백을 둔다. */
 @Composable
 private fun AppTabBar(selected: Int, onSelect: (Int) -> Unit) {
     Column(Modifier.background(MaterialTheme.colorScheme.background)) {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Row(Modifier.fillMaxWidth().navigationBarsPadding().height(52.dp)) {
+        Row(Modifier.fillMaxWidth().navigationBarsPadding().height(56.dp)) {
             appTabs.forEachIndexed { index, item ->
                 val isSelected = index == selected
                 val color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -142,8 +143,8 @@ private fun AppTabBar(selected: Int, onSelect: (Int) -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(if (isSelected) item.filled else item.outlined, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
-                    Text(item.label, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall)
+                    Icon(if (isSelected) item.filled else item.outlined, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+                    Text(item.label, color = color, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 11.sp))
                 }
             }
         }

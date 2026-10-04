@@ -62,5 +62,7 @@ data class SearchPage(
     val fetchedCount: Int = articles.size,
     val duplicateCount: Int = 0,
     val outletExcludedCount: Int = 0,
+    /** 실제로 쓰인 검색 경로 설명(네이버 / Google 대체 사유). */
+    val sourceNote: String? = null,
     val failedQueryCount: Int = 0
 )

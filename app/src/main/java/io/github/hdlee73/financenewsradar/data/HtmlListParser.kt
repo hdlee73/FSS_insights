@@ -25,6 +25,8 @@ object HtmlListParser {
         "\\b(\\d{1,2})\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?![A-Za-z])\\.?,?\\s+(20\\d{2})",
         RegexOption.IGNORE_CASE
     )
+    // "2026-09"처럼 일(日)이 없는 년-월 표기(한국금융연구원 등). 완전한 날짜가 없을 때만 쓴다.
+    private val monthOnlyDate = Regex("(?<![\\d-])(20\\d{2})-(0[1-9]|1[0-2])(?![\\d-])")
     private val months = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
     private val numericEntity = Regex("&#(x[0-9a-fA-F]+|\\d+);")
     private val rowOpen = Regex("<(tr|li)\\b", RegexOption.IGNORE_CASE)
@@ -143,6 +145,30 @@ object HtmlListParser {
         return found.values.toList()
     }
 
+    /**
+     * 주소 패턴을 모르는 임의의 목록 페이지용. 날짜가 붙은 링크가 있으면 그것을, 없으면
+     * 머리말·메뉴·꼬리말을 뺀 같은 사이트 안의 긴 제목 링크를 앞에서부터 쓴다.
+     */
+    fun extractGeneric(html: String, baseUrl: String): List<ParsedLink> {
+        val dated = extractLoose(html, baseUrl)
+        if (dated.isNotEmpty()) return dated
+        val clean = noise.replace(html, " ").replace(Regex("<(nav|header|footer|aside)\\b.*?</\\1>", options), " ")
+        val base = runCatching { URI(baseUrl) }.getOrNull() ?: return emptyList()
+        val found = LinkedHashMap<String, ParsedLink>()
+        for (match in anchor.findAll(clean)) {
+            val text = compact(decodeEntities(tag.replace(match.groupValues[2], " ")))
+            if (text.length < 10 || genericLabel.matches(text)) continue
+            val rawHref = href.find(match.groupValues[1])?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } } ?: continue
+            val url = resolve(base, decodeEntities(rawHref).trim()) ?: continue
+            val host = runCatching { URI(url).host }.getOrNull()
+            if (host == null || host.removePrefix("www.") != base.host?.removePrefix("www.")) continue
+            if (url.substringBefore('#') == baseUrl.substringBefore('#')) continue
+            found.putIfAbsent(url, ParsedLink(text, url, null))
+            if (found.size >= 30) break
+        }
+        return found.values.toList()
+    }
+
     /** 오류 안내에 붙일 진단용 샘플: 글자가 긴 링크 3개의 (글자→주소 앞부분). */
     fun sampleLinks(html: String): String = anchor.findAll(noise.replace(html, " "))
         .mapNotNull { m ->
@@ -188,6 +214,12 @@ object HtmlListParser {
             val month = months.indexOf(m.groupValues[2].lowercase(Locale.ROOT)) + 1
             runCatching { LocalDate.of(m.groupValues[3].toInt(), month, m.groupValues[1].toInt()) }
                 .getOrNull()?.let { found += DateHit(it, m.range.first, m.range.last + 1) }
+        }
+        if (found.isEmpty()) {
+            for (m in monthOnlyDate.findAll(text)) {
+                runCatching { LocalDate.of(m.groupValues[1].toInt(), m.groupValues[2].toInt(), 1) }
+                    .getOrNull()?.let { found += DateHit(it, m.range.first, m.range.last + 1) }
+            }
         }
         return found.sortedBy { it.start }
     }
