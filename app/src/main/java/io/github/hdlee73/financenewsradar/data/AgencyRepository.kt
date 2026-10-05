@@ -87,6 +87,7 @@ internal object AgencySources {
 class AgencyRepository(private val context: android.content.Context) {
     /** 가장 최근 [count]건. */
     suspend fun latest(agency: AgencyId, count: Int = 10): List<ReleaseItem> {
+        if (agency == AgencyId.KCMI) return latestKcmi(count)
         val source = AgencySources.of(agency)
         val items = fetchPage(agency, source, source.listUrl(1, source.pageSize)).toMutableList()
         // 한 페이지에 count건이 안 되면 다음 페이지를 이어 읽는다(실패해도 이미 읽은 것은 보여 준다).
@@ -106,6 +107,11 @@ class AgencyRepository(private val context: android.content.Context) {
      * 결과는 항상 앱에서 제목 기준으로 한 번 더 걸러 서버가 검색어를 무시해도 엉뚱한 목록이 나오지 않는다.
      */
     suspend fun search(agency: AgencyId, query: String, page: Int = 1): ReleasePage {
+        if (agency == AgencyId.KCMI) {
+            val items = kcmiPage(page, 30).map { ReleaseItem(AgencyId.KCMI, it.title, it.url, it.date) }
+            val hits = items.filter { AgencySources.matches(it.title, query) }
+            return ReleasePage(hits, hasMore = page < MAX_PAGE, nextPage = page + 1)
+        }
         val source = AgencySources.of(agency)
         val found = LinkedHashMap<String, ReleaseItem>()
         var current = page
@@ -123,6 +129,15 @@ class AgencyRepository(private val context: android.content.Context) {
             if (!canContinue || found.size >= TARGET_RESULTS) break
         }
         return ReleasePage(found.values.toList(), hasMore = hasMore, nextPage = current)
+    }
+
+    private suspend fun latestKcmi(count: Int): List<ReleaseItem> =
+        kcmiPage(1, count).map { ReleaseItem(AgencyId.KCMI, it.title, it.url, it.date) }
+
+    private suspend fun kcmiPage(page: Int, perPage: Int): List<ParsedLink> {
+        val parsed = KcmiReports.parse(HtmlFetcher.post(KcmiReports.ENDPOINT, KcmiReports.requestBody(page, perPage)))
+        if (parsed.isEmpty()) error("자본시장연구원 목록이 비어 있습니다.")
+        return parsed
     }
 
     private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> =
@@ -182,6 +197,26 @@ class AgencyRepository(private val context: android.content.Context) {
 }
 
 internal object HtmlFetcher {
+    suspend fun post(url: String, body: String): String = withContext(Dispatchers.IO) {
+        val connection = URI(url).toURL().openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 12_000
+            connection.readTimeout = 20_000
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("User-Agent", USER_AGENT)
+            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            connection.setRequestProperty("X-Requested-With", "XMLHttpRequest")
+            connection.setRequestProperty("Accept", "application/json, text/javascript, */*; q=0.01")
+            connection.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
+            val code = connection.responseCode
+            if (code !in 200..299) error("서버 응답 오류 ($code)")
+            String(connection.inputStream.use { it.readBytes() }, StandardCharsets.UTF_8)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private const val USER_AGENT =
         "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36"
 

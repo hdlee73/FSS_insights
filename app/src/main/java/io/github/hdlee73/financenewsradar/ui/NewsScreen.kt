@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -83,6 +84,7 @@ fun NewsScreen(viewModel: NewsViewModel, onOpenSettings: () -> Unit, modifier: M
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpenMonitor: () -> Unit, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -103,7 +105,17 @@ private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpe
         Unit
     }
 
+    var pulled by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(state.isLoading) { if (!state.isLoading) pulled = false }
     Box(modifier.fillMaxSize()) {
+        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            isRefreshing = pulled && state.isLoading,
+            onRefresh = {
+                pulled = true
+                if (state.isHome || state.query.isBlank()) viewModel.refreshHome() else viewModel.search(state.query)
+            },
+            modifier = Modifier.fillMaxSize()
+        ) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "title") {
                 LargeTitle("뉴스검색") {
@@ -190,6 +202,7 @@ private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpe
                     }
                 }
             }
+        }
         }
 
         if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 120) {

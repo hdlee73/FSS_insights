@@ -156,6 +156,15 @@ async function library(url, env) {
     return json({ folder, root: folder === index.root, tags: index.tags, items: index.byFolder.get(folder) });
   }
 
+  if (path === "/all") {
+    const all = [];
+    for (const item of index.files.values()) {
+      if (!item.folder) all.push({ ...item, location: index.names.get(item.parent) || "" });
+    }
+    all.sort((a, b) => (b.modified || "").localeCompare(a.modified || ""));
+    return json({ items: all.slice(0, 500), tags: index.tags });
+  }
+
   if (path === "/search") {
     const q = (url.searchParams.get("q") || "").trim().slice(0, 60).toLowerCase();
     if (!q) return json({ items: [], tags: index.tags });

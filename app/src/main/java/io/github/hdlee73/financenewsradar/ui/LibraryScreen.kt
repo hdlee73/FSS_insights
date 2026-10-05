@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Refresh
@@ -67,7 +69,9 @@ data class LibraryUiState(
     val busyId: String? = null,
     val tags: List<String> = emptyList(),
     /** 비어 있지 않으면 검색 결과 보기. */
-    val query: String = ""
+    val query: String = "",
+    /** true면 폴더 구분 없이 모든 파일을 최근순으로 본다. */
+    val showAll: Boolean = false
 )
 
 class LibraryViewModel(application: Application) : AndroidViewModel(application) {
@@ -81,8 +85,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private fun load(path: List<Pair<String, String>>) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
-            runCatching { api.list(path.lastOrNull()?.second) }
-                .onSuccess { l -> _state.update { it.copy(path = path, items = l.items, tags = l.tags, query = "", isLoading = false) } }
+            val all = _state.value.showAll
+            runCatching { if (all) api.all() else api.list(path.lastOrNull()?.second) }
+                .onSuccess { l -> _state.update { it.copy(path = if (all) emptyList() else path, items = l.items, tags = l.tags, query = "", isLoading = false) } }
                 .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "목록을 불러오지 못했습니다.") } }
         }
     }
@@ -98,6 +103,11 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 .onSuccess { l -> _state.update { it.copy(items = l.items, tags = l.tags.ifEmpty { it.tags }, isLoading = false) } }
                 .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "검색하지 못했습니다.") } }
         }
+    }
+
+    fun setShowAll(value: Boolean) {
+        _state.update { it.copy(showAll = value) }
+        load(emptyList())
     }
 
     fun clearSearch() = load(_state.value.path)
@@ -124,6 +134,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 }
 
 /** 자료실 탭: 구글 드라이브 폴더를 목록으로 보여 주고, 눌러서 열거나 기기에 저장한다. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -183,6 +194,10 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                 containerColor = MaterialTheme.colorScheme.surface,
                 outlined = true
             )
+            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PillChip("폴더별", onPanel = true, selected = !state.showAll, onClick = { viewModel.setShowAll(false) })
+                PillChip("모든 파일", onPanel = true, selected = state.showAll, onClick = { viewModel.setShowAll(true) })
+            }
             if (state.tags.isNotEmpty()) {
                 androidx.compose.foundation.lazy.LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
@@ -202,16 +217,22 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (state.query.isNotBlank()) Text("검색 결과 ${state.items.size}건 · ‘${state.query}’", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = AppColors.accent)
+            if (state.showAll && state.query.isBlank()) Text("모든 파일 ${state.items.size}건 · 최근순", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = AppColors.accent)
+            else if (state.query.isNotBlank()) Text("검색 결과 ${state.items.size}건 · ‘${state.query}’", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = AppColors.accent)
             else Text("전체", Modifier.clickable { viewModel.goTo(0) }, style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold, color = if (state.path.isEmpty()) AppColors.accent else MaterialTheme.colorScheme.secondary)
-            if (state.query.isBlank()) state.path.forEachIndexed { index, (name, _) ->
+            if (state.query.isBlank() && !state.showAll) state.path.forEachIndexed { index, (name, _) ->
                 Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(name, Modifier.clickable { viewModel.goTo(index + 1) }, style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = if (index == state.path.lastIndex) AppColors.accent else MaterialTheme.colorScheme.secondary)
             }
         }
+        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            isRefreshing = state.isLoading && state.items.isNotEmpty(),
+            onRefresh = viewModel::refresh,
+            modifier = Modifier.fillMaxSize()
+        ) {
         when {
             state.isLoading && state.items.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
@@ -220,10 +241,9 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                 items(state.items, key = { it.id }) { entry ->
                     Row(
-                        Modifier.fillMaxWidth().clickable {
-                            if (entry.isFolder) viewModel.enter(entry)
-                            else scope.launch { viewModel.fetch(entry)?.let { download(it, entry) } }
-                        }.padding(start = 18.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
+                        Modifier.fillMaxWidth().then(
+                            if (entry.isFolder) Modifier.clickable { viewModel.enter(entry) } else Modifier
+                        ).padding(start = 18.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
@@ -249,11 +269,18 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                         }
                         if (!entry.isFolder) {
                             if (state.busyId == entry.id) {
-                                CircularProgressIndicator(Modifier.padding(12.dp).size(22.dp), strokeWidth = 2.dp)
+                                CircularProgressIndicator(Modifier.padding(horizontal = 18.dp).size(22.dp), strokeWidth = 2.dp)
                             } else {
-                                IconButton(onClick = {
-                                    scope.launch { viewModel.fetch(entry)?.let { openFile(context, it, entry) } }
-                                }) { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "열기", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                val tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                IconButton(onClick = { scope.launch { viewModel.fetch(entry)?.let { download(it, entry) } } }, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Default.Download, contentDescription = "다운로드", tint = tint)
+                                }
+                                IconButton(onClick = { scope.launch { viewModel.fetch(entry)?.let { openFile(context, it, entry) } } }, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Default.Visibility, contentDescription = "보기", tint = tint)
+                                }
+                                IconButton(onClick = { scope.launch { viewModel.fetch(entry)?.let { shareFile(context, it, entry) } } }, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Default.Share, contentDescription = "공유", tint = tint)
+                                }
                             }
                         }
                     }
@@ -262,6 +289,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             }
         }
     }
+        }
 }
 
 @androidx.annotation.RequiresApi(29)
@@ -279,12 +307,24 @@ private fun saveToDownloads(context: android.content.Context, file: File, entry:
 
 private fun openFile(context: android.content.Context, file: File, entry: LibraryEntry) {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.articlefiles", file)
-    val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, entry.type.ifBlank { "*/*" }).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    // 새 작업(NEW_TASK)으로 열어 기본 앱이 이 앱 안이 아니라 자기 화면에서 뜨게 한다.
+    val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, entry.type.ifBlank { "*/*" })
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
         context.startActivity(intent)
     } catch (e: ActivityNotFoundException) {
-        Toast.makeText(context, "이 파일을 열 수 있는 앱이 없습니다. 오른쪽 저장 버튼을 이용해 주세요.", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "이 파일을 열 수 있는 앱이 없습니다.", Toast.LENGTH_LONG).show()
     }
+}
+
+private fun shareFile(context: android.content.Context, file: File, entry: LibraryEntry) {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.articlefiles", file)
+    val send = Intent(Intent.ACTION_SEND).setType(entry.type.ifBlank { "*/*" })
+        .putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_SUBJECT, entry.name)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    val chooser = Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(chooser) }
+        .onFailure { Toast.makeText(context, "공유할 수 있는 앱이 없습니다.", Toast.LENGTH_LONG).show() }
 }
 
 private fun sizeText(bytes: Long): String = when {

@@ -79,6 +79,11 @@ class LibraryApi(private val context: Context) {
         parse(JSONObject(String(read(open(path)), Charsets.UTF_8)), folderId.orEmpty())
     }
 
+    /** 모든 폴더의 파일을 최근 수정순으로(폴더 구분 없이). */
+    suspend fun all(): LibraryListing = withContext(Dispatchers.IO) {
+        parse(JSONObject(String(read(open("/all")), Charsets.UTF_8)), "")
+    }
+
     /** 자료실 전체에서 파일명·설명·#태그로 검색. `#태그`로 시작하면 태그 일치. */
     suspend fun search(query: String): LibraryListing = withContext(Dispatchers.IO) {
         parse(JSONObject(String(read(open("/search?q=" + URLEncoder.encode(query, "UTF-8"))), Charsets.UTF_8)), "")

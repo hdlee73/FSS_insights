@@ -63,6 +63,7 @@ import io.github.hdlee73.financenewsradar.model.AgencyId
 import io.github.hdlee73.financenewsradar.model.CustomInstitute
 import io.github.hdlee73.financenewsradar.model.ReleaseItem
 import io.github.hdlee73.financenewsradar.model.UsefulLink
+import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 import java.time.format.DateTimeFormatter
 
 private val releaseDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
@@ -98,6 +99,7 @@ internal fun shareItem(context: Context, item: ReleaseItem) {
 }
 
 /** 금융당국 보도자료 / 연구소 최근자료 탭 공통 화면: 기관별 밑줄 탭 + 검색 + 최근 5건 + 저장함. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -139,7 +141,19 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
         )
     }
 
-    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    val pulling = when {
+        agency != null -> state.of(agency).let { it.isLoading && it.latest.isNotEmpty() }
+        institute != null -> state.ofCustom(institute.url).let { it.isLoading && it.latest.isNotEmpty() }
+        else -> false
+    }
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = pulling,
+        onRefresh = {
+            if (agency != null) viewModel.refresh(agency) else if (institute != null) viewModel.refreshCustom(institute)
+        },
+        modifier = modifier.fillMaxSize()
+    ) {
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "title") {
             LargeTitle(group.label) {
                 if (group == AgencyGroup.RESEARCH) {
@@ -224,6 +238,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 onDelete = { deleteTarget = institute }
             )
         }
+    }
     }
 }
 
@@ -413,6 +428,7 @@ private fun ReleaseRow(
 }
 
 /** 참고사이트 탭: 사용자가 추가·수정·삭제·복원할 수 있는 금융 사이트 링크 목록. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onReset: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -420,8 +436,25 @@ fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onR
     var editingIndex by remember { mutableStateOf<Int?>(null) }   // -1 = 새 항목
     var deleteIndex by remember { mutableStateOf<Int?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
+    // 설명을 직접 쓰지 않은(기본 설명도 없는) 사이트는 첫 화면의 소개 문구를 읽어 온다. 당겨서 새로고침하면 다시 읽는다.
+    var refreshing by remember { mutableStateOf(false) }
+    var reloadKey by remember { mutableStateOf(0) }
+    val fetched = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
+    androidx.compose.runtime.LaunchedEffect(links, reloadKey) {
+        if (reloadKey > 0) io.github.hdlee73.financenewsradar.data.SiteSummary.clearCache()
+        links.filter { it.note.isBlank() && UsefulLink.defaultNote(it.url).isBlank() }.forEach { link ->
+            val text = io.github.hdlee73.financenewsradar.data.SiteSummary.fetch(link.url)
+            if (text.isNotBlank()) fetched[link.url] = text
+        }
+        refreshing = false
+    }
 
-    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = { refreshing = true; reloadKey++ },
+        modifier = modifier.fillMaxSize()
+    ) {
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "title") {
             LargeTitle("금융관련 주요사이트") {
                 TextButton(onClick = { editMode = !editMode }) { Text(if (editMode) "완료" else "편집", fontWeight = FontWeight.SemiBold) }
@@ -443,6 +476,7 @@ fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onR
             val link = links[index]
             SiteRow(
                 link = link,
+                summary = link.note.ifBlank { UsefulLink.defaultNote(link.url) }.ifBlank { fetched[link.url].orEmpty() },
                 editMode = editMode,
                 onOpen = { openExternal(context, link.url) },
                 onEdit = { editingIndex = index },
@@ -455,6 +489,7 @@ fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onR
                 Text("기본 사이트로 복원")
             }
         }
+    }
     }
 
     editingIndex?.let { index ->
@@ -490,7 +525,7 @@ fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onR
 }
 
 @Composable
-private fun SiteRow(link: UsefulLink, editMode: Boolean, onOpen: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun SiteRow(link: UsefulLink, summary: String, editMode: Boolean, onOpen: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     val host = remember(link.url) { runCatching { Uri.parse(link.url).host.orEmpty().removePrefix("www.") }.getOrDefault("") }
     val initial = remember(link.name) { link.name.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString() ?: "•" }
     Row(
@@ -504,7 +539,8 @@ private fun SiteRow(link: UsefulLink, editMode: Boolean, onOpen: () -> Unit, onE
         }
         Column(Modifier.weight(1f).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(link.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(host.ifBlank { link.url }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(host.ifBlank { link.url }, style = MaterialTheme.typography.bodySmall, color = AppColors.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (summary.isNotBlank()) Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
         if (editMode) {
             IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = "${link.name} 수정", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -519,6 +555,7 @@ private fun SiteRow(link: UsefulLink, editMode: Boolean, onOpen: () -> Unit, onE
 private fun LinkEditDialog(initial: UsefulLink?, onDismiss: () -> Unit, onConfirm: (UsefulLink) -> Unit) {
     var name by remember { mutableStateOf(initial?.name.orEmpty()) }
     var url by remember { mutableStateOf(initial?.url.orEmpty()) }
+    var note by remember { mutableStateOf(initial?.note?.ifBlank { UsefulLink.defaultNote(initial.url) }.orEmpty()) }
     val normalized = ReleasesViewModel.normalizeUrl(url)
     val valid = name.isNotBlank() && runCatching { Uri.parse(normalized).host?.contains('.') == true }.getOrDefault(false)
     AlertDialog(
@@ -535,9 +572,18 @@ private fun LinkEditDialog(initial: UsefulLink?, onDismiss: () -> Unit, onConfir
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth()
                 )
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("주요 내용 (선택)") },
+                    placeholder = { Text("비워 두면 사이트 소개 문구를 자동으로 가져옵니다") },
+                    minLines = 2,
+                    maxLines = 5,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         },
-        confirmButton = { TextButton(enabled = valid, onClick = { onConfirm(UsefulLink(name.trim(), normalized)) }) { Text("저장") } },
+        confirmButton = { TextButton(enabled = valid, onClick = { onConfirm(UsefulLink(name.trim(), normalized, note.trim())) }) { Text("저장") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
     )
 }
