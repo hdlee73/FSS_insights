@@ -25,7 +25,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -71,7 +74,13 @@ data class LibraryUiState(
     /** 비어 있지 않으면 검색 결과 보기. */
     val query: String = "",
     /** true면 폴더 구분 없이 모든 파일을 최근순으로 본다. */
-    val showAll: Boolean = false
+    val showAll: Boolean = false,
+    /** true면 폴더를 펼치고 접는 트리로 본다. */
+    val tree: Boolean = false,
+    val expanded: Set<String> = emptySet(),
+    /** 트리에서 이미 읽은 폴더 내용(키: 폴더 ID, 최상위는 ""). */
+    val children: Map<String, List<LibraryEntry>> = emptyMap(),
+    val loadingFolders: Set<String> = emptySet()
 )
 
 class LibraryViewModel(application: Application) : AndroidViewModel(application) {
@@ -86,8 +95,16 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             val all = _state.value.showAll
-            runCatching { if (all) api.all() else api.list(path.lastOrNull()?.second) }
-                .onSuccess { l -> _state.update { it.copy(path = if (all) emptyList() else path, items = l.items, tags = l.tags, query = "", isLoading = false) } }
+            val tree = _state.value.tree
+            runCatching { if (all) api.all() else api.list(if (tree) null else path.lastOrNull()?.second) }
+                .onSuccess { l ->
+                    _state.update {
+                        it.copy(
+                            path = if (all || tree) emptyList() else path, items = l.items, tags = l.tags, query = "", isLoading = false,
+                            expanded = emptySet(), children = if (tree) mapOf("" to l.items) else emptyMap()
+                        )
+                    }
+                }
                 .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "목록을 불러오지 못했습니다.") } }
         }
     }
@@ -105,9 +122,28 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun setShowAll(value: Boolean) {
-        _state.update { it.copy(showAll = value) }
+    /** 0 = 폴더별(들어가서 보기), 1 = 트리, 2 = 모든 파일. */
+    fun setView(mode: Int) {
+        _state.update { it.copy(showAll = mode == 2, tree = mode == 1, items = emptyList()) }
         load(emptyList())
+    }
+
+    /** 트리에서 폴더를 펼치거나 접는다. 처음 펼칠 때만 내용을 읽는다. */
+    fun toggleFolder(folder: LibraryEntry) {
+        val s = _state.value
+        if (folder.id in s.expanded) {
+            _state.update { it.copy(expanded = it.expanded - folder.id) }
+            return
+        }
+        _state.update { it.copy(expanded = it.expanded + folder.id) }
+        if (folder.id in s.children) return
+        viewModelScope.launch {
+            _state.update { it.copy(loadingFolders = it.loadingFolders + folder.id) }
+            runCatching { api.list(folder.id) }
+                .onSuccess { l -> _state.update { it.copy(children = it.children + (folder.id to l.items)) } }
+                .onFailure { e -> _state.update { it.copy(expanded = it.expanded - folder.id, error = e.message ?: "폴더를 열지 못했습니다.") } }
+            _state.update { it.copy(loadingFolders = it.loadingFolders - folder.id) }
+        }
     }
 
     fun clearSearch() = load(_state.value.path)
@@ -195,8 +231,9 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                 outlined = true
             )
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PillChip("폴더별", onPanel = true, selected = !state.showAll, onClick = { viewModel.setShowAll(false) })
-                PillChip("모든 파일", onPanel = true, selected = state.showAll, onClick = { viewModel.setShowAll(true) })
+                PillChip("폴더별", onPanel = true, selected = !state.showAll && !state.tree, onClick = { viewModel.setView(0) })
+                PillChip("트리", onPanel = true, selected = state.tree, onClick = { viewModel.setView(1) })
+                PillChip("모든 파일", onPanel = true, selected = state.showAll, onClick = { viewModel.setView(2) })
             }
             if (state.tags.isNotEmpty()) {
                 androidx.compose.foundation.lazy.LazyRow(
@@ -218,10 +255,11 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (state.showAll && state.query.isBlank()) Text("모든 파일 ${state.items.size}건 · 최근순", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = AppColors.accent)
+            else if (state.tree && state.query.isBlank()) Text("트리 보기 · 폴더를 눌러 펼치기", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = AppColors.accent)
             else if (state.query.isNotBlank()) Text("검색 결과 ${state.items.size}건 · ‘${state.query}’", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = AppColors.accent)
             else Text("전체", Modifier.clickable { viewModel.goTo(0) }, style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold, color = if (state.path.isEmpty()) AppColors.accent else MaterialTheme.colorScheme.secondary)
-            if (state.query.isBlank() && !state.showAll) state.path.forEachIndexed { index, (name, _) ->
+            if (state.query.isBlank() && !state.showAll && !state.tree) state.path.forEachIndexed { index, (name, _) ->
                 Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(name, Modifier.clickable { viewModel.goTo(index + 1) }, style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -238,17 +276,32 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                 CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
             }
             state.items.isEmpty() -> CenterMessage(if (state.query.isNotBlank()) "검색 결과가 없습니다." else "이 폴더에는 자료가 없습니다.", actionLabel = "새로고침", onAction = viewModel::refresh)
-            else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-                items(state.items, key = { it.id }) { entry ->
+            else -> {
+                val treeMode = state.tree && state.query.isBlank()
+                val rows = remember(state.items, state.children, state.expanded, treeMode) {
+                    if (!treeMode) state.items.map { it to 0 } else {
+                        val out = ArrayList<Pair<LibraryEntry, Int>>()
+                        fun walk(parent: String, depth: Int) {
+                            for (e in state.children[parent].orEmpty()) {
+                                out += e to depth
+                                if (e.isFolder && e.id in state.expanded) walk(e.id, depth + 1)
+                            }
+                        }
+                        walk("", 0)
+                        out
+                    }
+                }
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+                items(rows, key = { it.first.id }) { (entry, depth) ->
                     Row(
                         Modifier.fillMaxWidth().then(
-                            if (entry.isFolder) Modifier.clickable { viewModel.enter(entry) } else Modifier
-                        ).padding(start = 18.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                            if (entry.isFolder) Modifier.clickable { if (treeMode) viewModel.toggleFolder(entry) else viewModel.enter(entry) } else Modifier
+                        ).padding(start = (18 + depth * 22).dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Icon(
-                            if (entry.isFolder) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+                            if (entry.isFolder) (if (treeMode && entry.id in state.expanded) Icons.Default.FolderOpen else Icons.Default.Folder) else Icons.Default.InsertDriveFile,
                             contentDescription = null,
                             tint = if (entry.isFolder) AppColors.accent else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(28.dp)
@@ -265,6 +318,14 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                             if (!entry.isFolder) Text(
                                 listOf(entry.location, sizeText(entry.size), entry.modified.take(10)).filter { it.isNotBlank() }.joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (entry.isFolder && treeMode) {
+                            if (entry.id in state.loadingFolders) CircularProgressIndicator(Modifier.padding(horizontal = 14.dp).size(20.dp), strokeWidth = 2.dp)
+                            else Icon(
+                                if (entry.id in state.expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp)
                             )
                         }
                         if (!entry.isFolder) {
@@ -285,6 +346,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                         }
                     }
                     HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                }
                 }
             }
         }
