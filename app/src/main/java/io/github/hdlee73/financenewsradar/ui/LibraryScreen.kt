@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Folder
@@ -231,7 +232,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
         androidx.compose.material3.pulltorefresh.PullToRefreshBox(
             isRefreshing = state.isLoading && state.items.isNotEmpty(),
             onRefresh = viewModel::refresh,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
         when {
             state.isLoading && state.items.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -289,7 +290,19 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             }
         }
     }
+        // 게시 안내(항상 화면 아래에 고정)
+        Row(
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(Icons.Default.Info, contentDescription = null, tint = AppColors.accent, modifier = Modifier.size(18.dp))
+            Text(
+                "이 자료실에 파일 게시를 원하시는 경우 hdlee73@gmail.com으로 관련 자료를 보내주시기 바랍니다.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
+    }
 }
 
 @androidx.annotation.RequiresApi(29)
