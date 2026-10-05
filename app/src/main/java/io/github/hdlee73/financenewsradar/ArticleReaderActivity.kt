@@ -102,12 +102,21 @@ class ArticleReaderActivity : ComponentActivity() {
                         Surface(tonalElevation = 2.dp) {
                             Column(Modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 4.dp)) {
                                 Text(
-                                    if (exporting) "PDF 처리 중…" else "열린 원문 전체를 PDF로 저장합니다. 로그인·유료 제한, 광고가 포함될 수 있습니다.",
+                                    if (exporting) "PDF 처리 중…" else "링크는 바로 공유되고, PDF는 열린 원문 전체를 변환합니다(로그인·유료 제한, 광고가 포함될 수 있음).",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(onClick = { exportPdf(title, share = false) }, enabled = !loading && !exporting && pageError == null, modifier = Modifier.weight(1f)) { Text("PDF 저장") }
+                                    OutlinedButton(onClick = {
+                                        val url = webView?.url ?: link
+                                        val send = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_SUBJECT, title)
+                                            putExtra(Intent.EXTRA_TEXT, "$title\n$url")
+                                        }
+                                        runCatching { startActivity(Intent.createChooser(send, "원문 링크 공유")) }
+                                            .onFailure { notifyUser("공유할 수 있는 앱이 없습니다.") }
+                                    }, enabled = !exporting, modifier = Modifier.weight(1f)) { Text("원문 링크 공유") }
                                     Button(onClick = { exportPdf(title, share = true) }, enabled = !loading && !exporting && pageError == null, modifier = Modifier.weight(1f)) { Text("PDF 공유") }
                                 }
                             }
