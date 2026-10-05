@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Folder
@@ -290,18 +289,23 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             }
         }
     }
-        // 게시 안내(항상 화면 아래에 고정)
-        Row(
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 18.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(Icons.Default.Info, contentDescription = null, tint = AppColors.accent, modifier = Modifier.size(18.dp))
-            Text(
-                "이 자료실에 파일 게시를 원하시는 경우 hdlee73@gmail.com으로 관련 자료를 보내주시기 바랍니다.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        // 게시 문의(작고 눈에 띄지 않게, 누르면 메일 작성)
+        Text(
+            "파일게시 문의  hdlee73@gmail.com",
+            modifier = Modifier.fillMaxWidth()
+                .clickable {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:hdlee73@gmail.com"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }
+                .padding(horizontal = 18.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
     }
 }
 
