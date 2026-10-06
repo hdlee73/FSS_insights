@@ -100,6 +100,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.hdlee73.financenewsradar.ArticleReaderActivity
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.BuildConfig
+import io.github.hdlee73.financenewsradar.data.UpdateChecker
+import io.github.hdlee73.financenewsradar.data.UpdateStatus
 import io.github.hdlee73.financenewsradar.model.AppSettings
 import io.github.hdlee73.financenewsradar.model.NaverApiType
 import io.github.hdlee73.financenewsradar.model.NaverCredentials
@@ -169,23 +171,31 @@ internal fun SettingsDialog(
     }
 }
 
-private const val RELEASES_URL = "https://github.com/hdlee73/FSS_insights/releases"
-
 /** 앱 이름·버전·만든이·업데이트 정보(깃허브 릴리스 페이지 연결). */
 @Composable
 private fun AppInfoSection() {
     val context = LocalContext.current
+    val update by UpdateStatus.available.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxWidth().padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("앱 정보", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         InfoRow("앱 이름", "FSS Insights")
         InfoRow("버전", BuildConfig.VERSION_NAME)
         InfoRow("만든이", "이현덕 (hdlee73@gmail.com)")
+        val link = update?.url ?: UpdateChecker.RELEASES_URL
+        update?.let {
+            Text(
+                "새 버전 ${it.version}이(가) 나왔습니다. 아래 버튼에서 받을 수 있습니다.",
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
         OutlinedButton(
             onClick = {
-                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(RELEASES_URL))) }
+                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link))) }
             },
             modifier = Modifier.fillMaxWidth()
-        ) { Text("업데이트 정보 (GitHub 릴리스)") }
+        ) { Text(if (update != null) "새 버전 받기 (GitHub 릴리스)" else "업데이트 정보 (GitHub 릴리스)") }
     }
 }
 
