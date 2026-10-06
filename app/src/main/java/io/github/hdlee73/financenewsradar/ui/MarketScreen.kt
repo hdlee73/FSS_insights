@@ -399,15 +399,18 @@ private fun IndexTile(item: Instrument, quote: Quote?, wide: Boolean, modifier: 
             .padding(horizontal = 11.dp, vertical = 9.dp)
     ) {
         if (wide) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                 Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                Text(price, style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp), color = color, maxLines = 1)
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(price, style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp), color = color, maxLines = 1)
+                    Text(delta, Modifier.padding(top = 2.dp), style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold), color = color, maxLines = 1)
+                }
             }
         } else {
             Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             Text(price, style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp), color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text(delta, Modifier.padding(top = 3.dp), style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold), color = color, maxLines = 1)
+        if (!wide) Text(delta, Modifier.padding(top = 3.dp), style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold), color = color, maxLines = 1)
     }
 }
 

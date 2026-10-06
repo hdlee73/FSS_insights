@@ -99,6 +99,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.hdlee73.financenewsradar.ArticleReaderActivity
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
+import io.github.hdlee73.financenewsradar.BuildConfig
 import io.github.hdlee73.financenewsradar.model.AppSettings
 import io.github.hdlee73.financenewsradar.model.NaverApiType
 import io.github.hdlee73.financenewsradar.model.NaverCredentials
@@ -160,9 +161,38 @@ internal fun SettingsDialog(
                         )
                     }
 
+                    AppInfoSection()
                     Spacer(Modifier.height(24.dp))
                 }
             }
         }
+    }
+}
+
+private const val RELEASES_URL = "https://github.com/hdlee73/FSS_insights/releases"
+
+/** 앱 이름·버전·만든이·업데이트 정보(깃허브 릴리스 페이지 연결). */
+@Composable
+private fun AppInfoSection() {
+    val context = LocalContext.current
+    Column(Modifier.fillMaxWidth().padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("앱 정보", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        InfoRow("앱 이름", "FSS Insights")
+        InfoRow("버전", BuildConfig.VERSION_NAME)
+        InfoRow("만든이", "이현덕 (hdlee73@gmail.com)")
+        OutlinedButton(
+            onClick = {
+                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(RELEASES_URL))) }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("업데이트 정보 (GitHub 릴리스)") }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth()) {
+        Text(label, Modifier.width(72.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
