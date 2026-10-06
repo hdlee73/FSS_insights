@@ -23,11 +23,13 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Newspaper
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Newspaper
+import androidx.compose.material.icons.outlined.ShowChart
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -64,18 +66,20 @@ private class AppTab(val label: String, val outlined: ImageVector, val filled: I
 
 private val appTabs = listOf(
     AppTab("뉴스\n검색", Icons.Outlined.Newspaper, Icons.Filled.Newspaper),
+    AppTab("증시\n동향", Icons.Outlined.ShowChart, Icons.Filled.ShowChart),
     AppTab("금융당국\n보도자료", Icons.Outlined.AccountBalance, Icons.Filled.AccountBalance),
     AppTab("금융관련\n연구원 자료", Icons.Outlined.MenuBook, Icons.Filled.MenuBook),
     AppTab("참고자료\n모음", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
     AppTab("금융관련\n주요사이트", Icons.Outlined.Language, Icons.Filled.Language)
 )
 
-/** 앱의 뼈대: 4개 하단 탭(뉴스 / 금융당국 보도자료 / 연구소 최근자료 / 참고사이트). */
+/** 앱의 뼈대: 하단 탭(뉴스 / 증시 동향 / 금융당국 보도자료 / 연구원 자료 / 참고자료 / 주요사이트). */
 @Composable
 fun FinanceNewsRadarApp(
     newsViewModel: NewsViewModel = viewModel(),
     releasesViewModel: ReleasesViewModel = viewModel(),
-    libraryViewModel: LibraryViewModel = viewModel()
+    libraryViewModel: LibraryViewModel = viewModel(),
+    marketViewModel: MarketViewModel = viewModel()
 ) {
     val newsState by newsViewModel.state.collectAsStateWithLifecycle()
     val releases by releasesViewModel.state.collectAsStateWithLifecycle()
@@ -121,9 +125,10 @@ fun FinanceNewsRadarApp(
             stateHolder.SaveableStateProvider(tab) {
                 when (tab) {
                     0 -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
-                    1 -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
-                    2 -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
-                    3 -> LibraryScreen(libraryViewModel)
+                    1 -> MarketScreen(marketViewModel)
+                    2 -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
+                    3 -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
+                    4 -> LibraryScreen(libraryViewModel)
                     else -> SitesScreen(
                         links = releases.links,
                         onSave = releasesViewModel::saveLinks,
