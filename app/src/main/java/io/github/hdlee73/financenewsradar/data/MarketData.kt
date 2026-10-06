@@ -64,11 +64,16 @@ class WatchlistStore(context: Context) {
     }
 }
 
+/**
+ * 하이닉스 ADR 티커는 앱에 박아 두지 않고 처음 실행할 때 Yahoo 검색으로 찾아 바꿔 넣는다
+ * (MarketViewModel.resolveAdr). 못 찾으면 목록에서 뺀다.
+ */
+const val ADR_PLACEHOLDER = "HYNIX_ADR"
+
 val DEFAULT_WATCH = listOf(
     Instrument("005930.KS", "삼성전자", "KRW", Instrument.TYPE_EQUITY),
     Instrument("000660.KS", "SK하이닉스", "KRW", Instrument.TYPE_EQUITY),
-    // SK하이닉스는 미국 상장 ADR이 없어(확인 필요) 같은 메모리 반도체인 마이크론을 대신 둔다.
-    Instrument("MU", "마이크론 · Micron (하이닉스 ADR 대용)", "USD", Instrument.TYPE_EQUITY),
+    Instrument(ADR_PLACEHOLDER, "SK하이닉스 ADR", "USD", Instrument.TYPE_EQUITY),
     Instrument("^SOX", "필라델피아 반도체 지수", "USD", Instrument.TYPE_INDEX),
     Instrument("069500.KS", "KODEX 200", "KRW", Instrument.TYPE_ETF)
 )
