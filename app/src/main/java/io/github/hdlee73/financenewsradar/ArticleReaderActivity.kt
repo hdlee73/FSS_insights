@@ -16,7 +16,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -41,34 +40,12 @@ class ArticleReaderActivity : ComponentActivity() {
     private var loading by mutableStateOf(true)
     private var exporting by mutableStateOf(false)
     private var pageError by mutableStateOf<String?>(null)
-    private var pendingSave: File? = null
     private var renderedUrl: String? = null
-    private val saveDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-        val file = pendingSave
-        pendingSave = null
-        if (uri != null && file != null) {
-            exporting = true
-            lifecycleScope.launch {
-                val result = withContext(Dispatchers.IO) {
-                    runCatching {
-                        val output = contentResolver.openOutputStream(uri) ?: error("저장 위치를 열 수 없습니다.")
-                        output.use { sink -> file.inputStream().use { it.copyTo(sink) } }
-                    }
-                }
-                exporting = false
-                notifyUser(if (result.isSuccess) "PDF를 저장했습니다." else "PDF 저장 실패: ${result.exceptionOrNull()?.message}")
-            }
-        }
-    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        savedInstanceState?.getString("pending_pdf")?.let { path ->
-            val candidate = File(path)
-            if (candidate.parentFile == File(cacheDir, "article_pdfs") && candidate.isFile) pendingSave = candidate
-        }
         val link = intent.getStringExtra(EXTRA_URL).orEmpty()
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "기사 원문" }
         if (Uri.parse(link).scheme !in listOf("http", "https")) {
@@ -102,13 +79,13 @@ class ArticleReaderActivity : ComponentActivity() {
                         Surface(tonalElevation = 2.dp) {
                             Column(Modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 4.dp)) {
                                 Text(
-                                    if (exporting) "PDF 처리 중…" else "열린 원문 전체를 PDF로 저장합니다. 로그인·유료 제한, 광고가 포함될 수 있습니다.",
+                                    if (exporting) "PDF 처리 중…" else "기사 공유는 웹페이지 주소를, PDF 공유는 열린 원문 전체를 보냅니다. (PDF는 로그인·유료 제한, 광고가 포함될 수 있음)",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(onClick = { exportPdf(title, share = false) }, enabled = !loading && !exporting && pageError == null, modifier = Modifier.weight(1f)) { Text("PDF 저장") }
-                                    Button(onClick = { exportPdf(title, share = true) }, enabled = !loading && !exporting && pageError == null, modifier = Modifier.weight(1f)) { Text("PDF 공유") }
+                                    OutlinedButton(onClick = { shareLink(title, webView?.url ?: link) }, enabled = !exporting, modifier = Modifier.weight(1f)) { Text("기사 공유") }
+                                    Button(onClick = { exportPdf(title) }, enabled = !loading && !exporting && pageError == null, modifier = Modifier.weight(1f)) { Text("PDF 공유") }
                                 }
                             }
                         }
@@ -165,7 +142,7 @@ class ArticleReaderActivity : ComponentActivity() {
         }
     }
 
-    private fun exportPdf(title: String, share: Boolean) {
+    private fun exportPdf(title: String) {
         val view = webView ?: return
         if (loading || exporting || pageError != null || renderedUrl != view.url) return
         exporting = true
@@ -179,29 +156,33 @@ class ArticleReaderActivity : ComponentActivity() {
             if (isDestroyed || isFinishing) return@export
             result.onSuccess { pdf ->
                 runCatching {
-                    if (share) {
-                        val uri = FileProvider.getUriForFile(this, "$packageName.articlefiles", pdf)
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "application/pdf"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            putExtra(Intent.EXTRA_SUBJECT, title)
-                            clipData = ClipData.newRawUri("기사 PDF", uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivity(Intent.createChooser(intent, "기사 PDF 공유"))
-                    } else {
-                        pendingSave = pdf
-                        saveDocument.launch("$name.pdf")
+                    val uri = FileProvider.getUriForFile(this, "$packageName.articlefiles", pdf)
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/pdf"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_SUBJECT, title)
+                        clipData = ClipData.newRawUri("기사 PDF", uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
+                    startActivity(Intent.createChooser(intent, "기사 PDF 공유"))
                 }.onFailure { notifyUser("PDF를 내보내지 못했습니다: ${it.message}") }
             }.onFailure { notifyUser(it.message ?: "PDF 변환에 실패했습니다.") }
         }
     }
 
+    private fun shareLink(title: String, url: String) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, title)
+            putExtra(Intent.EXTRA_TEXT, "$title\n$url")
+        }
+        runCatching { startActivity(Intent.createChooser(send, "기사 공유")) }
+            .onFailure { notifyUser("공유할 수 있는 앱이 없습니다.") }
+    }
+
     private fun notifyUser(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
     override fun onSaveInstanceState(outState: Bundle) {
-        pendingSave?.let { outState.putString("pending_pdf", it.absolutePath) }
         super.onSaveInstanceState(outState)
     }
 

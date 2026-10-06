@@ -388,7 +388,7 @@ private fun ArticleRow(article: NewsArticle, onBookmark: () -> Unit) {
                 )
             }
             IconButton(onClick = { ArticleReaderActivity.open(context, article.link, article.title) }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.Share, contentDescription = "원문 PDF 저장·공유", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Default.Share, contentDescription = "원문 보기·공유", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Text(

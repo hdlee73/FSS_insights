@@ -77,9 +77,9 @@ internal object AgencySources {
             AgencyId.FSS -> "https://www.fss.or.kr/fss/bbs/B0000188/list.do?menuNo=200218&searchCnd=1&searchWrd=$q"
             AgencyId.FSC -> "https://www.fsc.go.kr/no010101?srchKey=sj&srchText=$q"
             AgencyId.SEC -> "https://www.google.com/search?q=site%3Asec.gov%2Fnewsroom%2Fpress-releases+$q"
-            AgencyId.KCMI -> "https://www.google.com/search?q=site%3Akcmi.re.kr+$q"
-            AgencyId.KIF -> "https://www.google.com/search?q=site%3Akif.re.kr+$q"
-            AgencyId.IOSCO -> "https://www.iosco.org/publications/?subsection=public_reports&keywords=$q"
+            AgencyId.KCMI -> "https://www.kcmi.re.kr/report/report_list"
+            AgencyId.KIF -> "https://www.kif.re.kr/kif4/publication/pub_list?mid=10"
+            AgencyId.IOSCO -> "https://www.iosco.org/publications/?subsection=public_reports"
             AgencyId.CUSTOM -> "https://www.google.com/search?q=$q"
         }
     }

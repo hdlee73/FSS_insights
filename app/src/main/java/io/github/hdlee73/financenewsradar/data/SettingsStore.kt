@@ -93,7 +93,7 @@ class SettingsStore(context: Context) {
             links = links.map {
                 if (it.url.contains("bond.kofia.or.kr")) it.copy(url = "https://www.kofiabond.or.kr") else it
             }
-            val wanted = UsefulLink.DEFAULTS.filter { d -> listOf("dart.fss.or.kr", "fine.fss.or.kr", "krx.or.kr").any { d.url.contains(it) } }
+            val wanted = UsefulLink.DEFAULTS.filter { d -> listOf("dart.fss.or.kr", "fine.fss.or.kr", "krx.co.kr").any { d.url.contains(it) } }
             val missing = wanted.filter { w -> links.none { it.url.contains(w.url.removePrefix("https://www.").removePrefix("https://")) } }
             val at = links.indexOfFirst { it.url.contains("fsc.go.kr") }.let { if (it >= 0) it + 1 else links.size }
             links = links.take(at) + missing + links.drop(at)
@@ -109,6 +109,11 @@ class SettingsStore(context: Context) {
                 saveLinks(links)
             }
             preferences.edit().putBoolean(LINKS_MIGRATED_EDGAR, true).apply()
+        }
+        if (links.any { it.url.contains("krx.or.kr") }) {
+            // 한국거래소 주소 오류(krx.or.kr → krx.co.kr) 정정.
+            links = links.map { if (it.url.contains("krx.or.kr")) it.copy(url = "https://www.krx.co.kr") else it }
+            saveLinks(links)
         }
         return links
     }
