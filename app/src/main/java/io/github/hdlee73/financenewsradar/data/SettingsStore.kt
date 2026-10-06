@@ -100,6 +100,16 @@ class SettingsStore(context: Context) {
             preferences.edit().putBoolean(LINKS_MIGRATED_V051, true).apply()
             saveLinks(links)
         }
+        if (!preferences.getBoolean(LINKS_MIGRATED_EDGAR, false)) {
+            // 새 기본 사이트(EDGAR)를 DART 아래에 한 번만 추가(이미 있으면 건너뜀). 이후 지우면 다시 넣지 않는다.
+            if (links.none { it.url.contains("sec.gov") }) {
+                val edgar = UsefulLink.DEFAULTS.first { it.url.contains("sec.gov") }
+                val at = links.indexOfFirst { it.url.contains("dart.fss.or.kr") }.let { if (it >= 0) it + 1 else links.size }
+                links = links.take(at) + edgar + links.drop(at)
+                saveLinks(links)
+            }
+            preferences.edit().putBoolean(LINKS_MIGRATED_EDGAR, true).apply()
+        }
         return links
     }
 
@@ -174,6 +184,7 @@ class SettingsStore(context: Context) {
         private const val NAVER_SECRET = "naver_client_secret"
         private const val BOOKMARKS = "bookmarks"
         private const val LINKS_MIGRATED_V051 = "links_migrated_v051"
+        private const val LINKS_MIGRATED_EDGAR = "links_migrated_edgar"
         const val LINKS = "useful_links"
         private const val SAVED_RELEASES = "saved_releases"
         private const val SEEN_PREFIX = "seen_"

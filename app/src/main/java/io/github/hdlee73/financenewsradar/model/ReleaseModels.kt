@@ -11,6 +11,7 @@ enum class AgencyGroup(val label: String) {
 enum class AgencyId(val label: String, val shortLabel: String, val group: AgencyGroup, val homeUrl: String, val itemNoun: String) {
     FSS("금융감독원", "금융감독원", AgencyGroup.PRESS, "https://www.fss.or.kr/fss/bbs/B0000188/list.do?menuNo=200218", "보도자료"),
     FSC("금융위원회", "금융위원회", AgencyGroup.PRESS, "https://www.fsc.go.kr/no010101", "보도자료"),
+    SEC("미국 SEC", "SEC", AgencyGroup.PRESS, "https://www.sec.gov/newsroom/press-releases", "보도자료"),
     KCMI("자본시장연구원", "자본시장연구원", AgencyGroup.RESEARCH, "https://www.kcmi.re.kr/report/report_list", "보고서"),
     KIF("한국금융연구원", "금융연구원", AgencyGroup.RESEARCH, "https://www.kif.re.kr/kif4/publication/pub_list?mid=10", "보고서"),
     IOSCO("IOSCO", "IOSCO", AgencyGroup.RESEARCH, "https://www.iosco.org/publications/?subsection=public_reports", "보고서"),
@@ -47,6 +48,7 @@ data class UsefulLink(val name: String, val url: String) {
             UsefulLink("금융감독원", "https://www.fss.or.kr"),
             UsefulLink("금융위원회", "https://www.fsc.go.kr"),
             UsefulLink("전자공시시스템 DART", "https://dart.fss.or.kr"),
+            UsefulLink("미국 공시시스템 EDGAR", "https://www.sec.gov/edgar/search/"),
             UsefulLink("금융소비자 정보포털 파인", "https://fine.fss.or.kr"),
             UsefulLink("한국거래소", "https://www.krx.or.kr"),
             UsefulLink("국가법령정보센터(법령정보시스템)", "https://www.law.go.kr"),
