@@ -1,16 +1,21 @@
 package io.github.hdlee73.financenewsradar.data
 
+import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.model.AgencyId
 import io.github.hdlee73.financenewsradar.model.CustomInstitute
 import io.github.hdlee73.financenewsradar.model.ReleaseItem
 import io.github.hdlee73.financenewsradar.model.ReleasePage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
+import java.time.LocalDate
 
 /** 기관별 목록 주소·링크 패턴. 사이트가 개편되면 이 파일만 고치면 된다. */
 internal object AgencySources {
@@ -24,7 +29,9 @@ internal object AgencySources {
         val pageable: Boolean = true,
         val pageSize: Int = 10,
         /** 목록과 무관한 메뉴 링크를 거르기 위해 날짜가 있는 항목만 쓴다. */
-        val requireDate: Boolean = false
+        val requireDate: Boolean = false,
+        /** 앱 안 검색(최근 10년 훑기)을 지원하는지. 페이지 이동 방식을 확인하지 못한 기관은 false로 두고 사이트 이동만 안내한다. */
+        val deepSearch: Boolean = true
     )
 
     private fun enc(text: String) = URLEncoder.encode(text, StandardCharsets.UTF_8.toString())
@@ -57,7 +64,8 @@ internal object AgencySources {
             // 목록의 상세 링크는 상대경로 `pub_detail?mid=10&nid=…`. 날짜는 "2026-09"(년-월)만 있다.
             linkPattern = Regex("""pub_detail\?[^"\s]*mid=10(&|$)"""),
             pageable = false,
-            requireDate = true
+            requireDate = true,
+            deepSearch = false
         )
         AgencyId.CUSTOM -> error("사용자가 추가한 연구소는 별도 경로로 읽습니다.")
         AgencyId.IOSCO -> Source(
@@ -109,27 +117,49 @@ class AgencyRepository(private val context: android.content.Context) {
     }
 
     /**
-     * 과거 자료 검색. [page]부터 읽기 시작해 일치 항목이 모이거나 한도에 닿으면 멈춘다.
+     * 과거 자료 검색(최근 [SEARCH_YEARS]년). [page]부터 여러 쪽을 한꺼번에 읽어 제목이 일치하는 항목을 모으고,
+     * 날짜가 기준보다 오래된 쪽에 닿거나 한도에 닿으면 멈춘다. 더 읽을 쪽이 남으면 [ReleasePage.hasMore].
      * 결과는 항상 앱에서 제목 기준으로 한 번 더 걸러 서버가 검색어를 무시해도 엉뚱한 목록이 나오지 않는다.
      */
     suspend fun search(agency: AgencyId, query: String, page: Int = 1): ReleasePage {
         val source = AgencySources.of(agency)
+        val research = agency.group == AgencyGroup.RESEARCH
+        val maxPages = if (research) MAX_PAGES_PER_CALL_RESEARCH else MAX_PAGES_PER_CALL
+        val target = if (research) TARGET_RESULTS_RESEARCH else TARGET_RESULTS
+        val cutoff = LocalDate.now().minusYears(SEARCH_YEARS)
         val found = LinkedHashMap<String, ReleaseItem>()
         var current = page
-        var hasMore = false
+        var done = false
         var scanned = 0
-        while (scanned < MAX_PAGES_PER_CALL) {
-            val url = source.searchUrl?.invoke(query, current) ?: source.listUrl(current, source.pageSize)
-            val items = if (current == page) fetchPage(agency, source, url)
-            else runCatching { fetchPage(agency, source, url) }.getOrDefault(emptyList())
-            items.filter { AgencySources.matches(it.title, query) }.forEach { found.putIfAbsent(it.link, it) }
-            scanned++
-            val canContinue = source.pageable && items.isNotEmpty() && current < MAX_PAGE
-            current++
-            hasMore = canContinue
-            if (!canContinue || found.size >= TARGET_RESULTS) break
+        while (!done && scanned < maxPages) {
+            val pages = if (source.pageable) (current until current + BATCH_PAGES).filter { it <= MAX_PAGE } else listOf(current)
+            val fetched = coroutineScope {
+                pages.map { p ->
+                    async {
+                        val url = source.searchUrl?.invoke(query, p) ?: source.listUrl(p, source.pageSize)
+                        runCatching { fetchPage(agency, source, url) }
+                    }
+                }.awaitAll()
+            }
+            for ((index, result) in fetched.withIndex()) {
+                val p = pages[index]
+                // 첫 쪽이 실패하면 오류를 그대로 보여 주고, 뒤쪽 실패는 거기까지 읽은 것으로 본다.
+                val items = if (p == page) result.getOrThrow() else result.getOrDefault(emptyList())
+                items.filter { AgencySources.matches(it.title, query) && (it.date == null || it.date >= cutoff) }
+                    .forEach { found.putIfAbsent(it.link, it) }
+                scanned++
+                current = p + 1
+                val dated = items.mapNotNull { it.date }
+                val tooOld = dated.isNotEmpty() && dated.all { it < cutoff }
+                if (!source.pageable || items.isEmpty() || tooOld || p >= MAX_PAGE) {
+                    done = true
+                    break
+                }
+            }
+            if (found.size >= target) break
         }
-        return ReleasePage(found.values.toList(), hasMore = hasMore, nextPage = current)
+        val sorted = found.values.sortedByDescending { it.date }
+        return ReleasePage(sorted, hasMore = !done, nextPage = current)
     }
 
     private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> =
@@ -183,8 +213,12 @@ class AgencyRepository(private val context: android.content.Context) {
 
     private companion object {
         const val MAX_PAGES_PER_CALL = 4
-        const val MAX_PAGE = 60
+        const val MAX_PAGES_PER_CALL_RESEARCH = 12
+        const val BATCH_PAGES = 4
+        const val MAX_PAGE = 200
         const val TARGET_RESULTS = 10
+        const val TARGET_RESULTS_RESEARCH = 30
+        const val SEARCH_YEARS = 10L
     }
 }
 

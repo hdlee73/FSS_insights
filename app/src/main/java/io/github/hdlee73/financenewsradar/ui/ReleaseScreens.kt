@@ -186,6 +186,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 noun = agency.itemNoun,
                 group = agency.group,
                 homeUrl = agency.homeUrl,
+                searchable = AgencySources.of(agency).deepSearch,
                 latestCount = agency.latestCount,
                 siteSearchUrl = { AgencySources.siteSearchUrl(agency, it) },
                 state = state.of(agency),
@@ -207,6 +208,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 noun = "자료",
                 group = AgencyGroup.RESEARCH,
                 homeUrl = institute.url,
+                searchable = true,
                 latestCount = 10,
                 siteSearchUrl = { query ->
                     val host = runCatching { java.net.URI(institute.url).host }.getOrNull().orEmpty()
@@ -258,6 +260,7 @@ private fun LazyListScope.agencyItems(
     noun: String,
     group: AgencyGroup,
     homeUrl: String,
+    searchable: Boolean,
     latestCount: Int,
     siteSearchUrl: (String) -> String,
     state: AgencyUiState,
@@ -280,7 +283,7 @@ private fun LazyListScope.agencyItems(
         ) {
             Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "$name 사이트에서 전체 목록 보기",
+                    if (searchable) "$name 사이트에서 전체 목록 보기" else "$name 사이트에서 찾기",
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
@@ -290,7 +293,7 @@ private fun LazyListScope.agencyItems(
             }
         }
     }
-    item(key = "search-$key") {
+    if (searchable) item(key = "search-$key") {
         AgencySearchBar(key = key, shortName = shortName, noun = noun, clearTick = clearTick, enabled = !state.isSearching, onSearch = onSearch)
     }
 
