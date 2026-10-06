@@ -8,6 +8,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Refresh
@@ -156,6 +161,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
         LargeTitle("참고자료 모음") {
             IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
         }
+        PublishInquiryBanner(context)
         if (!viewModel.isConfigured) {
             CenterMessage("자료실 서버가 아직 연결되지 않았습니다.\n구글 드라이브 연결 설정 후 사용할 수 있습니다.")
             return@Column
@@ -252,6 +258,37 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                     HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
+        }
+    }
+}
+
+/** 탭 맨 위 안내: 파일 게시 문의처. 누르면 메일 앱이 열린다. */
+@Composable
+private fun PublishInquiryBanner(context: android.content.Context) {
+    val email = "hdlee73@gmail.com"
+    val shape = RoundedCornerShape(14.dp)
+    val accent = AppColors.accent
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
+            .clip(shape)
+            .background(accent.copy(alpha = 0.09f))
+            .border(1.dp, accent.copy(alpha = 0.35f), shape)
+            .clickable {
+                val intent = Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:$email"))
+                    .putExtra(Intent.EXTRA_SUBJECT, "[참고자료 모음] 파일 게시 문의")
+                try { context.startActivity(intent) }
+                catch (e: ActivityNotFoundException) { Toast.makeText(context, "메일 앱이 없습니다. 주소: $email", Toast.LENGTH_LONG).show() }
+            }
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(Modifier.size(34.dp).clip(CircleShape).background(accent), contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.Email, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(18.dp))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text("파일 게시 문의", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = accent)
+            Text(email, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
         }
     }
 }
