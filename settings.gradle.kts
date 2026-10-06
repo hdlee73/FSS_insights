@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "FinanceNewsRadar"
+rootProject.name = "FSSInsights"
 include(":app")

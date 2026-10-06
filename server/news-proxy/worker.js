@@ -1,4 +1,4 @@
-// 감독 인사이트 서버(Cloudflare Worker)
+// FSS Insights 서버(Cloudflare Worker)
 //  - /news    : 네이버 뉴스 검색 프록시. 네이버 키는 이 서버의 비밀값으로만 존재한다.
 //  - /library : 자료실. 구글 드라이브의 공유 폴더 목록·파일을 읽기 전용으로 중계한다.
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
