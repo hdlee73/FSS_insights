@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
@@ -56,7 +57,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.hdlee73.financenewsradar.ArticleReaderActivity
 import io.github.hdlee73.financenewsradar.data.AgencySources
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.model.AgencyId
@@ -67,13 +67,13 @@ import java.time.format.DateTimeFormatter
 
 private val releaseDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
 
-/** 보도자료는 앱 안 보기(PDF 저장·공유 지원)로, 연구자료는 PDF 저장이 필요 없어 외부 브라우저로 바로 연다. */
+/** 보도자료·연구자료 모두 원문 사이트를 외부 브라우저로 바로 연다. */
 internal fun openItem(context: Context, item: ReleaseItem) = openSite(context, item.agency, item.link, item.title)
 
 internal fun openSite(context: Context, agency: AgencyId, url: String, title: String) = openSite(context, agency.group, url, title)
 
 internal fun openSite(context: Context, group: AgencyGroup, url: String, title: String) {
-    if (group == AgencyGroup.RESEARCH) openExternal(context, url) else ArticleReaderActivity.open(context, url, title)
+    openExternal(context, url)
 }
 
 /** KIF처럼 "2026-09"(년-월)만 알 수 있는 항목은 일(日)을 빼고 보여 준다. */
@@ -271,6 +271,25 @@ private fun LazyListScope.agencyItems(
     onToggleSaved: (ReleaseItem) -> Unit,
     onDelete: (() -> Unit)?
 ) {
+    item(key = "site-link-$key") {
+        Surface(
+            onClick = { openSite(context, group, homeUrl, "$name $noun") },
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp)
+        ) {
+            Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "$name 사이트에서 전체 목록 보기",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
     item(key = "search-$key") {
         AgencySearchBar(key = key, shortName = shortName, noun = noun, clearTick = clearTick, enabled = !state.isSearching, onSearch = onSearch)
     }
@@ -305,12 +324,6 @@ private fun LazyListScope.agencyItems(
                 )
                 RowDivider()
             }
-        }
-        item(key = "footer") {
-            TextButton(
-                onClick = { openSite(context, group, homeUrl, "$name $noun") },
-                modifier = Modifier.padding(horizontal = 12.dp)
-            ) { Text("$name 사이트에서 전체 목록 보기") }
         }
     } else {
         item(key = "result-label") {
