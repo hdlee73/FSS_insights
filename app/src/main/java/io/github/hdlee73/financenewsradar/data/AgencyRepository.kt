@@ -40,6 +40,12 @@ internal object AgencySources {
             searchUrl = { q, page -> "https://www.fsc.go.kr/no010101?curPage=$page&srchKey=sj&srchText=${enc(q)}" },
             linkPattern = Regex("""no010101/\d+""")
         )
+        AgencyId.SEC -> Source(
+            // 검색·페이지 이동이 없는 RSS(최근 보도자료). 과거 자료 검색은 앱이 읽어 온 범위에서 제목으로 거른다.
+            listUrl = { _, _ -> "https://www.sec.gov/news/pressreleases.rss" },
+            isRss = true,
+            pageable = false
+        )
         AgencyId.KCMI -> Source(
             listUrl = { page, size -> "https://www.kcmi.re.kr/report/report_list?pg=$page&pp=$size" },
             // 한 행에 바로보기가 둘(보도자료 fty=004010 / 보고서 fty=004003)이라 보고서 쪽만 쓴다.
@@ -70,6 +76,7 @@ internal object AgencySources {
         return when (agency) {
             AgencyId.FSS -> "https://www.fss.or.kr/fss/bbs/B0000188/list.do?menuNo=200218&searchCnd=1&searchWrd=$q"
             AgencyId.FSC -> "https://www.fsc.go.kr/no010101?srchKey=sj&srchText=$q"
+            AgencyId.SEC -> "https://www.google.com/search?q=site%3Asec.gov%2Fnewsroom%2Fpress-releases+$q"
             AgencyId.KCMI -> "https://www.google.com/search?q=site%3Akcmi.re.kr+$q"
             AgencyId.KIF -> "https://www.google.com/search?q=site%3Akif.re.kr+$q"
             AgencyId.IOSCO -> "https://www.iosco.org/publications/?subsection=public_reports&keywords=$q"
