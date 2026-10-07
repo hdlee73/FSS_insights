@@ -97,4 +97,30 @@ class LibraryApi(private val context: Context) {
         }
         target
     }
+
+    /**
+     * 파일을 서버의 "업로드 대기" 폴더로 올린다. 관리자가 확인해 자료실로 옮기기 전에는 목록에 나오지 않는다.
+     * 서버가 형식·용량(20MB)을 다시 확인한다.
+     */
+    suspend fun upload(
+        name: String, mimeType: String, size: Long, description: String, uploader: String, source: () -> java.io.InputStream?
+    ) = withContext(Dispatchers.IO) {
+        if (size > MAX_UPLOAD_BYTES) error("파일은 20MB까지 올릴 수 있습니다.")
+        val query = "?name=" + URLEncoder.encode(name, "UTF-8") +
+            "&description=" + URLEncoder.encode(description, "UTF-8") +
+            "&uploader=" + URLEncoder.encode(uploader, "UTF-8")
+        val c = open("/upload$query")
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.setRequestProperty("Content-Type", mimeType.ifBlank { "application/octet-stream" })
+        if (size > 0) c.setFixedLengthStreamingMode(size) else error("파일 크기를 알 수 없습니다.")
+        c.readTimeout = 120_000
+        (source() ?: error("파일을 열 수 없습니다.")).use { input -> c.outputStream.use { input.copyTo(it) } }
+        read(c)
+        Unit
+    }
+
+    companion object {
+        const val MAX_UPLOAD_BYTES = 20L * 1024 * 1024
+    }
 }

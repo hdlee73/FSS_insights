@@ -21,11 +21,15 @@ jobs:
             NAVER_CLIENT_SECRET
             GOOGLE_API_KEY
             GDRIVE_FOLDER_ID
+            GOOGLE_SERVICE_ACCOUNT_JSON
+            GDRIVE_UPLOAD_FOLDER_ID
         env:
           APP_TOKEN: ${{ secrets.NEWS_PROXY_TOKEN }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GDRIVE_UPLOAD_FOLDER_ID: ${{ secrets.GDRIVE_UPLOAD_FOLDER_ID }}
       - name: Show URL
         run: echo "NEWS_PROXY_URL = ${{ steps.deploy.outputs.deployment-url }}" >> "$GITHUB_STEP_SUMMARY"
