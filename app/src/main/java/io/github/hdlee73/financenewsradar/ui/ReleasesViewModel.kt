@@ -21,6 +21,8 @@ data class AgencyUiState(
     val latest: List<ReleaseItem> = emptyList(),
     val latestLoaded: Boolean = false,
     val isLoading: Boolean = false,
+    /** 첫 쪽은 이미 보여 주고 나머지 쪽을 백그라운드에서 읽는 중. */
+    val isLoadingMore: Boolean = false,
     val error: String? = null,
     /** 비어 있지 않으면 검색 결과를 보여 주는 중. */
     val searchQuery: String = "",
@@ -69,11 +71,21 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
         if (!current.latestLoaded && !current.isLoading) refresh(agency)
     }
 
+    /** 같은 묶음의 다른 기관 탭도 미리 백그라운드에서 읽어 둔다(아직 안 읽은 기관만). */
+    fun preload(agencies: List<AgencyId>) {
+        agencies.forEach(::ensureLatest)
+    }
+
     fun refresh(agency: AgencyId) {
         jobs[agency]?.cancel()
         jobs[agency] = viewModelScope.launch {
-            update(agency) { it.copy(isLoading = true, error = null) }
-            runCatching { repository.latest(agency, agency.latestCount) }
+            update(agency) { it.copy(isLoading = true, isLoadingMore = false, error = null) }
+            runCatching {
+                repository.latest(agency, agency.latestCount) { partial ->
+                    // 첫 쪽이 오는 대로 바로 보여 주고, 나머지 쪽은 읽히는 대로 이어 붙인다.
+                    update(agency) { it.copy(latest = partial, isLoading = false, isLoadingMore = true) }
+                }
+            }
                 .onSuccess { items ->
                     val links = items.map { it.link }
                     val seen = settingsStore.seenLinks(agency)
@@ -81,14 +93,14 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
                     settingsStore.saveSeenLinks(agency, seen.orEmpty() + links)
                     update(agency) {
                         it.copy(
-                            latest = items, latestLoaded = true, isLoading = false,
+                            latest = items, latestLoaded = true, isLoading = false, isLoadingMore = false,
                             newLinks = (it.newLinks + fresh).intersect(links.toSet())
                         )
                     }
                 }
                 .onFailure { e ->
                     if (e is CancellationException) return@onFailure
-                    update(agency) { it.copy(isLoading = false, latestLoaded = true, error = friendly(e)) }
+                    update(agency) { it.copy(isLoading = false, isLoadingMore = false, latestLoaded = true, error = friendly(e)) }
                 }
         }
     }

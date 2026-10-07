@@ -100,20 +100,39 @@ internal object AgencySources {
 }
 
 class AgencyRepository(private val context: android.content.Context) {
-    /** 가장 최근 [count]건. */
-    suspend fun latest(agency: AgencyId, count: Int = 10): List<ReleaseItem> {
+    /**
+     * 가장 최근 [count]건. 첫 쪽이 읽히면 곧바로 [onPartial]로 알려 화면에 먼저 보여 주고,
+     * 나머지 쪽은 한꺼번에 병렬로 읽어 오는 대로 다시 [onPartial]로 넘긴다(뒤쪽 쪽이 실패해도 이미 읽은 것은 남는다).
+     */
+    suspend fun latest(agency: AgencyId, count: Int = 10, onPartial: (List<ReleaseItem>) -> Unit = {}): List<ReleaseItem> {
         val source = AgencySources.of(agency)
         val items = fetchPage(agency, source, source.listUrl(1, source.pageSize)).toMutableList()
-        // 한 페이지에 count건이 안 되면 다음 페이지를 이어 읽는다(실패해도 이미 읽은 것은 보여 준다).
-        var page = 2
+        // 날짜가 있는 항목을 최신순으로(날짜 없는 항목은 뒤로). 사이트 목록 순서가 들쭉날쭉해도 '최근 N건'이 되도록.
+        fun current() = items.sortedByDescending { it.date }.take(count)
         val target = if (agency == AgencyId.KCMI || agency == AgencyId.IOSCO) count * 2 else count
-        while (items.size < target && source.pageable && page <= 4) {
+        if (items.size >= target || !source.pageable) return current()
+        onPartial(current())
+        // 한 쪽이 몇 건인지 알았으니 필요한 쪽(최대 4쪽까지)을 한꺼번에 병렬로 읽는다.
+        val needed = ((target - 1) / items.size.coerceAtLeast(1)).coerceIn(1, MAX_LATEST_PAGE - 1)
+        coroutineScope {
+            val deferred = (2..(1 + needed)).map { page ->
+                async { runCatching { fetchPage(agency, source, source.listUrl(page, source.pageSize)) }.getOrNull() }
+            }
+            for (job in deferred) {
+                val more = job.await() ?: continue
+                items += more.filter { next -> items.none { it.link == next.link } }
+                onPartial(current())
+            }
+        }
+        // 병렬로 읽고도 모자라면 남은 쪽을 이어서 읽는다.
+        var page = 2 + needed
+        while (items.size < target && page <= MAX_LATEST_PAGE) {
             val more = runCatching { fetchPage(agency, source, source.listUrl(page, source.pageSize)) }.getOrNull() ?: break
             items += more.filter { next -> items.none { it.link == next.link } }
+            onPartial(current())
             page++
         }
-        // 날짜가 있는 항목을 최신순으로(날짜 없는 항목은 뒤로). 사이트 목록 순서가 들쭉날쭉해도 '최근 N건'이 되도록.
-        return items.sortedByDescending { it.date }.take(count)
+        return current()
     }
 
     /**
@@ -212,6 +231,7 @@ class AgencyRepository(private val context: android.content.Context) {
     }
 
     private companion object {
+        const val MAX_LATEST_PAGE = 4
         const val MAX_PAGES_PER_CALL = 4
         const val MAX_PAGES_PER_CALL_RESEARCH = 12
         const val BATCH_PAGES = 4

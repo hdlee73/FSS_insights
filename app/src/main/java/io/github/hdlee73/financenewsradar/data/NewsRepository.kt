@@ -26,7 +26,7 @@ class NewsRepository {
         val pages = results.mapNotNull { it.getOrNull() }
         if (pages.isEmpty()) throw results.firstNotNullOfOrNull { it.exceptionOrNull() }
             ?: IllegalStateException("기사를 불러오지 못했습니다.")
-        val fetched = pages.flatMap { it.articles }
+        val fetched = pages.flatMap { it.articles }.filterNot { excludedBy(it, plan.excludedTerms) }
         val refined = refine(fetched, settings, plan.terms)
         SearchPage(
             articles = refined.articles,
@@ -43,19 +43,23 @@ class NewsRepository {
     suspend fun home(settings: AppSettings, credentials: NaverCredentials): SearchPage = supervisorScope {
         NewsSourceInfo.reset()
         val provider = provider(settings.provider, credentials)
+        // 키워드마다 붙인 제외어(-단어)는 그 키워드로 찾은 기사에만 적용한다.
         val queries = settings.keywords
             .filter { it.isNotBlank() }
             .flatMap { keyword ->
-                NewsQueryPlanner.homeQueries(keyword, settings.provider, NewsProxy.naverAvailable(credentials))
+                val excluded = runCatching { SearchQueryParser.parse(keyword).excludedTerms }.getOrDefault(emptyList())
+                NewsQueryPlanner.homeQueries(keyword, settings.provider, NewsProxy.naverAvailable(credentials)).map { it to excluded }
             }
-            .distinct()
+            .distinctBy { it.first }
         val results = queries
-            .map { query -> async { runCatching { provider.search(query, settings.timeRange, pageSize = 100) } } }
+            .map { (query, _) -> async { runCatching { provider.search(query, settings.timeRange, pageSize = 100) } } }
             .awaitAll()
         val pages = results.mapNotNull { it.getOrNull() }
         if (pages.isEmpty()) throw results.firstNotNullOfOrNull { it.exceptionOrNull() }
             ?: IllegalStateException("기사를 불러오지 못했습니다.")
-        val fetched = pages.flatMap { it.articles }
+        val fetched = results.withIndex().flatMap { (i, result) ->
+            result.getOrNull()?.articles.orEmpty().filterNot { excludedBy(it, queries[i].second) }
+        }
         val watchTerms = settings.keywords.flatMap { keyword ->
             runCatching { SearchQueryParser.parse(keyword).terms }.getOrDefault(listOf(keyword))
         }.distinct()
@@ -77,14 +81,18 @@ class NewsRepository {
         settings.keywords.filter { it.isNotBlank() }.map { keyword ->
             async {
                 val query = runCatching { SearchQueryParser.parse(keyword).providerQueries.first() }.getOrDefault(keyword)
+                val excluded = runCatching { SearchQueryParser.parse(keyword).excludedTerms }.getOrDefault(emptyList())
                 runCatching { provider.search(query, io.github.hdlee73.financenewsradar.model.TimeRange.WEEK, 1, KeywordTrend.FETCH_LIMIT) }
                     .fold(
-                        onSuccess = { KeywordTrend.compute(keyword, it.articles) },
+                        onSuccess = { page -> KeywordTrend.compute(keyword, page.articles.filterNot { excludedBy(it, excluded) }) },
                         onFailure = { KeywordTrend(keyword, List(KeywordTrend.DAYS) { 0 }, false, it.message ?: "실패") }
                     )
             }
         }.awaitAll()
     }
+
+    private fun excludedBy(article: NewsArticle, excludedTerms: List<String>): Boolean =
+        excludedTerms.isNotEmpty() && SearchQueryParser.isExcluded("${article.title} ${article.summary}", excludedTerms)
 
     private fun provider(type: NewsProviderType, credentials: NaverCredentials): NewsProvider = when (type) {
         NewsProviderType.GOOGLE_RSS -> GoogleNewsRssProvider()
