@@ -256,6 +256,18 @@ async function upload(request, url, env) {
     headers: { Authorization: `Bearer ${await accessToken(env)}`, "Content-Type": `multipart/related; boundary=${boundary}` },
     body: payload,
   });
-  if (!res.ok) return fail(502, `드라이브에 올리지 못했습니다(${res.status}). 업로드 대기 폴더가 서비스 계정에 편집자로 공유되어 있는지 확인해 주세요.`);
+  if (!res.ok) {
+    let reason = "";
+    try {
+      const e = (await res.json()).error || {};
+      reason = e.errors?.[0]?.reason || e.status || "";
+    } catch { /* 본문 없음 */ }
+    const hint = {
+      accessNotConfigured: "구글 클라우드에서 Google Drive API를 사용 설정해 주세요.",
+      storageQuotaExceeded: "서비스 계정은 저장 용량이 없어 개인 드라이브 폴더에는 올릴 수 없습니다. 공유 드라이브 폴더가 필요합니다.",
+      notFound: "업로드 대기 폴더를 찾을 수 없습니다. 폴더 ID와 서비스 계정 공유를 확인해 주세요.",
+    }[reason] || "업로드 대기 폴더가 서비스 계정에 편집자로 공유되어 있는지 확인해 주세요.";
+    return fail(502, `드라이브에 올리지 못했습니다(${res.status}${reason ? `, ${reason}` : ""}). ${hint}`);
+  }
   return json({ ok: true });
 }
