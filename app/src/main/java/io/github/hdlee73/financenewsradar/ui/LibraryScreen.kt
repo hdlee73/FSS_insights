@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Refresh
@@ -164,27 +165,16 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            ContactChip(Modifier.padding(horizontal = 16.dp))
             SearchPill(
                 value = queryText,
                 onValueChange = { queryText = it; if (it.isBlank() && state.query.isNotBlank()) viewModel.clearSearch() },
-                placeholder = "제목·설명·#태그 검색",
+                placeholder = "제목·설명 검색",
                 onSearch = { viewModel.search(queryText) },
                 modifier = Modifier.padding(horizontal = 16.dp),
                 containerColor = MaterialTheme.colorScheme.surface,
                 outlined = true
             )
-            if (state.tags.isNotEmpty()) {
-                androidx.compose.foundation.lazy.LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(state.tags) { tag ->
-                        PillChip("#$tag", onPanel = true, selected = state.query == "#$tag", onClick = {
-                            queryText = "#$tag"; viewModel.search("#$tag")
-                        })
-                    }
-                }
-            }
         }
         // 현재 위치(폴더 경로)
         Row(
@@ -270,4 +260,25 @@ private fun sizeText(bytes: Long): String = when {
     bytes <= 0 -> ""
     bytes < 1024 * 1024 -> "${bytes / 1024 + 1}KB"
     else -> String.format(java.util.Locale.US, "%.1fMB", bytes / 1048576.0)
+}
+
+/** 자료 게시 문의 안내(누르면 메일 작성). */
+@Composable
+private fun ContactChip(modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.material3.Surface(
+        onClick = {
+            runCatching {
+                context.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:hdlee73@gmail.com")))
+            }
+        },
+        modifier = modifier.fillMaxWidth(),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Default.Email, contentDescription = null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+            Text("자료 게시 문의 : hdlee73@gmail.com", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+        }
+    }
 }

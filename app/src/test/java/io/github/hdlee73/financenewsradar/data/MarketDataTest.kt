@@ -6,6 +6,15 @@ import org.junit.Test
 
 class MarketDataTest {
     @Test
+    fun ordersPanelBySavedSymbolsAndKeepsTheRest() {
+        val all = (MARKET_PANEL + COMMODITY_PANEL).map { it.symbol }
+        assertEquals(all, orderedPanel(emptyList()).map { it.symbol })
+        val result = orderedPanel(listOf("GC=F", "unknown", "^KS11")).map { it.symbol }
+        assertEquals(listOf("GC=F", "^KS11"), result.take(2))
+        assertEquals(all.sorted(), result.sorted())
+    }
+
+    @Test
     fun parsesGroupedNumbers() {
         assertEquals(1234567.5, parseNumber("1,234,567.5"), 0.0)
     }

@@ -167,7 +167,7 @@ class AgencyRepository(private val context: android.content.Context) {
             .map { ReleaseItem(agency, it.title, it.url, it.date) }
 
     /** 사용자가 추가한 연구소의 목록(최근 [count]건). 주소 패턴을 모르므로 범용 추출을 쓴다. */
-    suspend fun latestCustom(institute: CustomInstitute, count: Int = 10): List<ReleaseItem> =
+    suspend fun latestCustom(institute: CustomInstitute, count: Int = 20): List<ReleaseItem> =
         fetchParsed(institute.name, institute.url) { body -> HtmlListParser.extractGeneric(body, institute.url) }
             .take(count)
             .map { ReleaseItem(AgencyId.CUSTOM, it.title, it.url, it.date, institute.name) }

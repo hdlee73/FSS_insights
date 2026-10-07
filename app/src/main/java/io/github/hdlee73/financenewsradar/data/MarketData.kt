@@ -60,8 +60,17 @@ class WatchlistStore(context: Context) {
         preferences.edit().putString(ITEMS, array.toString()).apply()
     }
 
+    /** 위쪽 지수·시세 패널의 표시 순서(심볼 목록). 저장된 값이 없으면 기본 순서. */
+    fun loadPanelOrder(): List<String> =
+        preferences.getString(PANEL, null)?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+
+    fun savePanelOrder(symbols: List<String>) {
+        preferences.edit().putString(PANEL, symbols.joinToString(",")).apply()
+    }
+
     private companion object {
         const val ITEMS = "items"
+        const val PANEL = "panel_order"
     }
 }
 
@@ -95,6 +104,13 @@ val COMMODITY_PANEL = listOf(
     Instrument("BTC-USD", "비트코인", "USD", Instrument.TYPE_EQUITY),
     Instrument("GC=F", "금", "USD", Instrument.TYPE_EQUITY)
 )
+
+/** 저장된 순서([saved])대로 패널 항목을 늘어놓는다. 저장에 없는 항목은 기본 순서로 뒤에 붙는다. */
+fun orderedPanel(saved: List<String>): List<Instrument> {
+    val all = MARKET_PANEL + COMMODITY_PANEL
+    val byOrder = saved.mapNotNull { symbol -> all.firstOrNull { it.symbol == symbol } }.distinct()
+    return byOrder + all.filter { it !in byOrder }
+}
 
 /** 검색 전에 보여 주는 자주 찾는 종목. */
 val POPULAR_INSTRUMENTS = listOf(
