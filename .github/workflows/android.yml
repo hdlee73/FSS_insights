@@ -64,31 +64,31 @@ jobs:
         run: ./gradlew assembleRelease
       - name: Prepare release files
         run: |
-          cp app/build/outputs/apk/release/app-release.apk fss-insights-v0.13.0.apk
-          sha256sum fss-insights-v0.13.0.apk > fss-insights-v0.13.0.apk.sha256
+          cp app/build/outputs/apk/release/app-release.apk fss-insights-v0.14.0.apk
+          sha256sum fss-insights-v0.14.0.apk > fss-insights-v0.14.0.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: fss-insights-apk
           path: |
-            fss-insights-v0.13.0.apk
-            fss-insights-v0.13.0.apk.sha256
+            fss-insights-v0.14.0.apk
+            fss-insights-v0.14.0.apk.sha256
       - name: Publish GitHub release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v0.13.0 >/dev/null 2>&1; then
-            gh release edit v0.13.0 --notes-file RELEASE_NOTES.md
-            gh release upload v0.13.0 \
-              fss-insights-v0.13.0.apk \
-              fss-insights-v0.13.0.apk.sha256 \
+          if gh release view v0.14.0 >/dev/null 2>&1; then
+            gh release edit v0.14.0 --notes-file RELEASE_NOTES.md
+            gh release upload v0.14.0 \
+              fss-insights-v0.14.0.apk \
+              fss-insights-v0.14.0.apk.sha256 \
               --clobber
           else
-            gh release create v0.13.0 \
-              fss-insights-v0.13.0.apk \
-              fss-insights-v0.13.0.apk.sha256 \
+            gh release create v0.14.0 \
+              fss-insights-v0.14.0.apk \
+              fss-insights-v0.14.0.apk.sha256 \
               --target "$GITHUB_SHA" \
-              --title "FSS Insights v0.13.0" \
+              --title "FSS Insights v0.14.0" \
               --notes-file RELEASE_NOTES.md
           fi
 
@@ -99,7 +99,7 @@ jobs:
         run: |
           gh release delete test-build --cleanup-tag --yes >/dev/null 2>&1 || true
           gh release create test-build \
-            fss-insights-v0.13.0.apk \
+            fss-insights-v0.14.0.apk \
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "테스트 빌드 (정식 릴리스 아님)" \
