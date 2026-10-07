@@ -128,7 +128,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /** 선택한 파일을 업로드 대기 폴더로 올린다. 끝나면 안내 문구를 돌려준다. */
-    fun upload(uri: android.net.Uri, description: String, uploader: String, onDone: (String) -> Unit) {
+    fun upload(uri: android.net.Uri, description: String, onDone: (String) -> Unit) {
         val resolver = getApplication<Application>().contentResolver
         viewModelScope.launch {
             _state.update { it.copy(isUploading = true) }
@@ -141,7 +141,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                         c.getColumnIndex(android.provider.OpenableColumns.SIZE).takeIf { it >= 0 }?.let { size = c.getLong(it) }
                     }
                 }
-                api.upload(name, resolver.getType(uri).orEmpty(), size, description, uploader) { resolver.openInputStream(uri) }
+                api.upload(name, resolver.getType(uri).orEmpty(), size, description) { resolver.openInputStream(uri) }
             }
             _state.update { it.copy(isUploading = false) }
             onDone(result.fold({ "올렸습니다. 관리자가 확인한 뒤 자료실에 게시됩니다." }, { it.message ?: "올리지 못했습니다." }))
@@ -177,9 +177,9 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
     pickedUri?.let { uri ->
         UploadDialog(
             onDismiss = { pickedUri = null },
-            onSubmit = { description, uploader ->
+            onSubmit = { description ->
                 pickedUri = null
-                viewModel.upload(uri, description, uploader) { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                viewModel.upload(uri, description) { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
             }
         )
     }
@@ -325,11 +325,10 @@ private fun ContactNote(modifier: Modifier = Modifier) {
     )
 }
 
-/** 올릴 파일의 설명과 올리는 사람 이름을 받는다. */
+/** 올릴 파일의 설명을 받는다. */
 @Composable
-private fun UploadDialog(onDismiss: () -> Unit, onSubmit: (description: String, uploader: String) -> Unit) {
+private fun UploadDialog(onDismiss: () -> Unit, onSubmit: (description: String) -> Unit) {
     var description by remember { mutableStateOf("") }
-    var uploader by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("자료 올리기") },
@@ -339,11 +338,10 @@ private fun UploadDialog(onDismiss: () -> Unit, onSubmit: (description: String, 
                     "올린 파일은 관리자가 확인한 뒤 참고자료에 게시됩니다. 20MB까지, PDF·문서·엑셀·파워포인트·한글·텍스트·이미지 파일을 올릴 수 있습니다.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                OutlinedTextField(uploader, { uploader = it.take(40) }, label = { Text("올리는 사람(이름·부서)") }, singleLine = true)
                 OutlinedTextField(description, { description = it.take(300) }, label = { Text("설명·#태그 (선택)") }, minLines = 2)
             }
         },
-        confirmButton = { TextButton(onClick = { onSubmit(description.trim(), uploader.trim()) }, enabled = uploader.isNotBlank()) { Text("올리기") } },
+        confirmButton = { TextButton(onClick = { onSubmit(description.trim()) }) { Text("올리기") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
     )
 }

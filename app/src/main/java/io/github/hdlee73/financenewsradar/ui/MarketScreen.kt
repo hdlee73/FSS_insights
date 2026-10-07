@@ -493,10 +493,11 @@ private fun IndexTile(
                 Column(Modifier.weight(1f)) {
                     Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1)
                     Text(price, Modifier.padding(top = 2.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-                    Text(delta, Modifier.padding(top = 2.dp), style = deltaStyle, color = color, maxLines = 1)
                 }
-                IntradayChart(series, color, Modifier.weight(0.8f).height(46.dp))
+                IntradayChart(series, color, Modifier.weight(0.8f).height(30.dp))
             }
+            // 등락률 괄호까지 들어가도록 차트 아래 칸 전체 폭을 쓴다(차트 옆 좁은 칸에서는 잘림).
+            Text(delta, Modifier.padding(top = 2.dp), style = deltaStyle, color = color, maxLines = 1)
         } else {
             Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(price, Modifier.padding(top = 1.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
