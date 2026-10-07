@@ -71,7 +71,7 @@ private val appTabs = listOf(
     AppTab("시장\n동향", Icons.Outlined.ShowChart, Icons.Filled.ShowChart),
     AppTab("금융당국\n보도자료", Icons.Outlined.AccountBalance, Icons.Filled.AccountBalance),
     AppTab("금융관련\n연구원 자료", Icons.Outlined.MenuBook, Icons.Filled.MenuBook),
-    AppTab("참고자료\n모음", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
+    AppTab("참고자료", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
     AppTab("금융관련\n주요사이트", Icons.Outlined.Language, Icons.Filled.Language),
     AppTab("앱\n정보", Icons.Outlined.Info, Icons.Filled.Info)
 )
@@ -157,7 +157,7 @@ fun FinanceNewsRadarApp(
     }
 }
 
-/** 높이를 줄인 하단 탭(아이콘 + 글자 56dp). 시스템 제스처 영역만큼만 아래 여백을 둔다. */
+/** 높이를 줄인 하단 탭(56dp). 평소에는 아이콘만 보이고, 선택한 탭만 넓어지면서 글자가 나타난다. */
 @Composable
 private fun AppTabBar(selected: Int, onSelect: (Int) -> Unit) {
     Column(Modifier.background(MaterialTheme.colorScheme.background)) {
@@ -166,16 +166,19 @@ private fun AppTabBar(selected: Int, onSelect: (Int) -> Unit) {
             appTabs.forEachIndexed { index, item ->
                 val isSelected = index == selected
                 val color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                val tabWeight by androidx.compose.animation.core.animateFloatAsState(if (isSelected) 1.8f else 0.9f, label = "tabWeight")
                 Column(
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(tabWeight)
                         .fillMaxHeight()
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onSelect(index) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(if (isSelected) item.filled else item.outlined, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
-                    Text(item.label, color = color, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 10.sp))
+                    Icon(if (isSelected) item.filled else item.outlined, contentDescription = item.label.replace("\n", " "), tint = color, modifier = Modifier.size(24.dp))
+                    if (isSelected) {
+                        Text(item.label, color = color, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 10.sp))
+                    }
                 }
             }
         }

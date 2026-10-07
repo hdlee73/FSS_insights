@@ -115,6 +115,11 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
     val savedLinks = state.savedLinks
     LaunchedEffect(agency) { agency?.let(viewModel::ensureLatest) }
     LaunchedEffect(institute?.url) { institute?.let(viewModel::ensureCustom) }
+    // 지금 보는 기관의 첫 쪽이 뜬 뒤, 같은 탭의 다른 기관 자료도 백그라운드에서 미리 읽어 둔다.
+    LaunchedEffect(group) {
+        kotlinx.coroutines.delay(1_500)
+        viewModel.preload(agencies)
+    }
 
     if (addOpen) {
         AddInstituteDialog(
@@ -139,7 +144,9 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
         )
     }
 
-    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    Box(modifier.fillMaxSize()) {
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "title") {
             LargeTitle(group.label) {
                 if (group == AgencyGroup.RESEARCH) {
@@ -226,6 +233,8 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 onDelete = { deleteTarget = institute }
             )
         }
+    }
+    ScrollToTopButton(listState)
     }
 }
 
@@ -318,14 +327,18 @@ private fun LazyListScope.agencyItems(
                     onAction = { openSite(context, group, homeUrl, "$name $noun") }
                 )
             }
-            else -> items(state.latest, key = { "latest-${it.link}" }) { item ->
-                ReleaseRow(
-                    item = item, isNew = item.link in state.newLinks, isSaved = item.link in savedLinks, showAgency = false,
-                    onOpen = { openItem(context, item) },
-                    onToggleSaved = { onToggleSaved(item) },
-                    onShare = { shareItem(context, item) }
-                )
-                RowDivider()
+            else -> {
+                items(state.latest, key = { "latest-${it.link}" }) { item ->
+                    ReleaseRow(
+                        item = item, isNew = item.link in state.newLinks, isSaved = item.link in savedLinks, showAgency = false,
+                        onOpen = { openItem(context, item) },
+                        onToggleSaved = { onToggleSaved(item) },
+                        onShare = { shareItem(context, item) }
+                    )
+                    RowDivider()
+                }
+                // 첫 쪽을 먼저 보여 주고 나머지는 백그라운드에서 읽어 이어 붙이는 중.
+                if (state.isLoadingMore) item(key = "latest-more") { LoadingBlock() }
             }
         }
     } else {
@@ -437,7 +450,9 @@ fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onR
     var deleteIndex by remember { mutableStateOf<Int?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
 
-    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    Box(modifier.fillMaxSize()) {
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "title") {
             LargeTitle("금융관련 주요사이트") {
                 TextButton(onClick = { editMode = !editMode }) { Text(if (editMode) "완료" else "편집", fontWeight = FontWeight.SemiBold) }
@@ -471,6 +486,8 @@ fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onR
                 Text("기본 사이트로 복원")
             }
         }
+    }
+    ScrollToTopButton(listState)
     }
 
     editingIndex?.let { index ->

@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -124,7 +125,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     fun consumeError() = _state.update { it.copy(error = null) }
 }
 
-/** 자료실 탭: 구글 드라이브 폴더를 목록으로 보여 주고, 눌러서 열거나 기기에 저장한다. */
+/** 참고자료 탭: 구글 드라이브 폴더를 목록으로 보여 주고, 눌러서 열거나 기기에 저장한다. */
 @Composable
 fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -153,8 +154,10 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
         if (state.query.isNotBlank()) { queryText = ""; viewModel.clearSearch() } else viewModel.up()
     }
 
-    Column(modifier.fillMaxSize()) {
-        LargeTitle("참고자료 모음") {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    Box(modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
+        LargeTitle("참고자료") {
             IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
         }
         if (!viewModel.isConfigured) {
@@ -162,10 +165,9 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             return@Column
         }
         Column(
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(top = 10.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            ContactChip(Modifier.padding(horizontal = 16.dp))
             SearchPill(
                 value = queryText,
                 onValueChange = { queryText = it; if (it.isBlank() && state.query.isNotBlank()) viewModel.clearSearch() },
@@ -175,6 +177,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                 containerColor = MaterialTheme.colorScheme.surface,
                 outlined = true
             )
+            ContactNote(Modifier.padding(horizontal = 20.dp).padding(top = 0.dp))
         }
         // 현재 위치(폴더 경로)
         Row(
@@ -197,7 +200,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                 CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
             }
             state.items.isEmpty() -> CenterMessage(if (state.query.isNotBlank()) "검색 결과가 없습니다." else "이 폴더에는 자료가 없습니다.", actionLabel = "새로고침", onAction = viewModel::refresh)
-            else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            else -> LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
                 items(state.items, key = { it.id }) { entry ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
@@ -244,6 +247,8 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             }
         }
     }
+    ScrollToTopButton(listState)
+    }
 }
 
 private fun openFile(context: android.content.Context, file: File, entry: LibraryEntry) {
@@ -262,23 +267,18 @@ private fun sizeText(bytes: Long): String = when {
     else -> String.format(java.util.Locale.US, "%.1fMB", bytes / 1048576.0)
 }
 
-/** 자료 게시 문의 안내(누르면 메일 작성). */
+/** 검색창 바로 밑에 아주 작게 보이는 자료 게시 문의 안내(누르면 메일 작성). */
 @Composable
-private fun ContactChip(modifier: Modifier = Modifier) {
+private fun ContactNote(modifier: Modifier = Modifier) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    androidx.compose.material3.Surface(
-        onClick = {
+    Text(
+        "자료 게시 문의 : hdlee73@gmail.com",
+        modifier = modifier.clickable {
             runCatching {
                 context.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:hdlee73@gmail.com")))
             }
         },
-        modifier = modifier.fillMaxWidth(),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.primaryContainer
-    ) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Default.Email, contentDescription = null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("자료 게시 문의 : hdlee73@gmail.com", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
-        }
-    }
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
