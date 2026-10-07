@@ -134,7 +134,7 @@ class HtmlListParserTest {
                   <a href="/flexer/view?fid=29154&amp;fgu=002002&amp;fty=004003">바로보기</a>
                   <a href="/common/downloadw?fid=29154&amp;fgu=002002&amp;fty=004003">다운로드</a></td></tr>
         """.trimIndent()
-        val result = HtmlListParser.extract(html, "https://www.kcmi.re.kr/report/report_list", AgencySources.of(io.github.hdlee73.financenewsradar.model.AgencyId.KCMI).linkPattern)
+        val result = HtmlListParser.extractReports(html, "https://www.kcmi.re.kr/report/report_list")
         assertEquals(1, result.size)
         assertEquals("https://www.kcmi.re.kr/flexer/view?fid=29154&fgu=002002&fty=004003", result[0].url)
         assertTrue(result[0].title.startsWith("K-자본시장 정책시리즈 1"))
