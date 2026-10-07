@@ -32,6 +32,35 @@ class SearchQueryParserTest {
     }
 
     @Test
+    fun `collects dash prefixed words and phrases as excluded terms`() {
+        val plan = SearchQueryParser.parse("금감원 증권사 -연예 -\"인사 발령\"")
+
+        assertEquals(listOf("금감원 증권사"), plan.providerQueries)
+        assertEquals(listOf("연예", "인사 발령"), plan.excludedTerms)
+        assertEquals(listOf("금감원", "증권사"), plan.terms)
+    }
+
+    @Test
+    fun `keeps hyphens inside words and exclusion works with OR`() {
+        assertEquals(listOf("e-mail"), SearchQueryParser.parse("e-mail").providerQueries)
+        val plan = SearchQueryParser.parse("금감원 AND (증권사 OR 운용사) -광고")
+        assertEquals(listOf("금감원 증권사", "금감원 운용사"), plan.providerQueries)
+        assertEquals(listOf("광고"), plan.excludedTerms)
+    }
+
+    @Test
+    fun `matches excluded terms ignoring case`() {
+        assertTrue(SearchQueryParser.isExcluded("Samsung 연예 소식", listOf("연예")))
+        assertTrue(SearchQueryParser.isExcluded("BREAKING news", listOf("breaking")))
+        assertFalse(SearchQueryParser.isExcluded("금감원 제재", listOf("연예")))
+    }
+
+    @Test
+    fun `rejects a query made only of excluded terms`() {
+        assertThrows(IllegalArgumentException::class.java) { SearchQueryParser.parse("-연예") }
+    }
+
+    @Test
     fun `reports malformed expression`() {
         assertThrows(IllegalArgumentException::class.java) {
             SearchQueryParser.parse("금감원 AND (증권사 OR)")
