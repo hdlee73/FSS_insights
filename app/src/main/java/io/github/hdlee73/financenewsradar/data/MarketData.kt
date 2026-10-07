@@ -87,14 +87,13 @@ val DEFAULT_WATCH = listOf(
     Instrument("005930.KS", "삼성전자", "KRW", Instrument.TYPE_EQUITY),
     Instrument("000660.KS", "SK하이닉스", "KRW", Instrument.TYPE_EQUITY),
     Instrument(ADR_PLACEHOLDER, "SK하이닉스 ADR", "USD", Instrument.TYPE_EQUITY),
-    Instrument("^SOX", "필라델피아 반도체 지수", "USD", Instrument.TYPE_INDEX),
     Instrument("069500.KS", "KODEX 200", "KRW", Instrument.TYPE_ETF)
 )
 
 /** 화면 맨 위 첫 줄에 고정으로 보여 주는 국내 지수. */
 val KOREA_INDEXES = listOf(
-    Instrument("^KS11", "코스피", "KRW", Instrument.TYPE_INDEX),
-    Instrument("^KQ11", "코스닥", "KRW", Instrument.TYPE_INDEX)
+    Instrument("^KS11", "KOSPI", "KRW", Instrument.TYPE_INDEX),
+    Instrument("^KQ11", "KOSDAQ", "KRW", Instrument.TYPE_INDEX)
 )
 
 /** 코스피·코스닥 아래 둘째·셋째 줄(3칸씩)의 칸 수. */
@@ -108,39 +107,39 @@ val PANEL_CATALOG = listOf(
     // 기본 6칸
     idx("^GSPC", "S&P 500"),
     idx("^IXIC", "Nasdaq"),
-    Instrument("KRW=X", "원/달러", "KRW", Instrument.TYPE_FX),
+    Instrument("KRW=X", "USD/KRW", "KRW", Instrument.TYPE_FX),
     quoteOf("CL=F", "WTI"),
-    Instrument("^TNX", "미국채 10년", "USD", Instrument.TYPE_RATE),
-    quoteOf("GC=F", "금"),
+    Instrument("^TNX", "US 10Y", "USD", Instrument.TYPE_RATE),
+    quoteOf("GC=F", "Gold"),
     // 미국 지수·변동성
-    idx("^DJI", "다우존스"),
-    idx("^SOX", "필라델피아 반도체"),
+    idx("^DJI", "Dow Jones"),
+    idx("^SOX", "Philadelphia Semiconductor"),
     idx("^NDX", "Nasdaq 100"),
     idx("^RUT", "Russell 2000"),
-    idx("^VIX", "VIX 변동성"),
+    idx("^VIX", "VIX"),
     // 아시아·유럽 지수
     idx("^N225", "Nikkei 225"),
     idx("^HSI", "Hang Seng"),
-    idx("000001.SS", "상해종합"),
-    idx("^TWII", "대만 가권"),
-    idx("^STOXX50E", "유로스톡스 50"),
-    idx("^GDAXI", "독일 DAX"),
-    idx("^FTSE", "영국 FTSE 100"),
+    idx("000001.SS", "Shanghai Composite"),
+    idx("^TWII", "Taiwan Weighted"),
+    idx("^STOXX50E", "Euro Stoxx 50"),
+    idx("^GDAXI", "DAX"),
+    idx("^FTSE", "FTSE 100"),
     // 환율
-    Instrument("DX-Y.NYB", "달러인덱스", "USD", Instrument.TYPE_FX),
-    Instrument("JPY=X", "엔/달러", "USD", Instrument.TYPE_FX),
-    Instrument("EURKRW=X", "원/유로", "KRW", Instrument.TYPE_FX),
-    Instrument("CNYKRW=X", "원/위안", "KRW", Instrument.TYPE_FX),
+    Instrument("DX-Y.NYB", "Dollar Index", "USD", Instrument.TYPE_FX),
+    Instrument("JPY=X", "USD/JPY", "USD", Instrument.TYPE_FX),
+    Instrument("EURKRW=X", "EUR/KRW", "KRW", Instrument.TYPE_FX),
+    Instrument("CNYKRW=X", "CNY/KRW", "KRW", Instrument.TYPE_FX),
     // 금리
-    Instrument("^FVX", "미국채 5년", "USD", Instrument.TYPE_RATE),
-    Instrument("^TYX", "미국채 30년", "USD", Instrument.TYPE_RATE),
+    Instrument("^FVX", "US 5Y", "USD", Instrument.TYPE_RATE),
+    Instrument("^TYX", "US 30Y", "USD", Instrument.TYPE_RATE),
     // 원자재·코인
-    quoteOf("BZ=F", "브렌트유"),
-    quoteOf("SI=F", "은"),
-    quoteOf("HG=F", "구리"),
-    quoteOf("NG=F", "천연가스"),
-    quoteOf("BTC-USD", "비트코인"),
-    quoteOf("ETH-USD", "이더리움")
+    quoteOf("BZ=F", "Brent"),
+    quoteOf("SI=F", "Silver"),
+    quoteOf("HG=F", "Copper"),
+    quoteOf("NG=F", "Natural Gas"),
+    quoteOf("BTC-USD", "Bitcoin"),
+    quoteOf("ETH-USD", "Ethereum")
 )
 
 val DEFAULT_PANEL_SLOTS: List<String> = PANEL_CATALOG.take(PANEL_SLOT_COUNT).map { it.symbol }

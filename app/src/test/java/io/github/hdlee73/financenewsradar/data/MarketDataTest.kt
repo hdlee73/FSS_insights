@@ -52,7 +52,7 @@ class MarketDataTest {
     fun defaultWatchlistHasRequestedInstruments() {
         val names = DEFAULT_WATCH.map { it.name }
         assertTrue(names.containsAll(listOf("삼성전자", "SK하이닉스", "KODEX 200")))
-        assertTrue(DEFAULT_WATCH.any { it.symbol == "^SOX" })
+        assertTrue(DEFAULT_WATCH.none { it.symbol == "^SOX" })
     }
 
     @Test
