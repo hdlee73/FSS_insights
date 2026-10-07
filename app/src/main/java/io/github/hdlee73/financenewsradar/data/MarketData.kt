@@ -25,6 +25,7 @@ data class Instrument(val symbol: String, val name: String, val currency: String
         const val TYPE_ETF = "ETF"
         const val TYPE_EQUITY = "EQUITY"
         const val TYPE_FX = "FX"
+        const val TYPE_RATE = "RATE"
     }
 }
 
@@ -82,9 +83,17 @@ val DEFAULT_WATCH = listOf(
 val MARKET_PANEL = listOf(
     Instrument("^KS11", "코스피", "KRW", Instrument.TYPE_INDEX),
     Instrument("^KQ11", "코스닥", "KRW", Instrument.TYPE_INDEX),
-    Instrument("^IXIC", "나스닥", "USD", Instrument.TYPE_INDEX),
+    Instrument("^IXIC", "Nasdaq", "USD", Instrument.TYPE_INDEX),
     Instrument("^GSPC", "S&P 500", "USD", Instrument.TYPE_INDEX),
     Instrument("KRW=X", "원/달러", "KRW", Instrument.TYPE_FX)
+)
+
+/** 지수 패널 아래 원자재·금리·코인 시세. */
+val COMMODITY_PANEL = listOf(
+    Instrument("CL=F", "WTI", "USD", Instrument.TYPE_EQUITY),
+    Instrument("^TNX", "미국채 10년", "USD", Instrument.TYPE_RATE),
+    Instrument("BTC-USD", "비트코인", "USD", Instrument.TYPE_EQUITY),
+    Instrument("GC=F", "금", "USD", Instrument.TYPE_EQUITY)
 )
 
 /** 검색 전에 보여 주는 자주 찾는 종목. */
@@ -118,7 +127,7 @@ val POPULAR_INSTRUMENTS = listOf(
 
 /** 지수 이름의 별칭(검색용). */
 private val INDEX_ALIASES = mapOf(
-    "^IXIC" to "nasdaq composite ixic 나스닥종합 나스닥지수",
+    "^IXIC" to "nasdaq composite ixic 나스닥 나스닥종합 나스닥지수",
     "^GSPC" to "s&p 500 sp500 snp 에스앤피 gspc",
     "^DJI" to "dow jones djia 다우 다우지수",
     "^NDX" to "nasdaq 100 nasdaq100 나스닥100 ndx",
