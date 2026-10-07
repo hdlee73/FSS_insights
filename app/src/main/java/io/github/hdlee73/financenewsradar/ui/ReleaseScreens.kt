@@ -186,7 +186,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 noun = agency.itemNoun,
                 group = agency.group,
                 homeUrl = agency.homeUrl,
-                searchable = AgencySources.of(agency).deepSearch,
+                searchable = group == AgencyGroup.PRESS && AgencySources.of(agency).deepSearch,
                 latestCount = agency.latestCount,
                 siteSearchUrl = { AgencySources.siteSearchUrl(agency, it) },
                 state = state.of(agency),
@@ -208,8 +208,8 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 noun = "자료",
                 group = AgencyGroup.RESEARCH,
                 homeUrl = institute.url,
-                searchable = true,
-                latestCount = 10,
+                searchable = false,
+                latestCount = 20,
                 siteSearchUrl = { query ->
                     val host = runCatching { java.net.URI(institute.url).host }.getOrNull().orEmpty()
                     "https://www.google.com/search?q=site%3A$host+" + java.net.URLEncoder.encode(query, "UTF-8")

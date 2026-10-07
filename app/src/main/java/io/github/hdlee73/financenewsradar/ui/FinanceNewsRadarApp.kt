@@ -20,12 +20,14 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Newspaper
@@ -66,14 +68,15 @@ private class AppTab(val label: String, val outlined: ImageVector, val filled: I
 
 private val appTabs = listOf(
     AppTab("뉴스\n검색", Icons.Outlined.Newspaper, Icons.Filled.Newspaper),
-    AppTab("증시\n동향", Icons.Outlined.ShowChart, Icons.Filled.ShowChart),
+    AppTab("시장\n동향", Icons.Outlined.ShowChart, Icons.Filled.ShowChart),
     AppTab("금융당국\n보도자료", Icons.Outlined.AccountBalance, Icons.Filled.AccountBalance),
     AppTab("금융관련\n연구원 자료", Icons.Outlined.MenuBook, Icons.Filled.MenuBook),
     AppTab("참고자료\n모음", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
-    AppTab("금융관련\n주요사이트", Icons.Outlined.Language, Icons.Filled.Language)
+    AppTab("금융관련\n주요사이트", Icons.Outlined.Language, Icons.Filled.Language),
+    AppTab("앱\n정보", Icons.Outlined.Info, Icons.Filled.Info)
 )
 
-/** 앱의 뼈대: 하단 탭(뉴스 / 증시 동향 / 금융당국 보도자료 / 연구원 자료 / 참고자료 / 주요사이트). */
+/** 앱의 뼈대: 하단 탭(뉴스 / 시장동향 / 금융당국 보도자료 / 연구원 자료 / 참고자료 / 주요사이트 / 앱 정보). */
 @Composable
 fun FinanceNewsRadarApp(
     newsViewModel: NewsViewModel = viewModel(),
@@ -129,11 +132,12 @@ fun FinanceNewsRadarApp(
                     2 -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
                     3 -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
                     4 -> LibraryScreen(libraryViewModel)
-                    else -> SitesScreen(
+                    5 -> SitesScreen(
                         links = releases.links,
                         onSave = releasesViewModel::saveLinks,
                         onReset = releasesViewModel::resetLinks
                     )
+                    else -> AppInfoScreen()
                 }
             }
         }
@@ -170,8 +174,8 @@ private fun AppTabBar(selected: Int, onSelect: (Int) -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(if (isSelected) item.filled else item.outlined, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
-                    Text(item.label, color = color, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 11.sp))
+                    Icon(if (isSelected) item.filled else item.outlined, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
+                    Text(item.label, color = color, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 10.sp))
                 }
             }
         }
