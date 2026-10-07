@@ -103,12 +103,11 @@ class LibraryApi(private val context: Context) {
      * 서버가 형식·용량(20MB)을 다시 확인한다.
      */
     suspend fun upload(
-        name: String, mimeType: String, size: Long, description: String, uploader: String, source: () -> java.io.InputStream?
+        name: String, mimeType: String, size: Long, description: String, source: () -> java.io.InputStream?
     ) = withContext(Dispatchers.IO) {
         if (size > MAX_UPLOAD_BYTES) error("파일은 20MB까지 올릴 수 있습니다.")
         val query = "?name=" + URLEncoder.encode(name, "UTF-8") +
-            "&description=" + URLEncoder.encode(description, "UTF-8") +
-            "&uploader=" + URLEncoder.encode(uploader, "UTF-8")
+            "&description=" + URLEncoder.encode(description, "UTF-8")
         val c = open("/upload$query")
         c.requestMethod = "POST"
         c.doOutput = true

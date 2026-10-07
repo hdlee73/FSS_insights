@@ -236,9 +236,8 @@ async function upload(request, url, env) {
   if (length > UPLOAD_MAX) return fail(413, "파일은 20MB까지 올릴 수 있습니다.");
   const body = await request.arrayBuffer();
   if (body.byteLength > UPLOAD_MAX) return fail(413, "파일은 20MB까지 올릴 수 있습니다.");
-  const who = (url.searchParams.get("uploader") || "").trim().slice(0, 40);
   const note = (url.searchParams.get("description") || "").trim().slice(0, 300);
-  const description = [note, who && `올린 사람: ${who}`].filter(Boolean).join(" / ");
+  const description = note;
   const boundary = "fss" + crypto.randomUUID().replace(/-/g, "");
   const meta = JSON.stringify({ name, description, parents: [env.GDRIVE_UPLOAD_FOLDER_ID] });
   const enc = new TextEncoder();
