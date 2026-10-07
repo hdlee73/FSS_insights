@@ -31,7 +31,11 @@ internal object AgencySources {
         /** 목록과 무관한 메뉴 링크를 거르기 위해 날짜가 있는 항목만 쓴다. */
         val requireDate: Boolean = false,
         /** 앱 안 검색(최근 10년 훑기)을 지원하는지. 페이지 이동 방식을 확인하지 못한 기관은 false로 두고 사이트 이동만 안내한다. */
-        val deepSearch: Boolean = true
+        val deepSearch: Boolean = true,
+        /** 목록을 자바스크립트로 그려 첫 HTTP 응답에는 항목이 없는 사이트: 곧바로 WebView로 읽는다. */
+        val jsRendered: Boolean = false,
+        /** 링크 패턴 대신 쓰는 전용 목록 파서. */
+        val customParser: ((body: String, url: String) -> List<ParsedLink>)? = null
     )
 
     private fun enc(text: String) = URLEncoder.encode(text, StandardCharsets.UTF_8.toString())
@@ -55,8 +59,9 @@ internal object AgencySources {
         )
         AgencyId.KCMI -> Source(
             listUrl = { page, size -> "https://www.kcmi.re.kr/report/report_list?pg=$page&pp=$size" },
-            // 한 행에 바로보기가 둘(보도자료 fty=004010 / 보고서 fty=004003)이라 보고서 쪽만 쓴다.
-            linkPattern = Regex("""flexer/view\?[^"\s]*fty=004003"""),
+            // 한 항목에 바로보기가 둘(보도자료 fty=004010 / 보고서 fty=004003)이고 보고서 링크가 없는 항목도 있어,
+            // 제목·저자·날짜는 글 조각 순서로 읽고 링크는 보고서용을 우선한다.
+            customParser = { body, url -> HtmlListParser.extractReports(body, url) },
             pageSize = 30
         )
         AgencyId.KIF -> Source(
@@ -65,7 +70,8 @@ internal object AgencySources {
             linkPattern = Regex("""pub_detail\?[^"\s]*mid=10(&|$)"""),
             pageable = false,
             requireDate = true,
-            deepSearch = false
+            deepSearch = false,
+            jsRendered = true
         )
         AgencyId.CUSTOM -> error("사용자가 추가한 연구소는 별도 경로로 읽습니다.")
         AgencyId.IOSCO -> Source(
@@ -182,8 +188,8 @@ class AgencyRepository(private val context: android.content.Context) {
     }
 
     private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> =
-        fetchParsed(agency.label, url) { body -> parse(source, body, url) }
-            .map { ReleaseItem(agency, it.title, it.url, it.date) }
+        fetchParsed(agency.label, url, source.jsRendered) { body -> parse(source, body, url) }
+            .map { ReleaseItem(agency, it.title, it.url, it.date, author = it.author) }
 
     /** 사용자가 추가한 연구소의 목록(최근 [count]건). 주소 패턴을 모르므로 범용 추출을 쓴다. */
     suspend fun latestCustom(institute: CustomInstitute, count: Int = 20): List<ReleaseItem> =
@@ -195,12 +201,12 @@ class AgencyRepository(private val context: android.content.Context) {
     suspend fun searchCustom(institute: CustomInstitute, query: String): List<ReleaseItem> =
         latestCustom(institute, 30).filter { AgencySources.matches(it.title, query) }
 
-    private suspend fun fetchParsed(label: String, url: String, parse: (String) -> List<ParsedLink>): List<ParsedLink> {
+    private suspend fun fetchParsed(label: String, url: String, webViewOnly: Boolean = false, parse: (String) -> List<ParsedLink>): List<ParsedLink> {
         var parsed: List<ParsedLink> = emptyList()
         var lastBody = ""
         var failure: Throwable? = null
         // 1차: 가벼운 HTTP 요청. 2차: 막히거나 목록이 비면 숨은 WebView로 실제 화면의 HTML을 읽는다.
-        for (useWebView in listOf(false, true)) {
+        for (useWebView in if (webViewOnly) listOf(true) else listOf(false, true)) {
             val body = try {
                 if (useWebView) WebViewFetcher.get(context, url) { html -> parse(html).isNotEmpty() } else HtmlFetcher.get(url)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -222,6 +228,7 @@ class AgencyRepository(private val context: android.content.Context) {
     }
 
     private fun parse(source: AgencySources.Source, body: String, url: String): List<ParsedLink> {
+        source.customParser?.let { return it(body, url) }
         var parsed = if (source.isRss) HtmlListParser.parseRss(body, url)
         else HtmlListParser.extract(body, url, source.linkPattern)
         if (source.requireDate) parsed = parsed.filter { it.date != null }.sortedByDescending { it.date }
@@ -249,8 +256,8 @@ internal object HtmlFetcher {
     suspend fun get(url: String): String = withContext(Dispatchers.IO) {
         val connection = URI(url).toURL().openConnection() as HttpURLConnection
         try {
-            connection.connectTimeout = 12_000
-            connection.readTimeout = 20_000
+            connection.connectTimeout = 8_000
+            connection.readTimeout = 12_000
             connection.instanceFollowRedirects = true
             connection.setRequestProperty("User-Agent", USER_AGENT)
             connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")

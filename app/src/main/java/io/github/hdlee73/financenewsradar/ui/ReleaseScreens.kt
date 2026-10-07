@@ -413,7 +413,7 @@ private fun ReleaseRow(
     onToggleSaved: () -> Unit,
     onShare: () -> Unit
 ) {
-    val meta = listOfNotNull(item.label.takeIf { showAgency }, item.dateText()).joinToString(" · ")
+    val meta = listOfNotNull(item.label.takeIf { showAgency }, item.author, item.dateText()).joinToString(" · ")
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 20.dp, top = 10.dp, bottom = 10.dp, end = 6.dp),
         verticalAlignment = Alignment.Top

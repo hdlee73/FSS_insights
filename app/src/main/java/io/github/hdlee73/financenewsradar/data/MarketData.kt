@@ -45,7 +45,22 @@ class WatchlistStore(context: Context) {
     private val preferences = context.getSharedPreferences("market_watchlist", Context.MODE_PRIVATE)
 
     fun load(): List<Instrument> {
-        val raw = preferences.getString(ITEMS, null) ?: return DEFAULT_WATCH
+        val raw = preferences.getString(ITEMS, null) ?: run {
+            preferences.edit().putBoolean(SOX_REMOVED, true).apply()
+            return DEFAULT_WATCH
+        }
+        val loaded = parse(raw)
+        // 예전 기본 목록에 들어 있던 필라델피아 반도체 지수를 이미 저장한 목록에서도 한 번만 제거한다.
+        if (!preferences.getBoolean(SOX_REMOVED, false)) {
+            val cleaned = loaded.filter { it.symbol != "^SOX" }
+            if (cleaned.size != loaded.size) save(cleaned)
+            preferences.edit().putBoolean(SOX_REMOVED, true).apply()
+            return cleaned
+        }
+        return loaded
+    }
+
+    private fun parse(raw: String): List<Instrument> {
         return runCatching {
             val array = JSONArray(raw)
             (0 until array.length()).map {
@@ -74,6 +89,7 @@ class WatchlistStore(context: Context) {
     private companion object {
         const val ITEMS = "items"
         const val PANEL = "panel_slots"
+        const val SOX_REMOVED = "sox_removed_v17"
     }
 }
 

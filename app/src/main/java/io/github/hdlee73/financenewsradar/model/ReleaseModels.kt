@@ -28,7 +28,9 @@ data class ReleaseItem(
     val link: String,
     val date: LocalDate? = null,
     /** 사용자가 추가한 연구소의 이름(내장 기관이면 null). */
-    val sourceLabel: String? = null
+    val sourceLabel: String? = null,
+    /** 보고서 저자(알 수 있을 때만). */
+    val author: String? = null
 ) {
     val label: String get() = sourceLabel ?: agency.shortLabel
 }

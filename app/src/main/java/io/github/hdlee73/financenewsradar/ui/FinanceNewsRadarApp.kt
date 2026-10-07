@@ -166,7 +166,7 @@ private fun AppTabBar(selected: Int, onSelect: (Int) -> Unit) {
             appTabs.forEachIndexed { index, item ->
                 val isSelected = index == selected
                 val color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                val tabWeight by androidx.compose.animation.core.animateFloatAsState(if (isSelected) 1.8f else 0.9f, label = "tabWeight")
+                val tabWeight by androidx.compose.animation.core.animateFloatAsState(if (isSelected) 2.4f else 0.9f, label = "tabWeight")
                 Column(
                     modifier = Modifier
                         .weight(tabWeight)
@@ -177,7 +177,7 @@ private fun AppTabBar(selected: Int, onSelect: (Int) -> Unit) {
                 ) {
                     Icon(if (isSelected) item.filled else item.outlined, contentDescription = item.label.replace("\n", " "), tint = color, modifier = Modifier.size(24.dp))
                     if (isSelected) {
-                        Text(item.label, color = color, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 10.sp))
+                        Text(item.label.replace("\n", " "), color = color, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp))
                     }
                 }
             }
