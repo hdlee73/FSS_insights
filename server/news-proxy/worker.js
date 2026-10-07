@@ -1,7 +1,7 @@
 // FSS Insights 서버(Cloudflare Worker)
 //  - /news    : 네이버 뉴스 검색 프록시. 네이버 키는 이 서버의 비밀값으로만 존재한다.
 //  - /library : 자료실. 구글 드라이브의 공유 폴더 목록·파일을 읽기 전용으로 중계한다.
-//  - /library/upload : 자료 올리기. 서비스 계정이 비공개 "업로드 대기" 폴더에만 올린다(관리자가 확인해 자료실로 옮김).
+//  - /library/upload : 자료 올리기. 내 계정으로 실행되는 Apps Script 웹앱이 비공개 "업로드 대기" 폴더에만 올린다(관리자가 확인해 자료실로 옮김).
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -195,39 +195,19 @@ async function library(url, env) {
 }
 
 // ---- 자료 올리기(관리자 승인형) ----
+// 서비스 계정은 저장 용량이 없어 개인 드라이브에 올릴 수 없으므로, 내 계정으로 실행되는 Apps Script 웹앱이 대신 저장한다.
 const UPLOAD_MAX = 20 * 1024 * 1024;
 const UPLOAD_ALLOWED = new Set(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "hwp", "hwpx", "txt", "csv", "png", "jpg", "jpeg"]);
 
-const b64url = (bytes) =>
-  btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-
-// 서비스 계정 키로 드라이브 쓰기용 액세스 토큰을 만든다(잠시 기억).
-let tokenCache = { at: 0, token: "" };
-async function accessToken(env) {
-  if (tokenCache.token && Date.now() - tokenCache.at < 50 * 60 * 1000) return tokenCache.token;
-  const key = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
-  const now = Math.floor(Date.now() / 1000);
-  const enc = new TextEncoder();
-  const head = b64url(enc.encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
-  const claim = b64url(enc.encode(JSON.stringify({
-    iss: key.client_email, scope: "https://www.googleapis.com/auth/drive",
-    aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600,
-  })));
-  const der = Uint8Array.from(atob(key.private_key.replace(/-----[^-]+-----|\s/g, "")), (c) => c.charCodeAt(0));
-  const pk = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pk, enc.encode(`${head}.${claim}`));
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${head}.${claim}.${b64url(sig)}` }),
-  });
-  if (!res.ok) throw new Error(`구글 인증 ${res.status}`);
-  tokenCache = { at: Date.now(), token: (await res.json()).access_token };
-  return tokenCache.token;
+function toBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(out);
 }
 
 async function upload(request, url, env) {
-  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON || !env.GDRIVE_UPLOAD_FOLDER_ID) return fail(501, "자료 올리기가 아직 연결되지 않았습니다.");
+  if (!env.APPS_SCRIPT_URL || !env.APPS_SCRIPT_SECRET) return fail(501, "자료 올리기가 아직 연결되지 않았습니다.");
   const name = (url.searchParams.get("name") || "").replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").trim().slice(0, 120);
   const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
   if (!name || !UPLOAD_ALLOWED.has(ext)) return fail(400, "올릴 수 없는 파일 형식입니다. (PDF·문서·엑셀·파워포인트·한글·텍스트·이미지)");
@@ -236,37 +216,20 @@ async function upload(request, url, env) {
   if (length > UPLOAD_MAX) return fail(413, "파일은 20MB까지 올릴 수 있습니다.");
   const body = await request.arrayBuffer();
   if (body.byteLength > UPLOAD_MAX) return fail(413, "파일은 20MB까지 올릴 수 있습니다.");
+  const who = (url.searchParams.get("uploader") || "").trim().slice(0, 40);
   const note = (url.searchParams.get("description") || "").trim().slice(0, 300);
-  const description = note;
-  const boundary = "fss" + crypto.randomUUID().replace(/-/g, "");
-  const meta = JSON.stringify({ name, description, parents: [env.GDRIVE_UPLOAD_FOLDER_ID] });
-  const enc = new TextEncoder();
-  const type = request.headers.get("Content-Type") || "application/octet-stream";
-  const parts = [
-    enc.encode(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: ${type}\r\n\r\n`),
-    new Uint8Array(body),
-    enc.encode(`\r\n--${boundary}--`),
-  ];
-  const payload = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let at = 0;
-  for (const p of parts) { payload.set(p, at); at += p.length; }
-  const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id", {
+  const description = [note, who && `올린 사람: ${who}`].filter(Boolean).join(" / ");
+  const res = await fetch(env.APPS_SCRIPT_URL, {
     method: "POST",
-    headers: { Authorization: `Bearer ${await accessToken(env)}`, "Content-Type": `multipart/related; boundary=${boundary}` },
-    body: payload,
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({
+      secret: env.APPS_SCRIPT_SECRET, name, description,
+      mimeType: request.headers.get("Content-Type") || "application/octet-stream", data: toBase64(body),
+    }),
+    redirect: "follow",
   });
-  if (!res.ok) {
-    let reason = "";
-    try {
-      const e = (await res.json()).error || {};
-      reason = e.errors?.[0]?.reason || e.status || "";
-    } catch { /* 본문 없음 */ }
-    const hint = {
-      accessNotConfigured: "구글 클라우드에서 Google Drive API를 사용 설정해 주세요.",
-      storageQuotaExceeded: "서비스 계정은 저장 용량이 없어 개인 드라이브 폴더에는 올릴 수 없습니다. 공유 드라이브 폴더가 필요합니다.",
-      notFound: "업로드 대기 폴더를 찾을 수 없습니다. 폴더 ID와 서비스 계정 공유를 확인해 주세요.",
-    }[reason] || "업로드 대기 폴더가 서비스 계정에 편집자로 공유되어 있는지 확인해 주세요.";
-    return fail(502, `드라이브에 올리지 못했습니다(${res.status}${reason ? `, ${reason}` : ""}). ${hint}`);
-  }
+  let result = null;
+  try { result = await res.json(); } catch { /* 본문이 JSON이 아님 */ }
+  if (!res.ok || !result?.ok) return fail(502, `드라이브에 올리지 못했습니다(${res.status}${result?.error ? `, ${result.error}` : ""}). Apps Script 웹앱 배포와 접근 권한 설정을 확인해 주세요.`);
   return json({ ok: true });
 }
