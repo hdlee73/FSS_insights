@@ -272,6 +272,10 @@ private fun grouped(value: Double, digits: Int): String =
 private fun signed(value: Double, digits: Int, suffix: String = ""): String =
     (if (value > 0) "▲" else if (value < 0) "▼" else "") + grouped(kotlin.math.abs(value), digits) + suffix
 
+/** 대비 금액과 등락률을 "▼92.30 (▼1.30%)"처럼 등락률을 괄호 안에 묶어 표시한다. */
+private fun deltaText(item: Instrument, quote: Quote): String? =
+    quote.change?.let { "${signed(it, changeDigits(item))} (${signed(quote.changePercent ?: 0.0, 2, "%")})" }
+
 private fun priceText(item: Instrument, value: Double): String = when {
     item.type == Instrument.TYPE_FX -> grouped(value, 2) + if (item.currency == "KRW") "원" else ""
     item.type == Instrument.TYPE_RATE -> grouped(value, 3) + "%"
@@ -354,7 +358,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
                 val color = MaterialTheme.colorScheme.onSurfaceVariant
                 Text("종목명", Modifier.weight(W_NAME), style = head, color = color)
                 Text("현재가 / 대비 · 등락률", Modifier.weight(W_PRICE), style = head, color = color, textAlign = TextAlign.End)
-                Text("1년", Modifier.weight(W_CHART), style = head, color = color, textAlign = TextAlign.End)
+                Text("1년 주가추이", Modifier.weight(W_CHART), style = head, color = color, textAlign = TextAlign.End, maxLines = 1, softWrap = false)
             }
         }
         if (state.watch.isEmpty()) {
@@ -467,7 +471,7 @@ private fun IndexTile(
 ) {
     val color = changeColor(quote?.change)
     val price = quote?.let { priceText(item, it.price) } ?: "—"
-    val delta = quote?.change?.let { "${signed(it, changeDigits(item))} ${signed(quote.changePercent ?: 0.0, 2, "%")}" } ?: "전일 대비 —"
+    val delta = quote?.let { deltaText(item, it) } ?: "전일 대비 —"
     val shape = RoundedCornerShape(10.dp)
     val dark = isSystemInDarkTheme()
     val fill = if (tinted) (if (dark) TileTintDark else TileTintLight) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
@@ -476,13 +480,13 @@ private fun IndexTile(
         else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     val nameStyle = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold)
     val priceStyle = TextStyle(fontSize = if (wide) 18.sp else 15.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp)
-    val deltaStyle = TextStyle(fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+    val deltaStyle = TextStyle(fontSize = if (wide) 10.5.sp else 9.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp)
     Column(
         modifier.background(fill, shape)
             .border(border, shape)
             .clip(shape)
             .clickable(enabled = editing, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
         if (wide) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -601,7 +605,7 @@ private fun WatchRow(
             Column(Modifier.weight(W_PRICE), horizontalAlignment = Alignment.End) {
                 Text(quote?.let { priceText(item, it.price) } ?: "—", style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp), color = color, maxLines = 1)
                 Text(
-                    quote?.change?.let { "${signed(it, changeDigits(item))} ${signed(quote.changePercent ?: 0.0, 2, "%")}" } ?: "—",
+                    quote?.let { deltaText(item, it) } ?: "—",
                     Modifier.padding(top = 4.dp), style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium), color = color, maxLines = 1
                 )
             }
