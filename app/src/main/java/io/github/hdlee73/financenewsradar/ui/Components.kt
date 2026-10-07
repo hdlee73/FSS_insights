@@ -27,7 +27,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.HorizontalDivider
@@ -291,28 +291,26 @@ fun CenterMessage(text: String, modifier: Modifier = Modifier, isError: Boolean 
     }
 }
 
-/** 목록을 조금 내려가면 오른쪽 아래에 나타나는 "맨 위로" 버튼. [Box] 안에서 목록 위에 겹쳐 둔다. */
+/** 목록을 조금 내려가면 오른쪽 아래에 나타나는 "맨 위로" 버튼(모든 탭 공통 모양). [Box] 안에서 목록 위에 겹쳐 둔다. */
 @Composable
-fun BoxScope.ScrollToTopButton(state: androidx.compose.foundation.lazy.LazyListState, modifier: Modifier = Modifier) {
+fun BoxScope.ScrollToTopButton(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier = Modifier,
+    onBeforeScroll: () -> Unit = {}
+) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val visible by remember { androidx.compose.runtime.derivedStateOf { state.firstVisibleItemIndex >= 3 } }
-    androidx.compose.animation.AnimatedVisibility(
-        visible = visible,
-        modifier = modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp),
-        enter = androidx.compose.animation.fadeIn(),
-        exit = androidx.compose.animation.fadeOut()
-    ) {
-        Surface(
-            onClick = { scope.launch { state.animateScrollToItem(0) } },
-            shape = androidx.compose.foundation.shape.CircleShape,
-            color = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            shadowElevation = 4.dp,
-            modifier = Modifier.size(44.dp)
+    val visible by remember { androidx.compose.runtime.derivedStateOf { state.firstVisibleItemIndex > 0 || state.firstVisibleItemScrollOffset > 120 } }
+    if (visible) {
+        androidx.compose.material3.SmallFloatingActionButton(
+            onClick = {
+                onBeforeScroll()
+                scope.launch { state.animateScrollToItem(0) }
+            },
+            modifier = modifier.align(Alignment.BottomEnd).padding(16.dp),
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.primary
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "맨 위로", modifier = Modifier.size(28.dp))
-            }
+            Icon(Icons.Default.VerticalAlignTop, contentDescription = "맨 위로 이동")
         }
     }
 }

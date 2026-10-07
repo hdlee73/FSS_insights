@@ -192,19 +192,7 @@ private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpe
             }
         }
 
-        if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 120) {
-            SmallFloatingActionButton(
-                onClick = {
-                    dismissKeyboard()
-                    scope.launch { listState.animateScrollToItem(0) }
-                },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.primary
-            ) {
-                Icon(Icons.Default.VerticalAlignTop, contentDescription = "맨 위로 이동")
-            }
-        }
+        ScrollToTopButton(listState, onBeforeScroll = { dismissKeyboard() })
     }
 }
 
