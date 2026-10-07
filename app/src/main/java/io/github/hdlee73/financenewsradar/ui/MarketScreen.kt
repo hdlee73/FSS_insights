@@ -66,6 +66,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.ADR_PLACEHOLDER
 import io.github.hdlee73.financenewsradar.data.Instrument
+import io.github.hdlee73.financenewsradar.data.COMMODITY_PANEL
 import io.github.hdlee73.financenewsradar.data.MARKET_PANEL
 import io.github.hdlee73.financenewsradar.data.MarketClient
 import io.github.hdlee73.financenewsradar.data.POPULAR_INSTRUMENTS
@@ -137,7 +138,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
         if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {
             _state.update { it.copy(isRefreshing = true) }
-            val symbols = (MARKET_PANEL + _state.value.watch).map { it.symbol }.distinct()
+            val symbols = (MARKET_PANEL + COMMODITY_PANEL + _state.value.watch).map { it.symbol }.distinct()
             var anyFailed = false
             symbols.chunked(6).forEach { chunk ->
                 coroutineScope {
@@ -158,7 +159,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     /** 지수 패널만 가볍게 갱신(화면이 열려 있는 동안 10초마다). */
     fun refreshPanel() {
         viewModelScope.launch {
-            MARKET_PANEL.map { it.symbol }.map { symbol ->
+            (MARKET_PANEL + COMMODITY_PANEL).map { it.symbol }.map { symbol ->
                 async { runCatching { client.quote(symbol) }.onSuccess { q -> _state.update { it.copy(quotes = it.quotes + (symbol to q)) } } }
             }.awaitAll()
         }
@@ -231,6 +232,7 @@ private fun signed(value: Double, digits: Int, suffix: String = ""): String =
 
 private fun priceText(item: Instrument, value: Double): String = when {
     item.type == Instrument.TYPE_FX -> grouped(value, 2) + "원"
+    item.type == Instrument.TYPE_RATE -> grouped(value, 3) + "%"
     item.isIndex -> grouped(value, 2)
     item.currency == "USD" -> "$" + grouped(value, 2)
     else -> grouped(value, 0) + "원"
@@ -369,15 +371,15 @@ private fun SoftButton(onClick: () -> Unit, enabled: Boolean = true, content: @C
     }
 }
 
-/** 코스피·코스닥은 넓은 칸(이름 왼쪽·가격 오른쪽), 나머지 셋은 세로로 쌓은 칸. */
+/** 모든 칸이 같은 형식: 이름은 왼쪽, 지수·환율·등락은 오른쪽. */
 @Composable
 private fun IndexPanel(state: MarketUiState) {
     Column(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MARKET_PANEL.take(2).forEach { IndexTile(it, state.quotes[it.symbol], wide = true, Modifier.weight(1f)) }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MARKET_PANEL.drop(2).forEach { IndexTile(it, state.quotes[it.symbol], wide = false, Modifier.weight(1f)) }
+        (MARKET_PANEL + COMMODITY_PANEL).chunked(2).forEach { pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pair.forEach { IndexTile(it, state.quotes[it.symbol], Modifier.weight(1f)) }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
         }
         Text(
             stamp(state.quotes["^KS11"]) + " · 해외 지수·환율은 지연될 수 있음",
@@ -388,7 +390,7 @@ private fun IndexPanel(state: MarketUiState) {
 }
 
 @Composable
-private fun IndexTile(item: Instrument, quote: Quote?, wide: Boolean, modifier: Modifier = Modifier) {
+private fun IndexTile(item: Instrument, quote: Quote?, modifier: Modifier = Modifier) {
     val color = changeColor(quote?.change)
     val price = quote?.let { priceText(item, it.price) } ?: "—"
     val delta = quote?.change?.let { "${signed(it, 2)} (${signed(quote.changePercent ?: 0.0, 2, "%")})" } ?: "전일 대비 —"
@@ -398,19 +400,13 @@ private fun IndexTile(item: Instrument, quote: Quote?, wide: Boolean, modifier: 
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
             .padding(horizontal = 11.dp, vertical = 9.dp)
     ) {
-        if (wide) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(price, style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp), color = color, maxLines = 1)
-                    Text(delta, Modifier.padding(top = 2.dp), style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold), color = color, maxLines = 1)
-                }
-            }
-        } else {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
             Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-            Text(price, style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp), color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(horizontalAlignment = Alignment.End) {
+                Text(price, style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp), color = color, maxLines = 1)
+                Text(delta, Modifier.padding(top = 2.dp), style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold), color = color, maxLines = 1)
+            }
         }
-        if (!wide) Text(delta, Modifier.padding(top = 3.dp), style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold), color = color, maxLines = 1)
     }
 }
 
