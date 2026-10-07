@@ -37,6 +37,9 @@ data class Quote(val price: Double, val previous: Double?, val timeSeconds: Long
 /** 최근 1년 일별 종가와 기간 최고가·최저가. */
 data class PriceHistory(val closes: List<Double>, val high: Double, val low: Double)
 
+/** 당일(장이 끝났으면 가장 최근 거래일)의 분봉 종가. [previous]는 그래프 기준선(전일 종가). */
+data class IntradaySeries(val points: List<Double>, val previous: Double?)
+
 /** 로컬에 저장하는 관심종목. 저장된 값이 없을 때만 기본 종목을 보여 준다. */
 class WatchlistStore(context: Context) {
     private val preferences = context.getSharedPreferences("market_watchlist", Context.MODE_PRIVATE)
@@ -60,17 +63,17 @@ class WatchlistStore(context: Context) {
         preferences.edit().putString(ITEMS, array.toString()).apply()
     }
 
-    /** 위쪽 지수·시세 패널의 표시 순서(심볼 목록). 저장된 값이 없으면 기본 순서. */
-    fun loadPanelOrder(): List<String> =
+    /** 위쪽 지수·시세 패널(코스피·코스닥 아래 6칸)에 고른 심볼 목록. 저장된 값이 없으면 기본값. */
+    fun loadPanelSlots(): List<String> =
         preferences.getString(PANEL, null)?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
 
-    fun savePanelOrder(symbols: List<String>) {
+    fun savePanelSlots(symbols: List<String>) {
         preferences.edit().putString(PANEL, symbols.joinToString(",")).apply()
     }
 
     private companion object {
         const val ITEMS = "items"
-        const val PANEL = "panel_order"
+        const val PANEL = "panel_slots"
     }
 }
 
@@ -88,28 +91,67 @@ val DEFAULT_WATCH = listOf(
     Instrument("069500.KS", "KODEX 200", "KRW", Instrument.TYPE_ETF)
 )
 
-/** 화면 위쪽 시장 지수·환율 패널. */
-val MARKET_PANEL = listOf(
+/** 화면 맨 위 첫 줄에 고정으로 보여 주는 국내 지수. */
+val KOREA_INDEXES = listOf(
     Instrument("^KS11", "코스피", "KRW", Instrument.TYPE_INDEX),
-    Instrument("^KQ11", "코스닥", "KRW", Instrument.TYPE_INDEX),
-    Instrument("^IXIC", "Nasdaq", "USD", Instrument.TYPE_INDEX),
-    Instrument("^GSPC", "S&P 500", "USD", Instrument.TYPE_INDEX),
-    Instrument("KRW=X", "원/달러", "KRW", Instrument.TYPE_FX)
+    Instrument("^KQ11", "코스닥", "KRW", Instrument.TYPE_INDEX)
 )
 
-/** 지수 패널 아래 원자재·금리·코인 시세. */
-val COMMODITY_PANEL = listOf(
-    Instrument("CL=F", "WTI", "USD", Instrument.TYPE_EQUITY),
+/** 코스피·코스닥 아래 둘째·셋째 줄(3칸씩)의 칸 수. */
+const val PANEL_SLOT_COUNT = 6
+
+private fun idx(symbol: String, name: String) = Instrument(symbol, name, "USD", Instrument.TYPE_INDEX)
+private fun quoteOf(symbol: String, name: String) = Instrument(symbol, name, "USD", Instrument.TYPE_EQUITY)
+
+/** 둘째·셋째 줄에 고를 수 있는 시장 지표. 앞에서부터 [PANEL_SLOT_COUNT]개가 기본값이다. */
+val PANEL_CATALOG = listOf(
+    // 기본 6칸
+    idx("^GSPC", "S&P 500"),
+    idx("^IXIC", "Nasdaq"),
+    Instrument("KRW=X", "원/달러", "KRW", Instrument.TYPE_FX),
+    quoteOf("CL=F", "WTI"),
     Instrument("^TNX", "미국채 10년", "USD", Instrument.TYPE_RATE),
-    Instrument("BTC-USD", "비트코인", "USD", Instrument.TYPE_EQUITY),
-    Instrument("GC=F", "금", "USD", Instrument.TYPE_EQUITY)
+    quoteOf("GC=F", "금"),
+    // 미국 지수·변동성
+    idx("^DJI", "다우존스"),
+    idx("^SOX", "필라델피아 반도체"),
+    idx("^NDX", "Nasdaq 100"),
+    idx("^RUT", "Russell 2000"),
+    idx("^VIX", "VIX 변동성"),
+    // 아시아·유럽 지수
+    idx("^N225", "Nikkei 225"),
+    idx("^HSI", "Hang Seng"),
+    idx("000001.SS", "상해종합"),
+    idx("^TWII", "대만 가권"),
+    idx("^STOXX50E", "유로스톡스 50"),
+    idx("^GDAXI", "독일 DAX"),
+    idx("^FTSE", "영국 FTSE 100"),
+    // 환율
+    Instrument("DX-Y.NYB", "달러인덱스", "USD", Instrument.TYPE_FX),
+    Instrument("JPY=X", "엔/달러", "USD", Instrument.TYPE_FX),
+    Instrument("EURKRW=X", "원/유로", "KRW", Instrument.TYPE_FX),
+    Instrument("CNYKRW=X", "원/위안", "KRW", Instrument.TYPE_FX),
+    // 금리
+    Instrument("^FVX", "미국채 5년", "USD", Instrument.TYPE_RATE),
+    Instrument("^TYX", "미국채 30년", "USD", Instrument.TYPE_RATE),
+    // 원자재·코인
+    quoteOf("BZ=F", "브렌트유"),
+    quoteOf("SI=F", "은"),
+    quoteOf("HG=F", "구리"),
+    quoteOf("NG=F", "천연가스"),
+    quoteOf("BTC-USD", "비트코인"),
+    quoteOf("ETH-USD", "이더리움")
 )
 
-/** 저장된 순서([saved])대로 패널 항목을 늘어놓는다. 저장에 없는 항목은 기본 순서로 뒤에 붙는다. */
-fun orderedPanel(saved: List<String>): List<Instrument> {
-    val all = MARKET_PANEL + COMMODITY_PANEL
-    val byOrder = saved.mapNotNull { symbol -> all.firstOrNull { it.symbol == symbol } }.distinct()
-    return byOrder + all.filter { it !in byOrder }
+val DEFAULT_PANEL_SLOTS: List<String> = PANEL_CATALOG.take(PANEL_SLOT_COUNT).map { it.symbol }
+
+/** 저장된 칸 구성([saved])을 6칸으로 맞춘다. 모르는 심볼·중복은 버리고 모자라면 기본값 순서로 채운다. */
+fun panelSlots(saved: List<String>): List<Instrument> {
+    val chosen = saved.mapNotNull { symbol -> PANEL_CATALOG.firstOrNull { it.symbol == symbol } }.distinct().take(PANEL_SLOT_COUNT)
+    if (chosen.size == PANEL_SLOT_COUNT) return chosen
+    val fill = DEFAULT_PANEL_SLOTS.mapNotNull { symbol -> PANEL_CATALOG.firstOrNull { it.symbol == symbol } }
+        .filter { it !in chosen } + PANEL_CATALOG.filter { it !in chosen }
+    return (chosen + fill.distinct()).take(PANEL_SLOT_COUNT)
 }
 
 /** 검색 전에 보여 주는 자주 찾는 종목. */
@@ -245,11 +287,11 @@ class MarketClient(private val context: Context) {
         return Quote(price, previous, tradeTime(o.optString("localTradedAt")), o.optString("marketStatus"))
     }
 
-    private fun yahooChart(symbol: String, range: String): JSONObject {
+    private fun yahooChart(symbol: String, range: String, interval: String = "1d"): JSONObject {
         var last: Exception? = null
         for (host in listOf("query1.finance.yahoo.com", "query2.finance.yahoo.com")) {
             try {
-                val root = JSONObject(get("https://$host/v8/finance/chart/${enc(symbol)}?range=$range&interval=1d"))
+                val root = JSONObject(get("https://$host/v8/finance/chart/${enc(symbol)}?range=$range&interval=$interval"))
                 val result = root.getJSONObject("chart").optJSONArray("result")
                 if (result == null || result.length() == 0) error("해당 종목 시세가 없습니다")
                 return result.getJSONObject(0)
@@ -280,6 +322,32 @@ class MarketClient(private val context: Context) {
             }
         }
         return Quote(price, previous.takeIf { it.isFinite() }, marketTime, meta.optString("exchangeName"))
+    }
+
+    /**
+     * 당일 흐름 그래프용 5분봉. 최근 5일치를 받아 거래소 현지 날짜별로 묶은 뒤, 점이 충분한 가장 최근 날짜를 쓴다
+     * (장 시작 전·휴장이면 자연히 전 거래일이 된다). 기준선은 그 전 거래일 마지막 종가, 없으면 [fallbackPrevious].
+     */
+    suspend fun intraday(raw: String, fallbackPrevious: Double?): IntradaySeries = withContext(Dispatchers.IO) {
+        val symbol = checkedSymbol(raw)
+        val chart = yahooChart(symbol, "5d", "5m")
+        val meta = chart.getJSONObject("meta")
+        val zone = ZoneId.of(meta.optString("exchangeTimezoneName", "UTC"))
+        val timestamps = chart.optJSONArray("timestamp") ?: error("분봉 자료 없음")
+        val closes = chart.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0).getJSONArray("close")
+        val byDay = java.util.TreeMap<java.time.LocalDate, MutableList<Double>>()
+        for (i in 0 until timestamps.length()) {
+            val close = closes.optDouble(i, Double.NaN)
+            if (!close.isFinite() || close <= 0) continue
+            val day = java.time.Instant.ofEpochSecond(timestamps.getLong(i)).atZone(zone).toLocalDate()
+            byDay.getOrPut(day) { ArrayList() } += close
+        }
+        val days = byDay.keys.toList()
+        val pick = days.lastOrNull { (byDay[it]?.size ?: 0) >= MIN_INTRADAY_POINTS } ?: days.lastOrNull() ?: error("분봉 자료 없음")
+        val points = byDay.getValue(pick)
+        if (points.size < 2) error("분봉 자료 부족")
+        val before = days.lastOrNull { it.isBefore(pick) }?.let { byDay[it]?.last() }
+        IntradaySeries(points, fallbackPrevious ?: before)
     }
 
     /** 최근 1년 일별 종가. 1시간 동안은 캐시 파일을 쓴다. */
@@ -431,6 +499,7 @@ class MarketClient(private val context: Context) {
     }
 
     private companion object {
+        const val MIN_INTRADAY_POINTS = 6
         val US_EXCHANGES = setOf("NMS", "NYQ", "NGM", "NCM", "ASE", "PCX", "BTS", "NASDAQ", "NYSE", "NYSEArca")
     }
 }

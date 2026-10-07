@@ -6,12 +6,26 @@ import org.junit.Test
 
 class MarketDataTest {
     @Test
-    fun ordersPanelBySavedSymbolsAndKeepsTheRest() {
-        val all = (MARKET_PANEL + COMMODITY_PANEL).map { it.symbol }
-        assertEquals(all, orderedPanel(emptyList()).map { it.symbol })
-        val result = orderedPanel(listOf("GC=F", "unknown", "^KS11")).map { it.symbol }
-        assertEquals(listOf("GC=F", "^KS11"), result.take(2))
-        assertEquals(all.sorted(), result.sorted())
+    fun panelHasSixDistinctSlotsAndDefaultsWhenNothingSaved() {
+        assertEquals(listOf("^KS11", "^KQ11"), KOREA_INDEXES.map { it.symbol })
+        val defaults = panelSlots(emptyList()).map { it.symbol }
+        assertEquals(DEFAULT_PANEL_SLOTS, defaults)
+        assertEquals(PANEL_SLOT_COUNT, defaults.distinct().size)
+        assertEquals(PANEL_CATALOG.size, PANEL_CATALOG.map { it.symbol }.distinct().size)
+    }
+
+    @Test
+    fun savedPanelChoiceKeepsOrderDropsUnknownAndFillsTheRest() {
+        val result = panelSlots(listOf("^N225", "unknown", "^SOX", "^N225")).map { it.symbol }
+        assertEquals(listOf("^N225", "^SOX"), result.take(2))
+        assertEquals(PANEL_SLOT_COUNT, result.size)
+        assertEquals(PANEL_SLOT_COUNT, result.distinct().size)
+    }
+
+    @Test
+    fun catalogIncludesRequestedGlobalIndicators() {
+        val symbols = PANEL_CATALOG.map { it.symbol }
+        assertTrue(symbols.containsAll(listOf("^SOX", "^N225", "^HSI", "^DJI", "^VIX", "DX-Y.NYB", "^STOXX50E", "000001.SS")))
     }
 
     @Test
