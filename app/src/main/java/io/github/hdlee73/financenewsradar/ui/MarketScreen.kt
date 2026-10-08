@@ -75,6 +75,10 @@ import io.github.hdlee73.financenewsradar.data.PANEL_CATALOG
 import io.github.hdlee73.financenewsradar.data.POPULAR_INSTRUMENTS
 import io.github.hdlee73.financenewsradar.data.PriceHistory
 import io.github.hdlee73.financenewsradar.data.Quote
+import io.github.hdlee73.financenewsradar.data.STAT_GROUPS
+import io.github.hdlee73.financenewsradar.data.StatItem
+import io.github.hdlee73.financenewsradar.data.StatsApi
+import io.github.hdlee73.financenewsradar.data.periodLabel
 import io.github.hdlee73.financenewsradar.data.WatchlistStore
 import io.github.hdlee73.financenewsradar.data.panelSlots
 import io.github.hdlee73.financenewsradar.data.searchLocal
@@ -102,13 +106,18 @@ data class MarketUiState(
     val quotes: Map<String, Quote> = emptyMap(),
     val histories: Map<String, PriceHistory> = emptyMap(),
     val isRefreshing: Boolean = false,
-    val failed: Boolean = false
+    val failed: Boolean = false,
+    /** 한국은행 ECOS 기반 국내 금융 통계(서버 /stats). 못 가져온 항목은 없다. */
+    val stats: List<StatItem> = emptyList(),
+    val hiddenStats: Set<String> = emptySet()
 )
 
 class MarketViewModel(application: Application) : AndroidViewModel(application) {
     private val client = MarketClient(application)
     private val store = WatchlistStore(application)
-    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), panel = panelSlots(store.loadPanelSlots())))
+    private val statsApi = StatsApi(application)
+    private var statsLoadedAt = 0L
+    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), panel = panelSlots(store.loadPanelSlots()), hiddenStats = store.loadHiddenStats()))
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
     private var refreshJob: Job? = null
     private val chartFailedAt = HashMap<String, Long>()
@@ -163,7 +172,23 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
             _state.update { it.copy(isRefreshing = false, failed = anyFailed) }
             loadIntraday()
             loadCharts()
+            loadStats()
         }
+    }
+
+    /** 국내 금융 통계는 일·월·분기 자료라 30분에 한 번만 받는다. */
+    private suspend fun loadStats() {
+        if (System.currentTimeMillis() - statsLoadedAt < 1_800_000) return
+        statsLoadedAt = System.currentTimeMillis()
+        runCatching { statsApi.load() }
+            .onSuccess { list -> if (list.isNotEmpty()) _state.update { it.copy(stats = list) } else statsLoadedAt = 0L }
+            .onFailure { statsLoadedAt = 0L }
+    }
+
+    fun toggleStat(id: String) {
+        val hidden = _state.value.hiddenStats.let { if (id in it) it - id else it + id }
+        store.saveHiddenStats(hidden)
+        _state.update { it.copy(hiddenStats = hidden) }
     }
 
     /** 지수 패널만 가볍게 갱신(화면이 열려 있는 동안 10초마다). */
@@ -343,6 +368,9 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
         item {
             IndexPanel(state, editing, panelPick) { index -> panelPick = index }
         }
+        if (state.stats.isNotEmpty()) {
+            item { StatsPanel(state.stats, state.hiddenStats, editing, viewModel::toggleStat) }
+        }
         item {
             Row(Modifier.fillMaxWidth().padding(start = 2.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                 Text("관심종목", style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp))
@@ -504,6 +532,67 @@ private fun IndexTile(
             Text(delta, Modifier.padding(top = 1.dp), style = deltaStyle, color = color, maxLines = 1)
             IntradayChart(series, color, Modifier.fillMaxWidth().padding(top = 4.dp).height(26.dp))
         }
+    }
+}
+
+private fun statText(item: StatItem, value: Double): String {
+    val digits = if (item.isRate) 2 else if (kotlin.math.abs(value) >= 1000) 0 else 1
+    return grouped(value, digits) + (if (item.isRate) "%" else if (item.unit.isNotBlank()) " ${item.unit}" else "")
+}
+
+private fun statDelta(item: StatItem): String? {
+    val change = item.change ?: return null
+    val digits = if (item.isRate) 2 else if (kotlin.math.abs(item.value) >= 1000) 0 else 1
+    val percent = if (item.isRate) "" else item.changePercent?.let { " (${signed(it, 2, "%")})" }.orEmpty()
+    // 금리는 %p 차이를 그대로 보여 준다.
+    return signed(change, digits) + (if (item.isRate) "%p" else "") + percent
+}
+
+/** 한국은행 ECOS 국내 금융 통계. 증시 타일과 달리 구분별 목록(이름·기준일 / 값·증감)으로 보여 준다. 편집 중에는 행을 눌러 숨김/표시. */
+@Composable
+private fun StatsPanel(stats: List<StatItem>, hidden: Set<String>, editing: Boolean, onToggle: (String) -> Unit) {
+    val visible = stats.filter { editing || it.id !in hidden }
+    if (visible.isEmpty()) return
+    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+        Text("국내 금융 통계", Modifier.padding(start = 2.dp, top = 4.dp, bottom = 8.dp), style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp))
+        val shape = RoundedCornerShape(10.dp)
+        Column(Modifier.fillMaxWidth().border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape).clip(shape)) {
+            visible.groupBy { it.group }.entries
+                .sortedBy { e -> STAT_GROUPS.keys.indexOf(e.key).let { if (it < 0) Int.MAX_VALUE else it } }
+                .forEach { (group, rows) ->
+                    Text(
+                        group,
+                        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    rows.forEachIndexed { index, item ->
+                        val off = item.id in hidden
+                        val color = changeColor(item.change)
+                        Row(
+                            Modifier.fillMaxWidth().clickable(enabled = editing) { onToggle(item.id) }
+                                .background(if (off) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f) else Color.Transparent)
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(item.name + if (off) " · 숨김" else "", style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(periodLabel(item.period) + " 기준", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(statText(item, item.value), style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp), maxLines = 1)
+                                Text(statDelta(item) ?: "직전 값 —", style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold), color = color, maxLines = 1)
+                            }
+                        }
+                        if (index < rows.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+        }
+        Text(
+            if (editing) "행을 누르면 숨기거나 다시 보이게 할 수 있습니다." else "한국은행 ECOS 기준. 기준금리는 직전 변경 대비, 나머지는 직전 관측값 대비.",
+            Modifier.padding(start = 2.dp, top = 6.dp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

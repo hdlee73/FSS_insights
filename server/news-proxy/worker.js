@@ -1,6 +1,7 @@
 // FSS Insights 서버(Cloudflare Worker)
 //  - /news    : 네이버 뉴스 검색 프록시. 네이버 키는 이 서버의 비밀값으로만 존재한다.
 //  - /library : 자료실. 구글 드라이브의 공유 폴더 목록·파일을 읽기 전용으로 중계한다.
+//  - /stats   : 국내 금융 통계(한국은행 ECOS). 키는 이 서버의 비밀값(ECOS_API_KEY)으로만 존재한다.
 //  - /library/upload : 자료 올리기. 내 계정으로 실행되는 Apps Script 웹앱이 비공개 "업로드 대기" 폴더에만 올린다(관리자가 확인해 자료실로 옮김).
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
@@ -29,6 +30,13 @@ export default {
       return new Response("Unauthorized", { status: 401 });
     }
     if (url.pathname === "/news" && request.method === "GET") return news(url, env, ctx);
+    if (url.pathname === "/stats" && request.method === "GET") {
+      try {
+        return await stats(env, ctx);
+      } catch (e) {
+        return fail(502, `통계 서버 오류: ${e.message}`);
+      }
+    }
     if (url.pathname === "/library/upload" && request.method === "POST") {
       try {
         return await upload(request, url, env);
@@ -232,4 +240,90 @@ async function upload(request, url, env) {
   try { result = await res.json(); } catch { /* 본문이 JSON이 아님 */ }
   if (!res.ok || !result?.ok) return fail(502, `드라이브에 올리지 못했습니다(${res.status}${result?.error ? `, ${result.error}` : ""}). Apps Script 웹앱 배포와 접근 권한 설정을 확인해 주세요.`);
   return json({ ok: true });
+}
+
+// ---- 국내 금융 통계(한국은행 ECOS) ----
+// 통계표·항목 코드를 코드에 박아 두지 않고, 표 이름·항목 이름 키워드로 ECOS 목록에서 찾는다.
+// 못 찾거나 값이 없는 지표는 응답에서 빼고 missing에 이름을 남긴다.
+const ECOS = "https://ecos.bok.or.kr/api";
+export const STAT_SPECS = [
+  { id: "base-rate", name: "한국은행 기준금리", unit: "%", cycle: "D", table: ["기준금리", "여수신금리"], item: ["기준금리"], lastChange: true },
+  { id: "ktb-3y", name: "국고채 3년", unit: "%", cycle: "D", table: ["시장금리", "일별"], item: ["국고채(3년)"] },
+  { id: "ktb-10y", name: "국고채 10년", unit: "%", cycle: "D", table: ["시장금리", "일별"], item: ["국고채(10년)"] },
+  { id: "cd-91", name: "CD 91일", unit: "%", cycle: "D", table: ["시장금리", "일별"], item: ["CD(91일)"] },
+  { id: "corp-aa", name: "회사채 3년 AA-", unit: "%", cycle: "D", table: ["시장금리", "일별"], item: ["회사채(3년", "AA-"] },
+  { id: "household-credit", name: "가계신용", unit: "", cycle: "Q", table: ["가계신용"], item: ["가계신용"] },
+  { id: "bank-household-loan", name: "은행 가계대출", unit: "", cycle: "M", table: ["예금은행", "가계대출"], item: [] },
+  { id: "bank-delinquency", name: "은행 대출 연체율", unit: "%", cycle: "M", table: ["연체율"], item: ["은행"] },
+  { id: "loan-rate", name: "예금은행 대출금리", unit: "%", cycle: "M", table: ["대출금리", "신규취급액"], item: ["총대출"] },
+  { id: "fx-reserves", name: "외환보유액", unit: "", cycle: "M", table: ["외환보유액"], item: [] },
+];
+
+let tableCache = { at: 0, rows: null };
+
+async function ecos(env, path) {
+  const res = await fetch(`${ECOS}/${path.replace("{key}", env.ECOS_API_KEY)}`);
+  if (!res.ok) throw new Error(`ECOS ${res.status}`);
+  const body = await res.json();
+  if (body.RESULT) throw new Error(`ECOS ${body.RESULT.CODE}`);
+  return body;
+}
+
+export const pick = (rows, keywords, nameOf) => {
+  const hits = rows.filter((r) => keywords.every((k) => nameOf(r).includes(k)));
+  return hits.sort((a, b) => nameOf(a).length - nameOf(b).length)[0] || null;
+};
+
+export const range = (cycle, now = new Date()) => {
+  const y = now.getUTCFullYear();
+  const pad = (n) => String(n).padStart(2, "0");
+  const ymd = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
+  if (cycle === "D") return [ymd(new Date(now.getTime() - 400 * 86400000)), ymd(now)];
+  if (cycle === "Q") return [`${y - 3}Q1`, `${y}Q4`];
+  return [`${y - 3}${pad(now.getUTCMonth() + 1)}`, `${y}${pad(now.getUTCMonth() + 1)}`];
+};
+
+// ECOS 행(시간순)에서 최근값과 비교값을 뽑는다. lastChange면 마지막으로 값이 바뀌기 전 값을 비교값으로 쓴다.
+export const latestPair = (rows, lastChange) => {
+  const points = rows
+    .map((r) => ({ time: String(r.TIME), value: parseFloat(String(r.DATA_VALUE).replace(/,/g, "")), unit: r.UNIT_NAME || "" }))
+    .filter((p) => Number.isFinite(p.value))
+    .sort((a, b) => a.time.localeCompare(b.time));
+  if (!points.length) return null;
+  const last = points[points.length - 1];
+  const before = points.slice(0, -1);
+  const prev = lastChange ? [...before].reverse().find((p) => p.value !== last.value) : before[before.length - 1];
+  return { value: last.value, previous: prev ? prev.value : null, period: last.time, unit: last.unit };
+};
+
+async function statOne(spec, env, tables) {
+  const table = pick(tables, spec.table, (r) => r.STAT_NAME);
+  if (!table) throw new Error("통계표 없음");
+  const items = (await ecos(env, `StatisticItemList/{key}/json/kr/1/500/${table.STAT_CODE}`)).StatisticItemList.row;
+  const item = spec.item.length ? pick(items, spec.item, (r) => r.ITEM_NAME) : items[0];
+  if (!item) throw new Error("항목 없음");
+  const [from, to] = range(spec.cycle);
+  const data = await ecos(env, `StatisticSearch/{key}/json/kr/1/500/${table.STAT_CODE}/${spec.cycle}/${from}/${to}/${item.ITEM_CODE}`);
+  const pair = latestPair(data.StatisticSearch.row, spec.lastChange);
+  if (!pair) throw new Error("값 없음");
+  return { id: spec.id, name: spec.name, cycle: spec.cycle, ...pair, unit: spec.unit || pair.unit, source: `${table.STAT_NAME} / ${item.ITEM_NAME}` };
+}
+
+async function stats(env, ctx) {
+  if (!env.ECOS_API_KEY) return fail(503, "ECOS_API_KEY가 설정되지 않았습니다");
+  const cacheKey = new Request("https://stats.cache/ecos-v1");
+  const cache = caches.default;
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+  if (!tableCache.rows || Date.now() - tableCache.at > 86400000) {
+    tableCache = { at: Date.now(), rows: (await ecos(env, "StatisticTableList/{key}/json/kr/1/5000/")).StatisticTableList.row };
+  }
+  const settled = await Promise.allSettled(STAT_SPECS.map((s) => statOne(s, env, tableCache.rows)));
+  const items = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
+  const missing = STAT_SPECS.filter((_, i) => settled[i].status === "rejected").map((s, _i) => s.id);
+  const response = new Response(JSON.stringify({ items, missing }), {
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=3600" },
+  });
+  if (items.length) ctx.waitUntil(cache.put(cacheKey, response.clone()));
+  return response;
 }
