@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
@@ -67,6 +69,7 @@ import io.github.hdlee73.financenewsradar.model.AgencyGroup
 private class AppTab(val label: String, val outlined: ImageVector, val filled: ImageVector)
 
 private val appTabs = listOf(
+    AppTab("오늘의\n브리핑", Icons.Outlined.WbSunny, Icons.Filled.WbSunny),
     AppTab("뉴스\n검색", Icons.Outlined.Newspaper, Icons.Filled.Newspaper),
     AppTab("시장\n동향", Icons.Outlined.ShowChart, Icons.Filled.ShowChart),
     AppTab("금융당국\n보도자료", Icons.Outlined.AccountBalance, Icons.Filled.AccountBalance),
@@ -76,7 +79,7 @@ private val appTabs = listOf(
     AppTab("앱\n정보", Icons.Outlined.Info, Icons.Filled.Info)
 )
 
-/** 앱의 뼈대: 하단 탭(뉴스 / 시장동향 / 금융당국 보도자료 / 연구원 자료 / 참고자료 / 주요사이트 / 앱 정보). */
+/** 앱의 뼈대: 하단 탭(오늘의 브리핑 / 뉴스 / 시장동향 / 금융당국 보도자료 / 연구원 자료 / 참고자료 / 주요사이트 / 앱 정보). */
 @Composable
 fun FinanceNewsRadarApp(
     newsViewModel: NewsViewModel = viewModel(),
@@ -127,12 +130,16 @@ fun FinanceNewsRadarApp(
             // 탭을 오가도 각 화면의 검색어·스크롤 위치가 유지되도록 화면별로 상태를 보관한다.
             stateHolder.SaveableStateProvider(tab) {
                 when (tab) {
-                    0 -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
-                    1 -> MarketScreen(marketViewModel)
-                    2 -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
-                    3 -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
-                    4 -> LibraryScreen(libraryViewModel)
-                    5 -> SitesScreen(
+                    0 -> BriefingScreen(
+                        newsViewModel, releasesViewModel, marketViewModel,
+                        onOpenTab = { tab = it }
+                    )
+                    1 -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
+                    2 -> MarketScreen(marketViewModel)
+                    3 -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
+                    4 -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
+                    5 -> LibraryScreen(libraryViewModel)
+                    6 -> SitesScreen(
                         links = releases.links,
                         onSave = releasesViewModel::saveLinks,
                         onReset = releasesViewModel::resetLinks
