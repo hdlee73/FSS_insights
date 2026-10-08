@@ -23,7 +23,9 @@ data class LibraryEntry(
     val description: String = "",
     val tags: List<String> = emptyList(),
     /** 검색 결과일 때 파일이 들어 있는 폴더 이름. */
-    val location: String = ""
+    val location: String = "",
+    /** 제목·설명이 아니라 파일 본문에서 찾은 검색 결과. */
+    val bodyMatch: Boolean = false
 )
 
 data class LibraryListing(val folderId: String, val isRoot: Boolean, val items: List<LibraryEntry>, val tags: List<String> = emptyList())
@@ -64,7 +66,8 @@ class LibraryApi(private val context: Context) {
                 parent = o.optString("parent", folderId),
                 description = o.optString("description"),
                 tags = (0 until (tagArray?.length() ?: 0)).map { i -> tagArray!!.getString(i) },
-                location = o.optString("location")
+                location = o.optString("location"),
+                bodyMatch = o.optBoolean("bodyMatch")
             )
         }
         val allTags = root.optJSONArray("tags")
@@ -79,7 +82,7 @@ class LibraryApi(private val context: Context) {
         parse(JSONObject(String(read(open(path)), Charsets.UTF_8)), folderId.orEmpty())
     }
 
-    /** 자료실 전체에서 파일명·설명·#태그로 검색. `#태그`로 시작하면 태그 일치. */
+    /** 자료실 전체에서 파일명·설명·본문·#태그로 검색. `#태그`로 시작하면 태그 일치. */
     suspend fun search(query: String): LibraryListing = withContext(Dispatchers.IO) {
         parse(JSONObject(String(read(open("/search?q=" + URLEncoder.encode(query, "UTF-8"))), Charsets.UTF_8)), "")
     }
