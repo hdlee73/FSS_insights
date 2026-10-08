@@ -124,6 +124,13 @@ class SettingsStore(context: Context) {
             .apply()
     }
 
+    /** 키워드 알림(새 기사·보도자료 푸시) 사용 여부. 기본은 꺼짐. */
+    fun keywordAlertsEnabled(): Boolean = preferences.getBoolean(KEYWORD_ALERTS, false)
+
+    fun setKeywordAlertsEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEYWORD_ALERTS, enabled).apply()
+    }
+
     /** 기관별로 이미 본 자료 링크. 한 번도 저장한 적이 없으면 null(첫 실행이라 NEW 표시를 하지 않는다). */
     fun seenLinks(agency: AgencyId): List<String>? = seenLinks(agency.name)
 
@@ -192,6 +199,7 @@ class SettingsStore(context: Context) {
         private const val LINKS_MIGRATED_EDGAR = "links_migrated_edgar"
         const val LINKS = "useful_links"
         private const val SAVED_RELEASES = "saved_releases"
+        private const val KEYWORD_ALERTS = "keyword_alerts_enabled"
         private const val SEEN_PREFIX = "seen_"
         private const val KEYWORD_SEPARATOR = "\u001F"
         private const val RECORD_SEPARATOR = "\u001E"

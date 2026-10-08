@@ -22,9 +22,16 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -34,7 +41,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.hdlee73.financenewsradar.data.KeywordAlerts
 import io.github.hdlee73.financenewsradar.data.KeywordTrend
+import io.github.hdlee73.financenewsradar.data.SettingsStore
 import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 
 /** 맞춤 키워드별 최근 7일 기사 수 추이와 급증 표시. 키워드를 누르면 그 키워드로 검색한다. */
@@ -43,11 +52,43 @@ fun MonitorScreen(viewModel: NewsViewModel, onBack: () -> Unit, onPick: (String)
     val state by viewModel.state.collectAsStateWithLifecycle()
     val trends = state.trends.sortedWith(compareByDescending<KeywordTrend> { it.isSurge }.thenByDescending { it.today })
 
+    val context = LocalContext.current
+    val store = remember { SettingsStore(context.applicationContext) }
+    var alertsOn by remember { mutableStateOf(store.keywordAlertsEnabled()) }
+    fun setAlerts(on: Boolean) {
+        alertsOn = on
+        store.setKeywordAlertsEnabled(on)
+        KeywordAlerts.schedule(context, on)
+    }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> setAlerts(granted) }
+
     Column(modifier.fillMaxSize()) {
         BackHeader("키워드 모니터링", onBack) {
             IconButton(onClick = viewModel::loadTrends) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
         }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item(key = "alerts") {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("새 소식 알림", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "내 키워드가 들어간 새 기사와 금융감독원·금융위원회 보도자료가 나오면 약 3시간 간격으로 확인해 알려 드립니다. 같은 항목은 한 번만 알립니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = alertsOn, onCheckedChange = { on ->
+                        if (on && KeywordAlerts.needsNotificationPermission(context)) {
+                            permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        } else setAlerts(on)
+                    })
+                }
+                SectionBand(6.dp)
+            }
             item(key = "info") {
                 Text(
                     "내 키워드 ${state.settings.keywords.size}개의 최근 7일 기사 수입니다. 오늘 기사가 5건 이상이면서 지난 6일 평균의 2배 이상이면 ‘급증’으로 표시합니다. 키워드를 누르면 기사를 검색합니다.",
