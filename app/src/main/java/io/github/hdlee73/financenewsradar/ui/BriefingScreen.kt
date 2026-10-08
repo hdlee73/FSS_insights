@@ -37,7 +37,7 @@ import java.util.Locale
 
 private const val TAB_NEWS = 1
 private const val TAB_MARKET = 2
-private const val TAB_PRESS = 3
+private const val TAB_PRESS = 3   // 자료 탭(보도자료 구분 탭)
 private val BRIEFING_PRESS = listOf(AgencyId.FSS, AgencyId.FSC)
 private val briefingTime = DateTimeFormatter.ofPattern("M월 d일 HH:mm", Locale.KOREAN).withZone(ZoneId.of("Asia/Seoul"))
 

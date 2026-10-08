@@ -18,20 +18,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.ShowChart
-import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Newspaper
 import androidx.compose.material.icons.outlined.ShowChart
 import androidx.compose.material3.HorizontalDivider
@@ -72,14 +66,17 @@ private val appTabs = listOf(
     AppTab("오늘의\n브리핑", Icons.Outlined.WbSunny, Icons.Filled.WbSunny),
     AppTab("뉴스\n검색", Icons.Outlined.Newspaper, Icons.Filled.Newspaper),
     AppTab("시장\n동향", Icons.Outlined.ShowChart, Icons.Filled.ShowChart),
-    AppTab("금융당국\n보도자료", Icons.Outlined.AccountBalance, Icons.Filled.AccountBalance),
-    AppTab("금융관련\n연구원 자료", Icons.Outlined.MenuBook, Icons.Filled.MenuBook),
-    AppTab("참고자료", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
-    AppTab("금융관련\n주요사이트", Icons.Outlined.Language, Icons.Filled.Language),
-    AppTab("앱\n정보", Icons.Outlined.Info, Icons.Filled.Info)
+    AppTab("자료", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
+    AppTab("더보기", Icons.Outlined.MoreHoriz, Icons.Filled.MoreHoriz)
 )
 
-/** 앱의 뼈대: 하단 탭(오늘의 브리핑 / 뉴스 / 시장동향 / 금융당국 보도자료 / 연구원 자료 / 참고자료 / 주요사이트 / 앱 정보). */
+private const val TAB_MATERIALS = 3
+
+// 하단 탭 수를 5개로 유지하기 위해, 성격이 비슷한 화면은 한 탭 안의 상단 구분 탭으로 묶는다.
+private val materialSubTabs = listOf("보도자료", "연구원 자료", "참고자료")
+private val moreSubTabs = listOf("주요사이트", "앱 정보")
+
+/** 앱의 뼈대: 하단 탭(오늘의 브리핑 / 뉴스 / 시장동향 / 자료[보도자료·연구원 자료·참고자료] / 더보기[주요사이트·앱 정보]). */
 @Composable
 fun FinanceNewsRadarApp(
     newsViewModel: NewsViewModel = viewModel(),
@@ -102,6 +99,8 @@ fun FinanceNewsRadarApp(
         }
     }
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var materialSub by rememberSaveable { mutableIntStateOf(0) }
+    var moreSub by rememberSaveable { mutableIntStateOf(0) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(newsState.error) {
@@ -132,19 +131,34 @@ fun FinanceNewsRadarApp(
                 when (tab) {
                     0 -> BriefingScreen(
                         newsViewModel, releasesViewModel, marketViewModel,
-                        onOpenTab = { tab = it }
+                        onOpenTab = {
+                            if (it == TAB_MATERIALS) materialSub = 0   // 브리핑의 보도자료 '더 보기'는 보도자료 구분 탭으로
+                            tab = it
+                        }
                     )
                     1 -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     2 -> MarketScreen(marketViewModel)
-                    3 -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
-                    4 -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
-                    5 -> LibraryScreen(libraryViewModel)
-                    6 -> SitesScreen(
-                        links = releases.links,
-                        onSave = releasesViewModel::saveLinks,
-                        onReset = releasesViewModel::resetLinks
-                    )
-                    else -> AppInfoScreen()
+                    3 -> SubTabbed(materialSubTabs, materialSub, { materialSub = it }) {
+                        stateHolder.SaveableStateProvider("materials-$materialSub") {
+                            when (materialSub) {
+                                0 -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
+                                1 -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
+                                else -> LibraryScreen(libraryViewModel)
+                            }
+                        }
+                    }
+                    else -> SubTabbed(moreSubTabs, moreSub, { moreSub = it }) {
+                        stateHolder.SaveableStateProvider("more-$moreSub") {
+                            when (moreSub) {
+                                0 -> SitesScreen(
+                                    links = releases.links,
+                                    onSave = releasesViewModel::saveLinks,
+                                    onReset = releasesViewModel::resetLinks
+                                )
+                                else -> AppInfoScreen()
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -161,6 +175,37 @@ fun FinanceNewsRadarApp(
                 settingsOpen = false
             }
         )
+    }
+}
+
+/** 한 하단 탭 안에서 화면을 나누는 상단 구분 탭. */
+@Composable
+private fun SubTabbed(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().background(AppColors.header)) {
+            labels.forEachIndexed { index, label ->
+                val isSelected = index == selected
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onSelect(index) },
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        label,
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        color = androidx.compose.ui.graphics.Color.White.copy(alpha = if (isSelected) 1f else 0.6f),
+                        maxLines = 1,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Box(
+                        Modifier.fillMaxWidth().height(3.dp)
+                            .background(if (isSelected) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.Transparent)
+                    )
+                }
+            }
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) { content() }
     }
 }
 
