@@ -1,7 +1,10 @@
 // FSS Insights 서버(Cloudflare Worker)
 //  - /news    : 네이버 뉴스 검색 프록시. 네이버 키는 이 서버의 비밀값으로만 존재한다.
 //  - /library : 자료실. 구글 드라이브의 공유 폴더 목록·파일을 읽기 전용으로 중계한다.
+//  - /calendar : 금융 일정 달력. 이 폴더의 events.json(관리자가 직접 편집)을 그대로 내준다.
 //  - /library/upload : 자료 올리기. 내 계정으로 실행되는 Apps Script 웹앱이 비공개 "업로드 대기" 폴더에만 올린다(관리자가 확인해 자료실로 옮김).
+import calendar from "./events.json";
+
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -29,6 +32,7 @@ export default {
       return new Response("Unauthorized", { status: 401 });
     }
     if (url.pathname === "/news" && request.method === "GET") return news(url, env, ctx);
+    if (url.pathname === "/calendar" && request.method === "GET") return calendarEvents();
     if (url.pathname === "/library/upload" && request.method === "POST") {
       try {
         return await upload(request, url, env);
@@ -46,6 +50,14 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 };
+
+// 일정은 events.json에 직접 적는다(날짜 YYYY-MM-DD, 여러 날이면 endDate). 항목마다 날짜를 공식 일정에서 확인한 뒤 confirmed를 true로 바꾼다.
+function calendarEvents() {
+  const events = (calendar.events || []).filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date) && e.title);
+  return new Response(JSON.stringify({ updated: calendar.updated || "", events }), {
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=300" },
+  });
+}
 
 async function news(url, env, ctx) {
   const query = (url.searchParams.get("query") || "").trim().slice(0, 200);

@@ -1,0 +1,9 @@
+{
+  "updated": "2026-10-08",
+  "events": [
+    { "date": "2026-10-22", "title": "금융통화위원회 통화정책방향 결정", "category": "금통위", "url": "https://www.bok.or.kr", "confirmed": false },
+    { "date": "2026-10-27", "endDate": "2026-10-28", "title": "미 FOMC 정례회의", "category": "해외", "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm", "confirmed": false },
+    { "date": "2026-11-26", "title": "금융통화위원회 통화정책방향 결정", "category": "금통위", "url": "https://www.bok.or.kr", "confirmed": false },
+    { "date": "2026-12-08", "endDate": "2026-12-09", "title": "미 FOMC 정례회의", "category": "해외", "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm", "confirmed": false }
+  ]
+}

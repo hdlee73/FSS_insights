@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Language
@@ -73,6 +75,7 @@ private val appTabs = listOf(
     AppTab("금융관련\n연구원 자료", Icons.Outlined.MenuBook, Icons.Filled.MenuBook),
     AppTab("참고자료", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
     AppTab("금융관련\n주요사이트", Icons.Outlined.Language, Icons.Filled.Language),
+    AppTab("금융\n일정", Icons.Outlined.CalendarMonth, Icons.Filled.CalendarMonth),
     AppTab("앱\n정보", Icons.Outlined.Info, Icons.Filled.Info)
 )
 
@@ -82,7 +85,8 @@ fun FinanceNewsRadarApp(
     newsViewModel: NewsViewModel = viewModel(),
     releasesViewModel: ReleasesViewModel = viewModel(),
     libraryViewModel: LibraryViewModel = viewModel(),
-    marketViewModel: MarketViewModel = viewModel()
+    marketViewModel: MarketViewModel = viewModel(),
+    calendarViewModel: CalendarViewModel = viewModel()
 ) {
     val newsState by newsViewModel.state.collectAsStateWithLifecycle()
     val releases by releasesViewModel.state.collectAsStateWithLifecycle()
@@ -137,6 +141,7 @@ fun FinanceNewsRadarApp(
                         onSave = releasesViewModel::saveLinks,
                         onReset = releasesViewModel::resetLinks
                     )
+                    6 -> CalendarScreen(calendarViewModel)
                     else -> AppInfoScreen()
                 }
             }
