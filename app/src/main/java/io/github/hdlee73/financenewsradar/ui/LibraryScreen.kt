@@ -212,7 +212,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             SearchPill(
                 value = queryText,
                 onValueChange = { queryText = it; if (it.isBlank() && state.query.isNotBlank()) viewModel.clearSearch() },
-                placeholder = "제목·설명·#태그 검색",
+                placeholder = "제목·설명·본문·#태그 검색",
                 onSearch = { viewModel.search(queryText) },
                 modifier = Modifier.padding(horizontal = 16.dp),
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -264,7 +264,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis
                             )
                             if (!entry.isFolder) Text(
-                                listOf(entry.location, sizeText(entry.size), entry.modified.take(10)).filter { it.isNotBlank() }.joinToString(" · "),
+                                listOf(if (entry.bodyMatch) "본문 일치" else "", entry.location, sizeText(entry.size), entry.modified.take(10)).filter { it.isNotBlank() }.joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
