@@ -99,6 +99,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.hdlee73.financenewsradar.ArticleReaderActivity
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
+import io.github.hdlee73.financenewsradar.BuildConfig
+import io.github.hdlee73.financenewsradar.data.UpdateChecker
+import io.github.hdlee73.financenewsradar.data.UpdateStatus
 import io.github.hdlee73.financenewsradar.model.AppSettings
 import io.github.hdlee73.financenewsradar.model.NaverApiType
 import io.github.hdlee73.financenewsradar.model.NaverCredentials

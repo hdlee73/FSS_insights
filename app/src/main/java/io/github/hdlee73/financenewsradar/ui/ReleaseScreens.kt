@@ -115,6 +115,11 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
     val savedLinks = state.savedLinks
     LaunchedEffect(agency) { agency?.let(viewModel::ensureLatest) }
     LaunchedEffect(institute?.url) { institute?.let(viewModel::ensureCustom) }
+    // 지금 보는 기관의 첫 쪽이 뜬 뒤, 같은 탭의 다른 기관 자료도 백그라운드에서 미리 읽어 둔다.
+    LaunchedEffect(group) {
+        kotlinx.coroutines.delay(1_500)
+        viewModel.preload(agencies)
+    }
 
     if (addOpen) {
         AddInstituteDialog(
@@ -139,7 +144,9 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
         )
     }
 
-    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    Box(modifier.fillMaxSize()) {
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "title") {
             LargeTitle(group.label) {
                 if (group == AgencyGroup.RESEARCH) {
@@ -186,6 +193,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 noun = agency.itemNoun,
                 group = agency.group,
                 homeUrl = agency.homeUrl,
+                searchable = group == AgencyGroup.PRESS && AgencySources.of(agency).deepSearch,
                 latestCount = agency.latestCount,
                 siteSearchUrl = { AgencySources.siteSearchUrl(agency, it) },
                 state = state.of(agency),
@@ -207,7 +215,8 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 noun = "자료",
                 group = AgencyGroup.RESEARCH,
                 homeUrl = institute.url,
-                latestCount = 10,
+                searchable = false,
+                latestCount = 20,
                 siteSearchUrl = { query ->
                     val host = runCatching { java.net.URI(institute.url).host }.getOrNull().orEmpty()
                     "https://www.google.com/search?q=site%3A$host+" + java.net.URLEncoder.encode(query, "UTF-8")
@@ -224,6 +233,8 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 onDelete = { deleteTarget = institute }
             )
         }
+    }
+    ScrollToTopButton(listState)
     }
 }
 
@@ -258,6 +269,7 @@ private fun LazyListScope.agencyItems(
     noun: String,
     group: AgencyGroup,
     homeUrl: String,
+    searchable: Boolean,
     latestCount: Int,
     siteSearchUrl: (String) -> String,
     state: AgencyUiState,
@@ -280,7 +292,7 @@ private fun LazyListScope.agencyItems(
         ) {
             Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "$name 사이트에서 전체 목록 보기",
+                    if (searchable) "$name 사이트에서 전체 목록 보기" else "$name 사이트에서 찾기",
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
@@ -290,7 +302,7 @@ private fun LazyListScope.agencyItems(
             }
         }
     }
-    item(key = "search-$key") {
+    if (searchable) item(key = "search-$key") {
         AgencySearchBar(key = key, shortName = shortName, noun = noun, clearTick = clearTick, enabled = !state.isSearching, onSearch = onSearch)
     }
 
@@ -315,14 +327,18 @@ private fun LazyListScope.agencyItems(
                     onAction = { openSite(context, group, homeUrl, "$name $noun") }
                 )
             }
-            else -> items(state.latest, key = { "latest-${it.link}" }) { item ->
-                ReleaseRow(
-                    item = item, isNew = item.link in state.newLinks, isSaved = item.link in savedLinks, showAgency = false,
-                    onOpen = { openItem(context, item) },
-                    onToggleSaved = { onToggleSaved(item) },
-                    onShare = { shareItem(context, item) }
-                )
-                RowDivider()
+            else -> {
+                items(state.latest, key = { "latest-${it.link}" }) { item ->
+                    ReleaseRow(
+                        item = item, isNew = item.link in state.newLinks, isSaved = item.link in savedLinks, showAgency = false,
+                        onOpen = { openItem(context, item) },
+                        onToggleSaved = { onToggleSaved(item) },
+                        onShare = { shareItem(context, item) }
+                    )
+                    RowDivider()
+                }
+                // 첫 쪽을 먼저 보여 주고 나머지는 백그라운드에서 읽어 이어 붙이는 중.
+                if (state.isLoadingMore) item(key = "latest-more") { LoadingBlock() }
             }
         }
     } else {
@@ -397,7 +413,7 @@ private fun ReleaseRow(
     onToggleSaved: () -> Unit,
     onShare: () -> Unit
 ) {
-    val meta = listOfNotNull(item.label.takeIf { showAgency }, item.dateText()).joinToString(" · ")
+    val meta = listOfNotNull(item.label.takeIf { showAgency }, item.author, item.dateText()).joinToString(" · ")
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 20.dp, top = 10.dp, bottom = 10.dp, end = 6.dp),
         verticalAlignment = Alignment.Top
@@ -434,7 +450,9 @@ fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onR
     var deleteIndex by remember { mutableStateOf<Int?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
 
-    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    Box(modifier.fillMaxSize()) {
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "title") {
             LargeTitle("금융관련 주요사이트") {
                 TextButton(onClick = { editMode = !editMode }) { Text(if (editMode) "완료" else "편집", fontWeight = FontWeight.SemiBold) }
@@ -468,6 +486,8 @@ fun SitesScreen(links: List<UsefulLink>, onSave: (List<UsefulLink>) -> Unit, onR
                 Text("기본 사이트로 복원")
             }
         }
+    }
+    ScrollToTopButton(listState)
     }
 
     editingIndex?.let { index ->

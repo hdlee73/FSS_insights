@@ -6,7 +6,7 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-data class ParsedLink(val title: String, val url: String, val date: LocalDate?)
+data class ParsedLink(val title: String, val url: String, val date: LocalDate?, val author: String? = null)
 
 /**
  * 게시판 목록 HTML에서 (제목, 링크, 날짜)를 뽑는 의존성 없는 파서.
@@ -73,6 +73,68 @@ object HtmlListParser {
             val nextStart = ordered.getOrNull(index + 1)?.start ?: clean.length
             ParsedLink(title, hit.url, dateFor(clean, hit, prevEnd, nextStart))
         }
+    }
+
+
+    private val textNode = Regex(">([^<]+)<")
+    private val dotDate = Regex("(20\\d{2})\\s*[.-]\\s*(\\d{1,2})\\s*[.-]\\s*(\\d{1,2})")
+    private val viewLink = Regex("""href\s*=\s*["']([^"']*flexer/view\?[^"']*)["']""", RegexOption.IGNORE_CASE)
+    private val downloadLink = Regex("""href\s*=\s*["']([^"']*common/downloadw\?[^"']*)["']""", RegexOption.IGNORE_CASE)
+
+    /**
+     * 자본시장연구원 보고서 목록. 한 항목이 "제목 → (직책) 저자 날짜 → 요약 → 바로보기/다운로드" 순으로 놓이므로,
+     * 태그 구조에 기대지 않고 글 조각(text node)을 순서대로 읽어 "날짜로 끝나는 짧은 조각"을 항목의 기준점으로 삼는다.
+     * 제목은 그 앞쪽에서 가장 가까운 긴 조각(요약이 아니라), 저자는 날짜 앞의 글, 링크는 다음 기준점 전까지의 첫 보고서 링크.
+     */
+    fun extractReports(html: String, baseUrl: String): List<ParsedLink> {
+        val clean = noise.replace(html, " ")
+        val base = runCatching { URI(baseUrl) }.getOrNull()
+        class Node(val text: String, val start: Int, val end: Int)
+        val nodes = textNode.findAll(clean).map { m ->
+            val g = m.groups[1]!!
+            Node(compact(decodeEntities(g.value)), g.range.first, g.range.last + 1)
+        }.filter { it.text.isNotEmpty() }.toList()
+
+        // 기준점: 날짜가 끝에 붙은 짧은 글(저자+날짜). 요약문 속 날짜는 길이로 거른다.
+        val anchors = nodes.indices.filter { i ->
+            val t = nodes[i].text
+            val m = dotDate.findAll(t).lastOrNull() ?: return@filter false
+            m.range.last >= t.length - 1 && t.length <= 40
+        }
+        return anchors.mapIndexedNotNull { n, i ->
+            val node = nodes[i]
+            val dm = dotDate.findAll(node.text).last()
+            val date = runCatching { LocalDate.of(dm.groupValues[1].toInt(), dm.groupValues[2].toInt(), dm.groupValues[3].toInt()) }.getOrNull()
+                ?: return@mapIndexedNotNull null
+            var author = node.text.substring(0, dm.range.first).trim()
+            var k = i - 1
+            // 저자·직책이 날짜와 다른 조각에 있으면(짧은 글) 거슬러 올라가며 모은다.
+            val parts = ArrayDeque<String>()
+            if (author.isNotEmpty()) parts.addFirst(author)
+            val prevAnchor = if (n > 0) anchors[n - 1] else -1
+            while (k > prevAnchor && nodes[k].text.length < 12 && parts.size < 3 && !dotDate.containsMatchIn(nodes[k].text)) {
+                parts.addFirst(nodes[k].text); k--
+            }
+            // 제목: 남은 앞쪽 조각 중 가장 가까운 제목다운(8자 이상, 안내 문구 아님) 글.
+            var t = k
+            var title = ""
+            while (t > prevAnchor && t >= 0) {
+                val c = nodes[t].text
+                if (c.length >= 8 && !genericLabel.matches(c)) { title = c; break }
+                t--
+            }
+            if (title.isEmpty()) return@mapIndexedNotNull null
+            author = parts.joinToString(" ").trim()
+            val nextStart = anchors.getOrNull(n + 1)?.let { nodes[it].start } ?: clean.length
+            val region = clean.substring(node.end, nextStart)
+            val reportView = viewLink.findAll(region).map { decodeEntities(it.groupValues[1]) }.toList()
+            val pick = reportView.firstOrNull { it.contains("fty=004003") }
+                ?: downloadLink.findAll(region).map { decodeEntities(it.groupValues[1]) }.firstOrNull { it.contains("fty=004003") }
+                ?: reportView.firstOrNull()
+                ?: downloadLink.find(region)?.let { decodeEntities(it.groupValues[1]) }
+            val url = pick?.let { resolve(base, it) } ?: baseUrl
+            ParsedLink(title, url, date, author.ifEmpty { null })
+        }.distinctBy { it.url + it.title }
     }
 
     /** RSS 2.0 `<item>`에서 제목·링크·발행일을 읽는다. */

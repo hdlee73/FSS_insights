@@ -192,19 +192,7 @@ private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpe
             }
         }
 
-        if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 120) {
-            SmallFloatingActionButton(
-                onClick = {
-                    dismissKeyboard()
-                    scope.launch { listState.animateScrollToItem(0) }
-                },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.primary
-            ) {
-                Icon(Icons.Default.VerticalAlignTop, contentDescription = "맨 위로 이동")
-            }
-        }
+        ScrollToTopButton(listState, onBeforeScroll = { dismissKeyboard() })
     }
 }
 
@@ -287,7 +275,14 @@ private fun SearchControls(
                 }
             }
             Text(
-                "공백·AND: 모두 포함 / OR: 하나 이상 / \"문구\": 정확히 일치",
+                "공백·AND: 모두 포함 / OR: 하나 이상 / \"문구\": 정확히 일치 / -단어: 그 단어가 들어간 기사 제외",
+                modifier = Modifier.padding(horizontal = 20.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "제외 방법: 빼고 싶은 단어 앞에 ‘-’를 붙이고 단어와 띄우지 않습니다. 제목·요약에 그 단어가 있는 기사를 결과에서 뺍니다. " +
+                    "예) 금감원 -연예   /   금감원 AND (증권사 OR 운용사) -\"인사 발령\"   (문구는 따옴표로 묶기). 제외어만으로는 검색할 수 없습니다.",
                 modifier = Modifier.padding(horizontal = 20.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -388,7 +383,7 @@ private fun ArticleRow(article: NewsArticle, onBookmark: () -> Unit) {
                 )
             }
             IconButton(onClick = { ArticleReaderActivity.open(context, article.link, article.title) }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.Share, contentDescription = "원문 PDF 저장·공유", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Default.Share, contentDescription = "원문 보기·공유", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Text(

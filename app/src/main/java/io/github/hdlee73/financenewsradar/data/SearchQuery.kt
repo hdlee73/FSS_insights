@@ -8,15 +8,20 @@ package io.github.hdlee73.financenewsradar.data
 data class SearchPlan(
     val providerQueries: List<String>,
     val terms: List<String>,
-    val usesBooleanOperators: Boolean
+    val usesBooleanOperators: Boolean,
+    /** `-단어` 로 지정한 제외어. 이 단어가 제목·요약에 들어 있는 기사는 결과에서 뺀다. */
+    val excludedTerms: List<String> = emptyList()
 )
 
 object SearchQueryParser {
     private const val MAX_BRANCHES = 12
 
     fun parse(raw: String): SearchPlan {
-        val tokens = tokenize(raw.trim())
-        require(tokens.isNotEmpty()) { "검색어를 입력해 주세요." }
+        val excluded = mutableListOf<String>()
+        val tokens = tokenize(raw.trim(), excluded)
+        require(tokens.isNotEmpty()) {
+            if (excluded.isEmpty()) "검색어를 입력해 주세요." else "제외할 단어(-단어)만으로는 검색할 수 없습니다. 찾을 단어를 함께 입력해 주세요."
+        }
         val parser = Parser(tokens)
         val expression = parser.parse()
         val groups = toGroups(expression)
@@ -33,7 +38,8 @@ object SearchQueryParser {
         return SearchPlan(
             providerQueries = queries,
             terms = groups.flatten().distinctBy { it.lowercase() },
-            usesBooleanOperators = tokens.any { it is Token.And || it is Token.Or || it is Token.LeftParen }
+            usesBooleanOperators = tokens.any { it is Token.And || it is Token.Or || it is Token.LeftParen },
+            excludedTerms = excluded.distinctBy { it.lowercase() }
         )
     }
 
@@ -117,12 +123,34 @@ object SearchQueryParser {
         }
     }
 
-    private fun tokenize(raw: String): List<Token> {
+    /** 제목·요약([text])에 제외어가 하나라도 들어 있으면 true. */
+    fun isExcluded(text: String, excludedTerms: List<String>): Boolean =
+        excludedTerms.any { it.isNotBlank() && text.contains(it, ignoreCase = true) }
+
+    /** 단어 맨 앞의 `-`(바로 뒤에 단어나 따옴표 문구가 붙은 경우)를 제외어로 모으고 나머지를 토큰으로 만든다. */
+    private fun tokenize(raw: String, excluded: MutableList<String>): List<Token> {
         val result = mutableListOf<Token>()
         var index = 0
         while (index < raw.length) {
             when {
                 raw[index].isWhitespace() -> index++
+                raw[index] == '-' && index + 1 < raw.length && !raw[index + 1].isWhitespace() && raw[index + 1] !in charArrayOf('(', ')', '&', '|') -> {
+                    index++
+                    if (raw[index] == '"' || raw[index] == '\'') {
+                        val quote = raw[index++]
+                        val start = index
+                        while (index < raw.length && raw[index] != quote) index++
+                        require(index < raw.length) { "따옴표를 닫아 주세요." }
+                        val phrase = raw.substring(start, index).trim()
+                        require(phrase.isNotEmpty()) { "빈 따옴표는 검색할 수 없습니다." }
+                        excluded += phrase
+                        index++
+                    } else {
+                        val start = index
+                        while (index < raw.length && !raw[index].isWhitespace() && raw[index] !in charArrayOf('(', ')', '&', '|')) index++
+                        excluded += raw.substring(start, index)
+                    }
+                }
                 raw[index] == '(' -> { result += Token.LeftParen; index++ }
                 raw[index] == ')' -> { result += Token.RightParen; index++ }
                 raw[index] == '&' -> { result += Token.And; index++ }

@@ -19,15 +19,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Newspaper
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Newspaper
+import androidx.compose.material.icons.outlined.ShowChart
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -63,19 +69,23 @@ import io.github.hdlee73.financenewsradar.model.AgencyGroup
 private class AppTab(val label: String, val outlined: ImageVector, val filled: ImageVector)
 
 private val appTabs = listOf(
+    AppTab("오늘의\n브리핑", Icons.Outlined.WbSunny, Icons.Filled.WbSunny),
     AppTab("뉴스\n검색", Icons.Outlined.Newspaper, Icons.Filled.Newspaper),
+    AppTab("시장\n동향", Icons.Outlined.ShowChart, Icons.Filled.ShowChart),
     AppTab("금융당국\n보도자료", Icons.Outlined.AccountBalance, Icons.Filled.AccountBalance),
     AppTab("금융관련\n연구원 자료", Icons.Outlined.MenuBook, Icons.Filled.MenuBook),
-    AppTab("참고자료\n모음", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
-    AppTab("금융관련\n주요사이트", Icons.Outlined.Language, Icons.Filled.Language)
+    AppTab("참고자료", Icons.Outlined.FolderOpen, Icons.Filled.FolderOpen),
+    AppTab("금융관련\n주요사이트", Icons.Outlined.Language, Icons.Filled.Language),
+    AppTab("앱\n정보", Icons.Outlined.Info, Icons.Filled.Info)
 )
 
-/** 앱의 뼈대: 4개 하단 탭(뉴스 / 금융당국 보도자료 / 연구소 최근자료 / 참고사이트). */
+/** 앱의 뼈대: 하단 탭(오늘의 브리핑 / 뉴스 / 시장동향 / 금융당국 보도자료 / 연구원 자료 / 참고자료 / 주요사이트 / 앱 정보). */
 @Composable
 fun FinanceNewsRadarApp(
     newsViewModel: NewsViewModel = viewModel(),
     releasesViewModel: ReleasesViewModel = viewModel(),
-    libraryViewModel: LibraryViewModel = viewModel()
+    libraryViewModel: LibraryViewModel = viewModel(),
+    marketViewModel: MarketViewModel = viewModel()
 ) {
     val newsState by newsViewModel.state.collectAsStateWithLifecycle()
     val releases by releasesViewModel.state.collectAsStateWithLifecycle()
@@ -120,15 +130,21 @@ fun FinanceNewsRadarApp(
             // 탭을 오가도 각 화면의 검색어·스크롤 위치가 유지되도록 화면별로 상태를 보관한다.
             stateHolder.SaveableStateProvider(tab) {
                 when (tab) {
-                    0 -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
-                    1 -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
-                    2 -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
-                    3 -> LibraryScreen(libraryViewModel)
-                    else -> SitesScreen(
+                    0 -> BriefingScreen(
+                        newsViewModel, releasesViewModel, marketViewModel,
+                        onOpenTab = { tab = it }
+                    )
+                    1 -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
+                    2 -> MarketScreen(marketViewModel)
+                    3 -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
+                    4 -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
+                    5 -> LibraryScreen(libraryViewModel)
+                    6 -> SitesScreen(
                         links = releases.links,
                         onSave = releasesViewModel::saveLinks,
                         onReset = releasesViewModel::resetLinks
                     )
+                    else -> AppInfoScreen()
                 }
             }
         }
@@ -148,7 +164,7 @@ fun FinanceNewsRadarApp(
     }
 }
 
-/** 높이를 줄인 하단 탭(아이콘 + 글자 56dp). 시스템 제스처 영역만큼만 아래 여백을 둔다. */
+/** 높이를 줄인 하단 탭(56dp). 평소에는 아이콘만 보이고, 선택한 탭만 넓어지면서 글자가 나타난다. */
 @Composable
 private fun AppTabBar(selected: Int, onSelect: (Int) -> Unit) {
     Column(Modifier.background(MaterialTheme.colorScheme.background)) {
@@ -157,16 +173,19 @@ private fun AppTabBar(selected: Int, onSelect: (Int) -> Unit) {
             appTabs.forEachIndexed { index, item ->
                 val isSelected = index == selected
                 val color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                val tabWeight by androidx.compose.animation.core.animateFloatAsState(if (isSelected) 2.4f else 0.9f, label = "tabWeight")
                 Column(
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(tabWeight)
                         .fillMaxHeight()
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onSelect(index) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(if (isSelected) item.filled else item.outlined, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
-                    Text(item.label, color = color, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 11.sp))
+                    Icon(if (isSelected) item.filled else item.outlined, contentDescription = item.label.replace("\n", " "), tint = color, modifier = Modifier.size(24.dp))
+                    if (isSelected) {
+                        Text(item.label.replace("\n", " "), color = color, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp))
+                    }
                 }
             }
         }

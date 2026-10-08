@@ -134,7 +134,7 @@ class HtmlListParserTest {
                   <a href="/flexer/view?fid=29154&amp;fgu=002002&amp;fty=004003">바로보기</a>
                   <a href="/common/downloadw?fid=29154&amp;fgu=002002&amp;fty=004003">다운로드</a></td></tr>
         """.trimIndent()
-        val result = HtmlListParser.extract(html, "https://www.kcmi.re.kr/report/report_list", AgencySources.of(io.github.hdlee73.financenewsradar.model.AgencyId.KCMI).linkPattern)
+        val result = HtmlListParser.extractReports(html, "https://www.kcmi.re.kr/report/report_list")
         assertEquals(1, result.size)
         assertEquals("https://www.kcmi.re.kr/flexer/view?fid=29154&fgu=002002&fty=004003", result[0].url)
         assertTrue(result[0].title.startsWith("K-자본시장 정책시리즈 1"))
@@ -203,5 +203,40 @@ class HtmlListParserTest {
         assertTrue(AgencySources.matches("Cyber Resilience Toolkit", "cyber toolkit"))
         assertFalse(AgencySources.matches("퇴직연금 제도", "퇴직연금 ETF"))
         assertFalse(AgencySources.matches("아무 제목", "   "))
+    }
+
+    @Test
+    fun kcmiReportsUseTitleAuthorAndDateNotSummary() {
+        val html = """
+            <div class="item"><h3><strong>K-자본시장 정책시리즈 2: 자본시장 토큰화의 확산: 해외 주요 사례와 국내 도입 과제</strong>
+              <em>연구위원 정화영 2026.10.06</em></h3>
+              <p>분산원장기술 기반의 토큰화를 활용한 상품과 관련 서비스가 점진적으로 늘어나면서, 금융기관과 정책당국의 주요 관심 사항으로 떠오르고 있다.</p>
+              <a href="/flexer/view?fid=29203&amp;fgu=002002&amp;fty=004010">바로보기</a>
+              <a href="/common/downloadw?fid=29201&amp;fgu=002002&amp;fty=004003">다운로드</a></div>
+            <div class="item"><h3><strong>무형자산의 부상과 생산요소의 배분 효율성</strong>
+              <em>연구위원 정희철 2026.08.26</em></h3>
+              <p>2024년 12월 우리나라는 초고령사회에 진입하였다.</p>
+              <a href="/flexer/view?fid=29105&amp;fgu=002002&amp;fty=004003">바로보기</a></div>
+        """.trimIndent()
+        val result = HtmlListParser.extractReports(html, "https://www.kcmi.re.kr/report/report_list")
+        assertEquals(2, result.size)
+        assertTrue(result[0].title.startsWith("K-자본시장 정책시리즈 2"))
+        assertEquals("연구위원 정화영", result[0].author)
+        assertEquals(LocalDate.of(2026, 10, 6), result[0].date)
+        assertEquals("https://www.kcmi.re.kr/common/downloadw?fid=29201&fgu=002002&fty=004003", result[0].url)
+        assertEquals("무형자산의 부상과 생산요소의 배분 효율성", result[1].title)
+        assertEquals("https://www.kcmi.re.kr/flexer/view?fid=29105&fgu=002002&fty=004003", result[1].url)
+    }
+
+    @Test
+    fun kcmiReportsHandleTableRowsWithSeparateAuthorCell() {
+        val html = """
+            <tr><td>경제분석</td><td class="t">K-자본시장 정책시리즈 1: 초고령사회 다층노후소득을 위한 퇴직연금제도 개편</td><td>남재우</td><td>2026.09.04</td>
+              <td><a href="/flexer/view?fid=29149&amp;fgu=002002&amp;fty=004003">바로보기</a></td></tr>
+        """.trimIndent()
+        val result = HtmlListParser.extractReports(html, "https://www.kcmi.re.kr/report/report_list")
+        assertEquals(1, result.size)
+        assertTrue(result[0].title.startsWith("K-자본시장 정책시리즈 1"))
+        assertEquals("남재우", result[0].author)
     }
 }

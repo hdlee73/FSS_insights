@@ -23,7 +23,9 @@ data class LibraryEntry(
     val description: String = "",
     val tags: List<String> = emptyList(),
     /** 검색 결과일 때 파일이 들어 있는 폴더 이름. */
-    val location: String = ""
+    val location: String = "",
+    /** 제목·설명이 아니라 파일 본문에서 찾은 검색 결과. */
+    val bodyMatch: Boolean = false
 )
 
 data class LibraryListing(val folderId: String, val isRoot: Boolean, val items: List<LibraryEntry>, val tags: List<String> = emptyList())
@@ -64,7 +66,8 @@ class LibraryApi(private val context: Context) {
                 parent = o.optString("parent", folderId),
                 description = o.optString("description"),
                 tags = (0 until (tagArray?.length() ?: 0)).map { i -> tagArray!!.getString(i) },
-                location = o.optString("location")
+                location = o.optString("location"),
+                bodyMatch = o.optBoolean("bodyMatch")
             )
         }
         val allTags = root.optJSONArray("tags")
@@ -79,7 +82,7 @@ class LibraryApi(private val context: Context) {
         parse(JSONObject(String(read(open(path)), Charsets.UTF_8)), folderId.orEmpty())
     }
 
-    /** 자료실 전체에서 파일명·설명·#태그로 검색. `#태그`로 시작하면 태그 일치. */
+    /** 자료실 전체에서 파일명·설명·본문·#태그로 검색. `#태그`로 시작하면 태그 일치. */
     suspend fun search(query: String): LibraryListing = withContext(Dispatchers.IO) {
         parse(JSONObject(String(read(open("/search?q=" + URLEncoder.encode(query, "UTF-8"))), Charsets.UTF_8)), "")
     }
@@ -96,5 +99,30 @@ class LibraryApi(private val context: Context) {
             tmp.renameTo(target)
         }
         target
+    }
+
+    /**
+     * 파일을 서버의 "업로드 대기" 폴더로 올린다. 관리자가 확인해 자료실로 옮기기 전에는 목록에 나오지 않는다.
+     * 서버가 형식·용량(20MB)을 다시 확인한다.
+     */
+    suspend fun upload(
+        name: String, mimeType: String, size: Long, description: String, source: () -> java.io.InputStream?
+    ) = withContext(Dispatchers.IO) {
+        if (size > MAX_UPLOAD_BYTES) error("파일은 20MB까지 올릴 수 있습니다.")
+        val query = "?name=" + URLEncoder.encode(name, "UTF-8") +
+            "&description=" + URLEncoder.encode(description, "UTF-8")
+        val c = open("/upload$query")
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.setRequestProperty("Content-Type", mimeType.ifBlank { "application/octet-stream" })
+        if (size > 0) c.setFixedLengthStreamingMode(size) else error("파일 크기를 알 수 없습니다.")
+        c.readTimeout = 120_000
+        (source() ?: error("파일을 열 수 없습니다.")).use { input -> c.outputStream.use { input.copyTo(it) } }
+        read(c)
+        Unit
+    }
+
+    companion object {
+        const val MAX_UPLOAD_BYTES = 20L * 1024 * 1024
     }
 }

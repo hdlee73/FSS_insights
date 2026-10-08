@@ -93,11 +93,26 @@ class SettingsStore(context: Context) {
             links = links.map {
                 if (it.url.contains("bond.kofia.or.kr")) it.copy(url = "https://www.kofiabond.or.kr") else it
             }
-            val wanted = UsefulLink.DEFAULTS.filter { d -> listOf("dart.fss.or.kr", "fine.fss.or.kr", "krx.or.kr").any { d.url.contains(it) } }
+            val wanted = UsefulLink.DEFAULTS.filter { d -> listOf("dart.fss.or.kr", "fine.fss.or.kr", "krx.co.kr").any { d.url.contains(it) } }
             val missing = wanted.filter { w -> links.none { it.url.contains(w.url.removePrefix("https://www.").removePrefix("https://")) } }
             val at = links.indexOfFirst { it.url.contains("fsc.go.kr") }.let { if (it >= 0) it + 1 else links.size }
             links = links.take(at) + missing + links.drop(at)
             preferences.edit().putBoolean(LINKS_MIGRATED_V051, true).apply()
+            saveLinks(links)
+        }
+        if (!preferences.getBoolean(LINKS_MIGRATED_EDGAR, false)) {
+            // 새 기본 사이트(EDGAR)를 DART 아래에 한 번만 추가(이미 있으면 건너뜀). 이후 지우면 다시 넣지 않는다.
+            if (links.none { it.url.contains("sec.gov") }) {
+                val edgar = UsefulLink.DEFAULTS.first { it.url.contains("sec.gov") }
+                val at = links.indexOfFirst { it.url.contains("dart.fss.or.kr") }.let { if (it >= 0) it + 1 else links.size }
+                links = links.take(at) + edgar + links.drop(at)
+                saveLinks(links)
+            }
+            preferences.edit().putBoolean(LINKS_MIGRATED_EDGAR, true).apply()
+        }
+        if (links.any { it.url.contains("krx.or.kr") }) {
+            // 한국거래소 주소 오류(krx.or.kr → krx.co.kr) 정정.
+            links = links.map { if (it.url.contains("krx.or.kr")) it.copy(url = "https://www.krx.co.kr") else it }
             saveLinks(links)
         }
         return links
@@ -181,6 +196,7 @@ class SettingsStore(context: Context) {
         private const val NAVER_SECRET = "naver_client_secret"
         private const val BOOKMARKS = "bookmarks"
         private const val LINKS_MIGRATED_V051 = "links_migrated_v051"
+        private const val LINKS_MIGRATED_EDGAR = "links_migrated_edgar"
         const val LINKS = "useful_links"
         private const val SAVED_RELEASES = "saved_releases"
         private const val KEYWORD_ALERTS = "keyword_alerts_enabled"

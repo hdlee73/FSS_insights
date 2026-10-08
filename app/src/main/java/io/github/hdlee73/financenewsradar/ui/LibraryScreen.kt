@@ -23,10 +23,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,7 +71,7 @@ data class LibraryUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val busyId: String? = null,
-    val tags: List<String> = emptyList(),
+    val isUploading: Boolean = false,
     /** 비어 있지 않으면 검색 결과 보기. */
     val query: String = ""
 )
@@ -82,7 +88,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             runCatching { api.list(path.lastOrNull()?.second) }
-                .onSuccess { l -> _state.update { it.copy(path = path, items = l.items, tags = l.tags, query = "", isLoading = false) } }
+                .onSuccess { l -> _state.update { it.copy(path = path, items = l.items, query = "", isLoading = false) } }
                 .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "목록을 불러오지 못했습니다.") } }
         }
     }
@@ -95,7 +101,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null, query = q) }
             runCatching { api.search(q) }
-                .onSuccess { l -> _state.update { it.copy(items = l.items, tags = l.tags.ifEmpty { it.tags }, isLoading = false) } }
+                .onSuccess { l -> _state.update { it.copy(items = l.items, isLoading = false) } }
                 .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "검색하지 못했습니다.") } }
         }
     }
@@ -120,10 +126,31 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         return file
     }
 
+    /** 선택한 파일을 업로드 대기 폴더로 올린다. 끝나면 안내 문구를 돌려준다. */
+    fun upload(uri: android.net.Uri, description: String, onDone: (String) -> Unit) {
+        val resolver = getApplication<Application>().contentResolver
+        viewModelScope.launch {
+            _state.update { it.copy(isUploading = true) }
+            val result = runCatching {
+                var name = "파일"
+                var size = -1L
+                resolver.query(uri, null, null, null, null)?.use { c ->
+                    if (c.moveToFirst()) {
+                        c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { name = c.getString(it) ?: name }
+                        c.getColumnIndex(android.provider.OpenableColumns.SIZE).takeIf { it >= 0 }?.let { size = c.getLong(it) }
+                    }
+                }
+                api.upload(name, resolver.getType(uri).orEmpty(), size, description) { resolver.openInputStream(uri) }
+            }
+            _state.update { it.copy(isUploading = false) }
+            onDone(result.fold({ "올렸습니다. 관리자가 확인한 뒤 자료실에 게시됩니다." }, { it.message ?: "올리지 못했습니다." }))
+        }
+    }
+
     fun consumeError() = _state.update { it.copy(error = null) }
 }
 
-/** 자료실 탭: 구글 드라이브 폴더를 목록으로 보여 주고, 눌러서 열거나 기기에 저장한다. */
+/** 참고자료 탭: 구글 드라이브 폴더를 목록으로 보여 주고, 눌러서 열거나 기기에 저장한다. */
 @Composable
 fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -144,6 +171,18 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
         cachedForSave = null
     }
 
+    var pickedUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) pickedUri = uri }
+    pickedUri?.let { uri ->
+        UploadDialog(
+            onDismiss = { pickedUri = null },
+            onSubmit = { description ->
+                pickedUri = null
+                viewModel.upload(uri, description) { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+            }
+        )
+    }
+
     androidx.compose.runtime.LaunchedEffect(state.error) {
         state.error?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show(); viewModel.consumeError() }
     }
@@ -152,8 +191,14 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
         if (state.query.isNotBlank()) { queryText = ""; viewModel.clearSearch() } else viewModel.up()
     }
 
-    Column(modifier.fillMaxSize()) {
-        LargeTitle("참고자료 모음") {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    Box(modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
+        LargeTitle("참고자료") {
+            if (viewModel.isConfigured) {
+                if (state.isUploading) CircularProgressIndicator(Modifier.padding(12.dp).size(22.dp), strokeWidth = 2.dp, color = androidx.compose.ui.graphics.Color.White)
+                else IconButton(onClick = { picker.launch(arrayOf("*/*")) }) { Icon(Icons.Default.Upload, contentDescription = "자료 올리기") }
+            }
             IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
         }
         if (!viewModel.isConfigured) {
@@ -161,30 +206,19 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             return@Column
         }
         Column(
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(top = 10.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             SearchPill(
                 value = queryText,
                 onValueChange = { queryText = it; if (it.isBlank() && state.query.isNotBlank()) viewModel.clearSearch() },
-                placeholder = "제목·설명·#태그 검색",
+                placeholder = "제목·설명·본문·#태그 검색",
                 onSearch = { viewModel.search(queryText) },
                 modifier = Modifier.padding(horizontal = 16.dp),
                 containerColor = MaterialTheme.colorScheme.surface,
                 outlined = true
             )
-            if (state.tags.isNotEmpty()) {
-                androidx.compose.foundation.lazy.LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(state.tags) { tag ->
-                        PillChip("#$tag", onPanel = true, selected = state.query == "#$tag", onClick = {
-                            queryText = "#$tag"; viewModel.search("#$tag")
-                        })
-                    }
-                }
-            }
+            ContactNote(Modifier.padding(horizontal = 20.dp).padding(top = 0.dp))
         }
         // 현재 위치(폴더 경로)
         Row(
@@ -207,7 +241,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                 CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
             }
             state.items.isEmpty() -> CenterMessage(if (state.query.isNotBlank()) "검색 결과가 없습니다." else "이 폴더에는 자료가 없습니다.", actionLabel = "새로고침", onAction = viewModel::refresh)
-            else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            else -> LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
                 items(state.items, key = { it.id }) { entry ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
@@ -229,11 +263,8 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                                 entry.description, style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis
                             )
-                            if (entry.tags.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                entry.tags.take(4).forEach { TagLabel(it) }
-                            }
                             if (!entry.isFolder) Text(
-                                listOf(entry.location, sizeText(entry.size), entry.modified.take(10)).filter { it.isNotBlank() }.joinToString(" · "),
+                                listOf(if (entry.bodyMatch) "본문 일치" else "", entry.location, sizeText(entry.size), entry.modified.take(10)).filter { it.isNotBlank() }.joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -254,6 +285,8 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             }
         }
     }
+    ScrollToTopButton(listState)
+    }
 }
 
 private fun openFile(context: android.content.Context, file: File, entry: LibraryEntry) {
@@ -270,4 +303,41 @@ private fun sizeText(bytes: Long): String = when {
     bytes <= 0 -> ""
     bytes < 1024 * 1024 -> "${bytes / 1024 + 1}KB"
     else -> String.format(java.util.Locale.US, "%.1fMB", bytes / 1048576.0)
+}
+
+/** 검색창 바로 밑에 아주 작게 보이는 자료 게시 문의 안내(누르면 메일 작성). */
+@Composable
+private fun ContactNote(modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Text(
+        "자료 게시 문의 : hdlee73@gmail.com",
+        modifier = modifier.clickable {
+            runCatching {
+                context.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:hdlee73@gmail.com")))
+            }
+        },
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+/** 올릴 파일의 설명을 받는다. */
+@Composable
+private fun UploadDialog(onDismiss: () -> Unit, onSubmit: (description: String) -> Unit) {
+    var description by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("자료 올리기") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "올린 파일은 관리자가 확인한 뒤 참고자료에 게시됩니다. 20MB까지, PDF·문서·엑셀·파워포인트·한글·텍스트·이미지 파일을 올릴 수 있습니다.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(description, { description = it.take(300) }, label = { Text("설명·#태그 (선택)") }, minLines = 2)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSubmit(description.trim()) }) { Text("올리기") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
+    )
 }

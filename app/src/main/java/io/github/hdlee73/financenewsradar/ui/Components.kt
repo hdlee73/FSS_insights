@@ -12,6 +12,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -26,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.HorizontalDivider
@@ -36,7 +38,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -283,6 +287,30 @@ fun CenterMessage(text: String, modifier: Modifier = Modifier, isError: Boolean 
         )
         if (actionLabel != null && onAction != null) {
             TextButton(onClick = onAction) { Text(actionLabel, fontWeight = FontWeight.SemiBold) }
+        }
+    }
+}
+
+/** 목록을 조금 내려가면 오른쪽 아래에 나타나는 "맨 위로" 버튼(모든 탭 공통 모양). [Box] 안에서 목록 위에 겹쳐 둔다. */
+@Composable
+fun BoxScope.ScrollToTopButton(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier = Modifier,
+    onBeforeScroll: () -> Unit = {}
+) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val visible by remember { androidx.compose.runtime.derivedStateOf { state.firstVisibleItemIndex > 0 || state.firstVisibleItemScrollOffset > 120 } }
+    if (visible) {
+        androidx.compose.material3.SmallFloatingActionButton(
+            onClick = {
+                onBeforeScroll()
+                scope.launch { state.animateScrollToItem(0) }
+            },
+            modifier = modifier.align(Alignment.BottomEnd).padding(16.dp),
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.primary
+        ) {
+            Icon(Icons.Default.VerticalAlignTop, contentDescription = "맨 위로 이동")
         }
     }
 }
