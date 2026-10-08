@@ -72,7 +72,6 @@ data class LibraryUiState(
     val error: String? = null,
     val busyId: String? = null,
     val isUploading: Boolean = false,
-    val tags: List<String> = emptyList(),
     /** 비어 있지 않으면 검색 결과 보기. */
     val query: String = ""
 )
@@ -89,7 +88,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             runCatching { api.list(path.lastOrNull()?.second) }
-                .onSuccess { l -> _state.update { it.copy(path = path, items = l.items, tags = l.tags, query = "", isLoading = false) } }
+                .onSuccess { l -> _state.update { it.copy(path = path, items = l.items, query = "", isLoading = false) } }
                 .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "목록을 불러오지 못했습니다.") } }
         }
     }
@@ -102,7 +101,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null, query = q) }
             runCatching { api.search(q) }
-                .onSuccess { l -> _state.update { it.copy(items = l.items, tags = l.tags.ifEmpty { it.tags }, isLoading = false) } }
+                .onSuccess { l -> _state.update { it.copy(items = l.items, isLoading = false) } }
                 .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "검색하지 못했습니다.") } }
         }
     }
@@ -213,7 +212,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             SearchPill(
                 value = queryText,
                 onValueChange = { queryText = it; if (it.isBlank() && state.query.isNotBlank()) viewModel.clearSearch() },
-                placeholder = "제목·설명 검색",
+                placeholder = "제목·설명·#태그 검색",
                 onSearch = { viewModel.search(queryText) },
                 modifier = Modifier.padding(horizontal = 16.dp),
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -264,9 +263,6 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                                 entry.description, style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis
                             )
-                            if (entry.tags.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                entry.tags.take(4).forEach { TagLabel(it) }
-                            }
                             if (!entry.isFolder) Text(
                                 listOf(entry.location, sizeText(entry.size), entry.modified.take(10)).filter { it.isNotBlank() }.joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
