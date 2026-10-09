@@ -60,4 +60,6 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 1. [ECOS Open API](https://ecos.bok.or.kr/api/) 인증키를 발급받아 GitHub Secrets에 `ECOS_API_KEY`로 저장합니다.
 2. Actions → **Deploy news proxy** 다시 실행.
 
-통계표·항목 코드는 코드에 박지 않고 표·항목 이름으로 찾습니다(`STAT_SPECS`). 이름이 맞지 않아 못 찾은 항목은 화면에서 빠지며, `/stats` 응답의 `missing`에 id가 남습니다. 결과는 1시간 캐시됩니다.
+통계표·항목 코드는 ECOS 통계표/항목 목록에서 확인한 값을 `STAT_SPECS`에 적어 두었습니다(기준금리·외환보유액만 이름 키워드로 찾음). 앱은 `/stats?ids=ktb-3y,corp-aa,…`처럼 사용자가 고른 통계만 요청하고, `ids`가 없으면 기본 묶음(`DEFAULT_STAT_IDS`)을 돌려줍니다. 못 찾은 항목은 화면에서 빠지며, 응답의 `missing`에 id가 남습니다. 결과는 조합별로 1시간 캐시됩니다.
+
+통계를 추가하려면 `STAT_SPECS`에 한 줄을 더하고(앱의 `STAT_CATALOG`에도 같은 id를 추가), **Deploy news proxy**를 다시 실행하세요. 앱만 새로 설치하고 서버를 다시 배포하지 않으면 새로 늘린 통계는 표시되지 않습니다.

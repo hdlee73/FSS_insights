@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -48,6 +49,8 @@ import androidx.compose.ui.unit.sp
 import io.github.hdlee73.financenewsradar.data.Instrument
 import io.github.hdlee73.financenewsradar.data.IntradaySeries
 import io.github.hdlee73.financenewsradar.data.Quote
+import io.github.hdlee73.financenewsradar.data.Greeting
+import io.github.hdlee73.financenewsradar.data.STAT_CATALOG
 import io.github.hdlee73.financenewsradar.data.StatItem
 import io.github.hdlee73.financenewsradar.data.periodLabel
 import io.github.hdlee73.financenewsradar.data.Weather
@@ -120,6 +123,7 @@ fun BriefingScreen(
 
             SectionTitle("시장 지표", "한눈에 보는 오늘 시장") { onOpenTab(TAB_MARKET) }
             val tiles = (KOREA_INDEXES + market.panel).distinctBy { it.symbol }
+                .filter { it.symbol !in BRIEFING_EXCLUDED }
                 .mapNotNull { item -> market.quotes[item.symbol]?.let { item to it } }
             if (tiles.isEmpty()) {
                 Hint(if (market.isRefreshing) "시세 연결 중…" else "시세를 불러오지 못했습니다.")
@@ -136,7 +140,7 @@ fun BriefingScreen(
                 }
             }
 
-            val keyStats = BRIEFING_STATS.mapNotNull { id -> market.stats.firstOrNull { it.id == id && id !in market.hiddenStats } }
+            val keyStats = STAT_CATALOG.mapNotNull { def -> market.stats.firstOrNull { it.id == def.id && def.id in market.statSelection.briefing } }
             if (keyStats.isNotEmpty()) {
                 SectionTitle("주요 금융 통계", "한국은행 ECOS") { onOpenTab(TAB_MARKET) }
                 Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -195,11 +199,7 @@ fun BriefingScreen(
 @Composable
 private fun BriefingHeader(weather: Weather?, onRefresh: () -> Unit) {
     val now = remember { ZonedDateTime.now(SEOUL) }
-    val greeting = when (now.hour) {
-        in 5..11 -> "좋은 아침입니다. 오늘도 힘찬 하루 되세요."
-        in 12..17 -> "안녕하세요. 오후도 힘내세요."
-        else -> "수고 많으셨습니다. 편안한 저녁 되세요."
-    }
+    val greeting = remember(weather) { Greeting.pick(now, weather) }
     Box(
         Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(AppColors.header, Color(0xFF3B5A8C))))
             .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 22.dp)
@@ -256,35 +256,40 @@ private fun BriefingCard(content: @Composable () -> Unit) {
     ) { Column(Modifier.padding(vertical = 4.dp)) { content() } }
 }
 
-/** 지표 한 칸: 이름, 현재가, 등락(상승 빨강·하락 파랑), 당일 흐름 그래프. */
+/** 지표 한 칸: 이름, 현재가(오른쪽 정렬)와 괄호 안 작은 글자의 등락률, 당일 흐름 그래프. 상승 빨강·하락 파랑. */
 @Composable
 private fun MarketTile(item: Instrument, quote: Quote, series: IntradaySeries?, modifier: Modifier, onClick: () -> Unit) {
     val color = changeColor(quote.change)
     Surface(modifier.clickable(onClick = onClick), shape = RoundedCornerShape(16.dp), color = color.copy(alpha = 0.09f)) {
         Column(Modifier.padding(12.dp)) {
             Text(item.name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(priceText(item, quote.price), Modifier.padding(top = 2.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(quote.changePercent?.let { arrowPercent(it) } ?: "-", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = color)
+            ValueWithDelta(priceText(item, quote.price), quote.changePercent?.let { arrowPercent(it) }, color, Modifier.padding(top = 2.dp))
             IntradayChart(series, color, Modifier.fillMaxWidth().padding(top = 6.dp).height(30.dp))
         }
     }
 }
 
-/** ECOS 통계 한 칸: 이름, 값, 증감, 기준일. */
+/** ECOS 통계 한 칸: 이름, 값(오른쪽 정렬)과 괄호 안 작은 글자의 증감, 기준일. */
 @Composable
 private fun StatTile(item: StatItem, modifier: Modifier, onClick: () -> Unit) {
     val color = changeColor(item.change)
     Surface(modifier.clickable(onClick = onClick), shape = RoundedCornerShape(16.dp), color = color.copy(alpha = 0.09f)) {
         Column(Modifier.padding(12.dp)) {
             Text(item.name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(statText(item, item.value), Modifier.padding(top = 2.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(statDelta(item) ?: "직전 값 —", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
-            Text(periodLabel(item.period) + " 기준", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ValueWithDelta(statText(item, item.value), statDelta(item), color, Modifier.padding(top = 2.dp))
+            Text(periodLabel(item.period) + " 기준", Modifier.fillMaxWidth(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
         }
     }
 }
 
-private val BRIEFING_STATS = listOf("base-rate", "ktb-3y", "ktb-10y", "bank-delinquency")
+/** 오른쪽 끝에 맞춘 "21,345.10 (▲0.52%)": 수치는 크게, 등락은 괄호에 넣어 작은 글자로. */
+@Composable
+private fun ValueWithDelta(value: String, delta: String?, color: Color, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.Bottom) {
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(" (${delta ?: "—"})", Modifier.padding(bottom = 1.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
+    }
+}
 
 private fun arrowPercent(value: Double): String =
     (if (value > 0) "▲" else if (value < 0) "▼" else "") + String.format(Locale.KOREA, "%.2f%%", kotlin.math.abs(value))

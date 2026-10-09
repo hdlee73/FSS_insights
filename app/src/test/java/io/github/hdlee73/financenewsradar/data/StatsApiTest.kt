@@ -2,6 +2,7 @@ package io.github.hdlee73.financenewsradar.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StatsApiTest {
@@ -28,5 +29,26 @@ class StatsApiTest {
         assertEquals("10/07", periodLabel("20261007"))
         assertEquals("2026.09", periodLabel("202609"))
         assertEquals("2026 2분기", periodLabel("2026Q2"))
+    }
+
+    @Test
+    fun catalogIdsAreUniqueAndGrouped() {
+        val ids = STAT_CATALOG.map { it.id }
+        assertEquals(ids.size, ids.toSet().size)
+        assertEquals("금리·채권", StatItem("ktb-3y", "x", "%", 1.0, null, "20261007").group)
+        assertEquals("기타", StatItem("unknown", "x", "", 1.0, null, "202609").group)
+    }
+
+    @Test
+    fun defaultsAreInCatalogAndBriefingKeepsTwoStats() {
+        val ids = STAT_CATALOG.map { it.id }.toSet()
+        assertTrue(ids.containsAll(DEFAULT_MARKET_STATS))
+        assertEquals(listOf("ktb-3y", "corp-aa"), DEFAULT_BRIEFING_STATS)
+    }
+
+    @Test
+    fun selectionRequestsUnionInCatalogOrder() {
+        val selection = StatSelection(market = setOf("corp-aa", "base-rate"), briefing = setOf("ktb-3y", "corp-aa"))
+        assertEquals(listOf("base-rate", "ktb-3y", "corp-aa"), selection.all)
     }
 }

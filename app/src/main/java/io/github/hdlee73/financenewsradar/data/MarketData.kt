@@ -86,15 +86,25 @@ class WatchlistStore(context: Context) {
         preferences.edit().putString(PANEL, symbols.joinToString(",")).apply()
     }
 
-    /** 국내 금융 통계 칸 중 사용자가 숨긴 항목 id. */
-    fun loadHiddenStats(): Set<String> = preferences.getStringSet(HIDDEN_STATS, emptySet()) ?: emptySet()
+    /**
+     * 국내 금융 통계 선택. 저장된 값이 없으면 예전의 "숨김" 설정을 반영한 기본값(시장동향)과
+     * 기본 브리핑 통계(국고채 3년·회사채 3년 AA-)를 쓴다.
+     */
+    fun loadStatSelection(): StatSelection {
+        val market = preferences.getStringSet(STAT_MARKET, null)
+            ?: (DEFAULT_MARKET_STATS.toSet() - (preferences.getStringSet(HIDDEN_STATS, emptySet()) ?: emptySet()))
+        val briefing = preferences.getStringSet(STAT_BRIEFING, null) ?: DEFAULT_BRIEFING_STATS.toSet()
+        return StatSelection(market, briefing)
+    }
 
-    fun saveHiddenStats(ids: Set<String>) {
-        preferences.edit().putStringSet(HIDDEN_STATS, ids).apply()
+    fun saveStatSelection(selection: StatSelection) {
+        preferences.edit().putStringSet(STAT_MARKET, selection.market).putStringSet(STAT_BRIEFING, selection.briefing).apply()
     }
 
     private companion object {
         const val HIDDEN_STATS = "hidden_stats"
+        const val STAT_MARKET = "stat_market_v1"
+        const val STAT_BRIEFING = "stat_briefing_v1"
         const val ITEMS = "items"
         const val PANEL = "panel_slots"
         const val SOX_REMOVED = "sox_removed_v17"
