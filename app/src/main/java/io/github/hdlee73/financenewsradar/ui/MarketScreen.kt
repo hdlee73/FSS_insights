@@ -509,7 +509,7 @@ private fun IndexTile(
 
 /** 전일 종가 기준선(점선)과 당일 흐름선, 기준선과 흐름선 사이 옅은 면, 마지막 점. */
 @Composable
-private fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modifier = Modifier) {
+internal fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val data = series ?: return@Canvas
         val pts = data.points
