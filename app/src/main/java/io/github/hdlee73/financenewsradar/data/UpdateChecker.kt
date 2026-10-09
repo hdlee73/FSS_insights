@@ -21,13 +21,27 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** GitHub 최신 릴리스 정보. */
-data class UpdateInfo(val version: String, val url: String)
+data class UpdateInfo(
+    val version: String,
+    val url: String,
+    /** 릴리스 본문(이번 버전 변경 내용). */
+    val notes: String = "",
+    /** 릴리스에 첨부된 APK 내려받기 주소(없으면 null). */
+    val apkUrl: String? = null,
+    val apkSize: Long = 0L
+)
+
+/** 업데이트 확인 진행 상태. */
+enum class CheckState { IDLE, CHECKING, LATEST, AVAILABLE, FAILED }
 
 /** 마지막 확인 결과. 앱 정보 화면이 구독한다. */
 object UpdateStatus {
     private val _available = MutableStateFlow<UpdateInfo?>(null)
     val available: StateFlow<UpdateInfo?> = _available
+    private val _state = MutableStateFlow(CheckState.IDLE)
+    val state: StateFlow<CheckState> = _state
     internal fun set(info: UpdateInfo?) { _available.value = info }
+    internal fun setState(s: CheckState) { _state.value = s }
 }
 
 object UpdateChecker {
@@ -57,6 +71,15 @@ object UpdateChecker {
         return false
     }
 
+    /** 릴리스 본문에서 "## vX.Y.Z 변경 내용" 구역만 뽑는다. 없으면 본문 전체. */
+    internal fun extractChanges(body: String): String {
+        val lines = body.lines()
+        val start = lines.indexOfFirst { it.startsWith("## ") && it.contains("변경 내용") }
+        if (start < 0) return body.trim()
+        val end = (start + 1 until lines.size).firstOrNull { lines[it].startsWith("## ") } ?: lines.size
+        return lines.subList(start + 1, end).joinToString("\n").trim()
+    }
+
     private suspend fun fetchLatest(): UpdateInfo? = withContext(Dispatchers.IO) {
         val c = URI(LATEST_API).toURL().openConnection() as HttpURLConnection
         c.connectTimeout = 8_000
@@ -68,7 +91,26 @@ object UpdateChecker {
             val json = JSONObject(c.inputStream.use { it.readBytes().toString(Charsets.UTF_8) })
             val tag = json.optString("tag_name")
             if (tag.isBlank()) return@withContext null
-            UpdateInfo(tag.removePrefix("v"), json.optString("html_url").ifBlank { RELEASES_URL })
+            val assets = json.optJSONArray("assets")
+            var apkUrl: String? = null
+            var apkSize = 0L
+            if (assets != null) {
+                for (i in 0 until assets.length()) {
+                    val a = assets.getJSONObject(i)
+                    if (a.optString("name").endsWith(".apk", ignoreCase = true)) {
+                        apkUrl = a.optString("browser_download_url").ifBlank { null }
+                        apkSize = a.optLong("size")
+                        break
+                    }
+                }
+            }
+            UpdateInfo(
+                tag.removePrefix("v"),
+                json.optString("html_url").ifBlank { RELEASES_URL },
+                extractChanges(json.optString("body")),
+                apkUrl,
+                apkSize
+            )
         } finally {
             c.disconnect()
         }
@@ -76,12 +118,19 @@ object UpdateChecker {
 
     /** 앱 시작 시 한 번 호출. 실패(오프라인 등)는 조용히 무시한다. */
     suspend fun check(context: Context) {
-        val latest = runCatching { fetchLatest() }.getOrNull() ?: return
+        UpdateStatus.setState(CheckState.CHECKING)
+        val latest = runCatching { fetchLatest() }.getOrNull()
+        if (latest == null) {
+            UpdateStatus.setState(CheckState.FAILED)
+            return
+        }
         if (!isNewer(latest.version, BuildConfig.VERSION_NAME)) {
             UpdateStatus.set(null)
+            UpdateStatus.setState(CheckState.LATEST)
             return
         }
         UpdateStatus.set(latest)
+        UpdateStatus.setState(CheckState.AVAILABLE)
         notifyOnce(context.applicationContext, latest)
     }
 
