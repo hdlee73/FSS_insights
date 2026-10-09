@@ -74,9 +74,9 @@ private const val TAB_MATERIALS = 3
 
 // 하단 탭 수를 5개로 유지하기 위해, 성격이 비슷한 화면은 한 탭 안의 상단 구분 탭으로 묶는다.
 private val materialSubTabs = listOf("보도자료", "연구원 자료", "참고자료")
-private val moreSubTabs = listOf("주요사이트", "앱 정보")
+private val moreSubTabs = listOf("주요사이트", "알림", "앱 정보")
 
-/** 앱의 뼈대: 하단 탭(오늘의 브리핑 / 뉴스 / 시장동향 / 자료[보도자료·연구원 자료·참고자료] / 더보기[주요사이트·앱 정보]). */
+/** 앱의 뼈대: 하단 탭(오늘의 브리핑 / 뉴스 / 시장동향 / 자료[보도자료·연구원 자료·참고자료] / 더보기[주요사이트·알림·앱 정보]). */
 @Composable
 fun FinanceNewsRadarApp(
     newsViewModel: NewsViewModel = viewModel(),
@@ -155,6 +155,7 @@ fun FinanceNewsRadarApp(
                                     onSave = releasesViewModel::saveLinks,
                                     onReset = releasesViewModel::resetLinks
                                 )
+                                1 -> AlertSettingsScreen(newsState.settings.keywords)
                                 else -> AppInfoScreen()
                             }
                         }
