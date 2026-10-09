@@ -75,7 +75,10 @@ import io.github.hdlee73.financenewsradar.data.PANEL_CATALOG
 import io.github.hdlee73.financenewsradar.data.POPULAR_INSTRUMENTS
 import io.github.hdlee73.financenewsradar.data.PriceHistory
 import io.github.hdlee73.financenewsradar.data.Quote
-import io.github.hdlee73.financenewsradar.data.STAT_GROUPS
+import io.github.hdlee73.financenewsradar.data.DEFAULT_BRIEFING_STATS
+import io.github.hdlee73.financenewsradar.data.DEFAULT_MARKET_STATS
+import io.github.hdlee73.financenewsradar.data.STAT_CATALOG
+import io.github.hdlee73.financenewsradar.data.StatSelection
 import io.github.hdlee73.financenewsradar.data.StatItem
 import io.github.hdlee73.financenewsradar.data.StatsApi
 import io.github.hdlee73.financenewsradar.data.periodLabel
@@ -109,7 +112,8 @@ data class MarketUiState(
     val failed: Boolean = false,
     /** 한국은행 ECOS 기반 국내 금융 통계(서버 /stats). 못 가져온 항목은 없다. */
     val stats: List<StatItem> = emptyList(),
-    val hiddenStats: Set<String> = emptySet()
+    /** 사용자가 고른 국내 금융 통계(시장동향 탭 / 오늘의 브리핑). */
+    val statSelection: StatSelection = StatSelection(DEFAULT_MARKET_STATS.toSet(), DEFAULT_BRIEFING_STATS.toSet())
 )
 
 class MarketViewModel(application: Application) : AndroidViewModel(application) {
@@ -117,7 +121,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     private val store = WatchlistStore(application)
     private val statsApi = StatsApi(application)
     private var statsLoadedAt = 0L
-    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), panel = panelSlots(store.loadPanelSlots()), hiddenStats = store.loadHiddenStats()))
+    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), panel = panelSlots(store.loadPanelSlots()), statSelection = store.loadStatSelection()))
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
     private var refreshJob: Job? = null
     private val chartFailedAt = HashMap<String, Long>()
@@ -180,15 +184,17 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     private suspend fun loadStats() {
         if (System.currentTimeMillis() - statsLoadedAt < 1_800_000) return
         statsLoadedAt = System.currentTimeMillis()
-        runCatching { statsApi.load() }
+        runCatching { statsApi.load(_state.value.statSelection.all) }
             .onSuccess { list -> if (list.isNotEmpty()) _state.update { it.copy(stats = list) } else statsLoadedAt = 0L }
             .onFailure { statsLoadedAt = 0L }
     }
 
-    fun toggleStat(id: String) {
-        val hidden = _state.value.hiddenStats.let { if (id in it) it - id else it + id }
-        store.saveHiddenStats(hidden)
-        _state.update { it.copy(hiddenStats = hidden) }
+    /** 통계 선택을 저장하고, 새로 고른 통계가 있으면 바로 다시 받아 온다. */
+    fun setStatSelection(selection: StatSelection) {
+        store.saveStatSelection(selection)
+        _state.update { it.copy(statSelection = selection) }
+        statsLoadedAt = 0L
+        viewModelScope.launch { loadStats() }
     }
 
     /** 지수 패널만 가볍게 갱신(화면이 열려 있는 동안 10초마다). */
@@ -336,6 +342,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
     var editing by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf<Instrument?>(null) }
     var panelPick by remember { mutableStateOf<Int?>(null) }
+    var statPicking by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     // 화면이 보이는 동안만 갱신한다(탭을 벗어나면 중단): 지수 10초, 전체 20초.
@@ -368,9 +375,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
         item {
             IndexPanel(state, editing, panelPick) { index -> panelPick = index }
         }
-        if (state.stats.isNotEmpty()) {
-            item { StatsPanel(state.stats, state.hiddenStats, editing, viewModel::toggleStat) }
-        }
+        item { StatsPanel(state.stats, state.statSelection.market) { statPicking = true } }
         item {
             Row(Modifier.fillMaxWidth().padding(start = 2.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                 Text("관심종목", style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp))
@@ -430,6 +435,9 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
             confirmButton = { TextButton(onClick = { viewModel.remove(item); removing = null }) { Text("삭제") } },
             dismissButton = { TextButton(onClick = { removing = null }) { Text("취소") } }
         )
+    }
+    if (statPicking) {
+        StatPickerDialog(state.statSelection, onDismiss = { statPicking = false }) { viewModel.setStatSelection(it); statPicking = false }
     }
     panelPick?.let { index ->
         PanelPickDialog(
@@ -528,37 +536,46 @@ private fun IndexTile(
             Text(delta, Modifier.padding(top = 2.dp), style = deltaStyle, color = color, maxLines = 1)
         } else {
             Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(price, Modifier.padding(top = 1.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(delta, Modifier.padding(top = 1.dp), style = deltaStyle, color = color, maxLines = 1)
+            // 코스피·코스닥 이외 칸은 수치를 오른쪽 끝에 맞춘다.
+            Text(price, Modifier.fillMaxWidth().padding(top = 1.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
+            Text(delta, Modifier.fillMaxWidth().padding(top = 1.dp), style = deltaStyle, color = color, maxLines = 1, textAlign = TextAlign.End)
             IntradayChart(series, color, Modifier.fillMaxWidth().padding(top = 4.dp).height(26.dp))
         }
     }
 }
 
 internal fun statText(item: StatItem, value: Double): String {
-    val digits = if (item.isRate) 2 else if (kotlin.math.abs(value) >= 1000) 0 else 1
+    val digits = if (item.isRate) 2 else if (item.unit == "조원") 1 else if (kotlin.math.abs(value) >= 1000) 0 else 1
     return grouped(value, digits) + (if (item.isRate) "%" else if (item.unit.isNotBlank()) " ${item.unit}" else "")
 }
 
 internal fun statDelta(item: StatItem): String? {
     val change = item.change ?: return null
-    val digits = if (item.isRate) 2 else if (kotlin.math.abs(item.value) >= 1000) 0 else 1
+    val digits = if (item.isRate) 2 else if (item.unit == "조원") 2 else if (kotlin.math.abs(item.value) >= 1000) 0 else 1
     val percent = if (item.isRate) "" else item.changePercent?.let { " (${signed(it, 2, "%")})" }.orEmpty()
     // 금리는 %p 차이를 그대로 보여 준다.
     return signed(change, digits) + (if (item.isRate) "%p" else "") + percent
 }
 
-/** 한국은행 ECOS 국내 금융 통계. 증시 타일과 달리 구분별 목록(이름·기준일 / 값·증감)으로 보여 준다. 편집 중에는 행을 눌러 숨김/표시. */
+/** 한국은행 ECOS 국내 금융 통계. 증시 타일과 달리 구분별 목록(이름·기준일 / 값·증감)으로 보여 준다. 보일 통계는 "통계 선택"에서 고른다. */
 @Composable
-private fun StatsPanel(stats: List<StatItem>, hidden: Set<String>, editing: Boolean, onToggle: (String) -> Unit) {
-    val visible = stats.filter { editing || it.id !in hidden }
-    if (visible.isEmpty()) return
+private fun StatsPanel(stats: List<StatItem>, selected: Set<String>, onPick: () -> Unit) {
+    val visible = STAT_CATALOG.mapNotNull { def -> stats.firstOrNull { it.id == def.id && def.id in selected } }
     Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-        Text("국내 금융 통계", Modifier.padding(start = 2.dp, top = 4.dp, bottom = 8.dp), style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp))
+        Row(Modifier.fillMaxWidth().padding(start = 2.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("국내 금융 통계", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp))
+            SoftButton(onClick = onPick) { Text("통계 선택", fontSize = 12.sp) }
+        }
         val shape = RoundedCornerShape(10.dp)
-        Column(Modifier.fillMaxWidth().border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape).clip(shape)) {
+        if (visible.isEmpty()) {
+            Text(
+                if (selected.isEmpty()) "표시할 통계가 없습니다. 오른쪽 위 '통계 선택'에서 고르세요." else "통계를 불러오는 중이거나 서버에서 받지 못했습니다.",
+                Modifier.fillMaxWidth().border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape).padding(12.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else Column(Modifier.fillMaxWidth().border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape).clip(shape)) {
             visible.groupBy { it.group }.entries
-                .sortedBy { e -> STAT_GROUPS.keys.indexOf(e.key).let { if (it < 0) Int.MAX_VALUE else it } }
+                .sortedBy { e -> STAT_CATALOG.indexOfFirst { it.group == e.key }.let { if (it < 0) Int.MAX_VALUE else it } }
                 .forEach { (group, rows) ->
                     Text(
                         group,
@@ -567,16 +584,10 @@ private fun StatsPanel(stats: List<StatItem>, hidden: Set<String>, editing: Bool
                         color = MaterialTheme.colorScheme.primary
                     )
                     rows.forEachIndexed { index, item ->
-                        val off = item.id in hidden
                         val color = changeColor(item.change)
-                        Row(
-                            Modifier.fillMaxWidth().clickable(enabled = editing) { onToggle(item.id) }
-                                .background(if (off) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f) else Color.Transparent)
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(item.name + if (off) " · 숨김" else "", style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(item.name, style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(periodLabel(item.period) + " 기준", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Column(horizontalAlignment = Alignment.End) {
@@ -589,11 +600,57 @@ private fun StatsPanel(stats: List<StatItem>, hidden: Set<String>, editing: Bool
                 }
         }
         Text(
-            if (editing) "행을 누르면 숨기거나 다시 보이게 할 수 있습니다." else "한국은행 ECOS 기준. 기준금리는 직전 변경 대비, 나머지는 직전 관측값 대비.",
+            "한국은행 ECOS 기준. 기준금리는 직전 변경 대비, 나머지는 직전 관측값 대비.",
             Modifier.padding(start = 2.dp, top = 6.dp),
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+/** 국내 금융 통계 선택: 후보마다 "시장동향" / "브리핑" 체크로 어디에 보일지 고른다. */
+@Composable
+private fun StatPickerDialog(current: StatSelection, onDismiss: () -> Unit, onSave: (StatSelection) -> Unit) {
+    var market by remember { mutableStateOf(current.market) }
+    var briefing by remember { mutableStateOf(current.briefing) }
+    fun toggle(set: Set<String>, id: String) = if (id in set) set - id else set + id
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("표시할 통계 선택") },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 460.dp)) {
+                item {
+                    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.weight(1f))
+                        Text("시장동향", Modifier.width(56.dp), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                        Text("브리핑", Modifier.width(56.dp), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                    }
+                }
+                STAT_CATALOG.groupBy { it.group }.forEach { (group, defs) ->
+                    item(key = "g-$group") {
+                        Text(group, Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                    items(defs, key = { it.id }) { def ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(def.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) {
+                                Checkbox(def.id in market, { market = toggle(market, def.id) })
+                            }
+                            Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) {
+                                Checkbox(def.id in briefing, { briefing = toggle(briefing, def.id) })
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(StatSelection(market, briefing)) }) { Text("저장") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { market = DEFAULT_MARKET_STATS.toSet(); briefing = DEFAULT_BRIEFING_STATS.toSet() }) { Text("기본값") }
+                TextButton(onClick = onDismiss) { Text("취소") }
+            }
+        }
+    )
 }
 
 /** 전일 종가 기준선(점선)과 당일 흐름선, 기준선과 흐름선 사이 옅은 면, 마지막 점. */

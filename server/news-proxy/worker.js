@@ -32,7 +32,7 @@ export default {
     if (url.pathname === "/news" && request.method === "GET") return news(url, env, ctx);
     if (url.pathname === "/stats" && request.method === "GET") {
       try {
-        return await stats(env, ctx);
+        return await stats(url, env, ctx);
       } catch (e) {
         return fail(502, `통계 서버 오류: ${e.message}`);
       }
@@ -262,21 +262,38 @@ async function upload(request, url, env) {
 }
 
 // ---- 국내 금융 통계(한국은행 ECOS) ----
-// 통계표·항목 코드를 코드에 박아 두지 않고, 표 이름·항목 이름 키워드로 ECOS 목록에서 찾는다.
-// 못 찾거나 값이 없는 지표는 응답에서 빼고 missing에 이름을 남긴다.
+// 통계표·항목 코드는 ECOS 통계표/항목 목록(StatisticTableList·StatisticItemList)에서 확인한 값을 쓴다.
+// 코드를 모르는 지표(기준금리·외환보유액)만 표 이름·항목 이름 키워드로 찾는다.
+// 못 찾거나 값이 없는 지표는 응답에서 빼고 missing에 id를 남긴다.
+// 앱은 /stats?ids=a,b,c 로 고른 통계만 요청한다(ids가 없으면 DEFAULT_STAT_IDS).
 const ECOS = "https://ecos.bok.or.kr/api";
+// scale: 값에 곱해 단위를 바꾼다(십억원 → 조원). want: 항목이 둘 이상인 표에서 행의 항목 이름으로 고른다.
 export const STAT_SPECS = [
   { id: "base-rate", name: "한국은행 기준금리", unit: "%", cycle: "D", table: ["기준금리", "여수신금리"], item: ["기준금리"], lastChange: true },
-  { id: "ktb-3y", name: "국고채 3년", unit: "%", cycle: "D", table: ["시장금리", "일별"], item: ["국고채(3년)"] },
-  { id: "ktb-10y", name: "국고채 10년", unit: "%", cycle: "D", table: ["시장금리", "일별"], item: ["국고채(10년)"] },
-  { id: "cd-91", name: "CD 91일", unit: "%", cycle: "D", table: ["시장금리", "일별"], item: ["CD(91일)"] },
-  { id: "corp-aa", name: "회사채 3년 AA-", unit: "%", cycle: "D", table: ["시장금리", "일별"], item: ["회사채(3년", "AA-"] },
-  { id: "household-credit", name: "가계신용", unit: "", cycle: "Q", table: ["가계신용"], item: ["가계신용"] },
-  { id: "bank-household-loan", name: "은행 가계대출", unit: "", cycle: "M", table: ["예금은행", "가계대출"], item: [] },
-  { id: "bank-delinquency", name: "은행 대출 연체율", unit: "%", cycle: "M", table: ["연체율"], item: ["은행"] },
-  { id: "loan-rate", name: "예금은행 대출금리", unit: "%", cycle: "M", table: ["대출금리", "신규취급액"], item: ["총대출"] },
+  { id: "call-1d", name: "콜금리(1일)", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010101000" },
+  { id: "cd-91", name: "CD 91일", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010502000" },
+  { id: "cp-91", name: "CP 91일", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010503000" },
+  { id: "ktb-1y", name: "국고채 1년", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010190000" },
+  { id: "ktb-2y", name: "국고채 2년", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010195000" },
+  { id: "ktb-3y", name: "국고채 3년", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010200000" },
+  { id: "ktb-5y", name: "국고채 5년", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010200001" },
+  { id: "ktb-10y", name: "국고채 10년", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010210000" },
+  { id: "ktb-20y", name: "국고채 20년", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010220000" },
+  { id: "ktb-30y", name: "국고채 30년", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010230000" },
+  { id: "corp-aa", name: "회사채 3년 AA-", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010300000" },
+  { id: "corp-bbb", name: "회사채 3년 BBB-", unit: "%", cycle: "D", tableCode: "817Y002", itemCode: "010320000" },
+  { id: "household-credit", name: "가계신용 잔액", unit: "조원", scale: 0.001, cycle: "Q", tableCode: "151Y001", itemCode: "1000000" },
+  { id: "household-credit-loan", name: "가계대출 잔액(분기)", unit: "조원", scale: 0.001, cycle: "Q", tableCode: "151Y001", itemCode: "1100000" },
+  { id: "bank-household-loan", name: "은행 가계대출 잔액", unit: "조원", scale: 0.001, cycle: "M", tableCode: "151Y002", want: ["예금은행"] },
+  { id: "deposit-household-loan", name: "예금취급기관 가계대출", unit: "조원", scale: 0.001, cycle: "M", tableCode: "151Y002", want: ["예금취급기관"] },
+  { id: "bank-mortgage", name: "은행 주택관련대출", unit: "조원", scale: 0.001, cycle: "M", tableCode: "151Y005", itemCode: "11110A0" },
+  { id: "bank-delinquency", name: "은행 가계대출 연체율", unit: "%", cycle: "M", tableCode: "901Y054", want: ["가계대출", "은행전체"] },
+  { id: "bank-delinquency-corp", name: "은행 기업대출 연체율", unit: "%", cycle: "M", tableCode: "901Y054", want: ["기업대출", "은행전체"] },
+  { id: "loan-rate", name: "예금은행 대출금리", unit: "%", cycle: "M", tableCode: "121Y006", itemCode: "BECBLA01" },
+  { id: "mortgage-rate", name: "예금은행 주택담보대출금리", unit: "%", cycle: "M", tableCode: "121Y006", itemCode: "BECBLA0302" },
   { id: "fx-reserves", name: "외환보유액", unit: "", cycle: "M", table: ["외환보유액"], item: [] },
 ];
+export const DEFAULT_STAT_IDS = ["base-rate", "ktb-3y", "ktb-10y", "cd-91", "corp-aa", "household-credit", "bank-household-loan", "bank-delinquency", "loan-rate", "fx-reserves"];
 
 let tableCache = { at: 0, rows: null };
 
@@ -293,14 +310,26 @@ export const pick = (rows, keywords, nameOf) => {
   return hits.sort((a, b) => nameOf(a).length - nameOf(b).length)[0] || null;
 };
 
-export const range = (cycle, now = new Date()) => {
-  const y = now.getUTCFullYear();
+// back: 월·분기 통계에서 되짚어 볼 기간(개월). 항목을 지정하지 않는 조회는 행이 많아 짧게 잡는다.
+export const range = (cycle, now = new Date(), back = 36) => {
   const pad = (n) => String(n).padStart(2, "0");
   const ymd = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
+  const ym = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}`;
+  const monthsAgo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
   if (cycle === "D") return [ymd(new Date(now.getTime() - 400 * 86400000)), ymd(now)];
-  if (cycle === "Q") return [`${y - 3}Q1`, `${y}Q4`];
-  return [`${y - 3}${pad(now.getUTCMonth() + 1)}`, `${y}${pad(now.getUTCMonth() + 1)}`];
+  if (cycle === "Q") return [`${monthsAgo.getUTCFullYear()}Q${Math.floor(monthsAgo.getUTCMonth() / 3) + 1}`, `${now.getUTCFullYear()}Q4`];
+  return [ym(monthsAgo), ym(now)];
 };
+
+// 항목 이름 끝의 각주 표시("은행전체 1)")를 뗀다.
+const plainName = (name) => String(name || "").replace(/\s*\d+\)\s*$/, "").trim();
+
+// want의 이름이 모두 행의 항목 이름(ITEM_NAME1~4) 중에 있는 행만 남긴다.
+export const filterRows = (rows, want) =>
+  rows.filter((r) => {
+    const names = [1, 2, 3, 4].map((i) => plainName(r[`ITEM_NAME${i}`]));
+    return want.every((w) => names.includes(w));
+  });
 
 // ECOS 행(시간순)에서 최근값과 비교값을 뽑는다. lastChange면 마지막으로 값이 바뀌기 전 값을 비교값으로 쓴다.
 export const latestPair = (rows, lastChange) => {
@@ -316,30 +345,61 @@ export const latestPair = (rows, lastChange) => {
 };
 
 async function statOne(spec, env, tables) {
-  const table = pick(tables, spec.table, (r) => r.STAT_NAME);
-  if (!table) throw new Error("통계표 없음");
-  const items = (await ecos(env, `StatisticItemList/{key}/json/kr/1/500/${table.STAT_CODE}`)).StatisticItemList.row;
-  const item = spec.item.length ? pick(items, spec.item, (r) => r.ITEM_NAME) : items[0];
-  if (!item) throw new Error("항목 없음");
-  const [from, to] = range(spec.cycle);
-  const data = await ecos(env, `StatisticSearch/{key}/json/kr/1/500/${table.STAT_CODE}/${spec.cycle}/${from}/${to}/${item.ITEM_CODE}`);
-  const pair = latestPair(data.StatisticSearch.row, spec.lastChange);
+  let tableCode = spec.tableCode;
+  let source = spec.tableCode;
+  if (!tableCode) {
+    const table = pick(tables, spec.table, (r) => r.STAT_NAME);
+    if (!table) throw new Error("통계표 없음");
+    tableCode = table.STAT_CODE;
+    source = table.STAT_NAME;
+  }
+  let itemCode = spec.itemCode;
+  if (!itemCode && !spec.want) {
+    const items = (await ecos(env, `StatisticItemList/{key}/json/kr/1/500/${tableCode}`)).StatisticItemList.row;
+    const item = spec.item.length ? pick(items, spec.item, (r) => r.ITEM_NAME) : items[0];
+    if (!item) throw new Error("항목 없음");
+    itemCode = item.ITEM_CODE;
+    source += ` / ${item.ITEM_NAME}`;
+  }
+  const [from, to] = range(spec.cycle, new Date(), spec.want ? 18 : 36);
+  const path = `StatisticSearch/{key}/json/kr/1/500/${tableCode}/${spec.cycle}/${from}/${to}` + (itemCode ? `/${itemCode}` : "");
+  let rows = (await ecos(env, path)).StatisticSearch.row;
+  if (spec.want) rows = filterRows(rows, spec.want);
+  const pair = latestPair(rows, spec.lastChange);
   if (!pair) throw new Error("값 없음");
-  return { id: spec.id, name: spec.name, cycle: spec.cycle, ...pair, unit: spec.unit || pair.unit, source: `${table.STAT_NAME} / ${item.ITEM_NAME}` };
+  const scale = spec.scale || 1;
+  return {
+    id: spec.id,
+    name: spec.name,
+    cycle: spec.cycle,
+    value: pair.value * scale,
+    previous: pair.previous == null ? null : pair.previous * scale,
+    period: pair.period,
+    unit: spec.unit || pair.unit,
+    source,
+  };
 }
 
-async function stats(env, ctx) {
+// ids를 알려진 통계로 좁힌다. 비었거나 모르는 id뿐이면 기본 묶음.
+export const selectSpecs = (idsParam) => {
+  const ids = String(idsParam || "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 24);
+  const chosen = STAT_SPECS.filter((s) => ids.includes(s.id));
+  return chosen.length ? chosen : STAT_SPECS.filter((s) => DEFAULT_STAT_IDS.includes(s.id));
+};
+
+async function stats(url, env, ctx) {
   if (!env.ECOS_API_KEY) return fail(503, "ECOS_API_KEY가 설정되지 않았습니다");
-  const cacheKey = new Request("https://stats.cache/ecos-v1");
+  const specs = selectSpecs(url.searchParams.get("ids"));
+  const cacheKey = new Request(`https://stats.cache/ecos-v2/${specs.map((s) => s.id).sort().join(",")}`);
   const cache = caches.default;
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
-  if (!tableCache.rows || Date.now() - tableCache.at > 86400000) {
+  if (specs.some((s) => !s.tableCode) && (!tableCache.rows || Date.now() - tableCache.at > 86400000)) {
     tableCache = { at: Date.now(), rows: (await ecos(env, "StatisticTableList/{key}/json/kr/1/5000/")).StatisticTableList.row };
   }
-  const settled = await Promise.allSettled(STAT_SPECS.map((s) => statOne(s, env, tableCache.rows)));
+  const settled = await Promise.allSettled(specs.map((s) => statOne(s, env, tableCache.rows)));
   const items = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
-  const missing = STAT_SPECS.filter((_, i) => settled[i].status === "rejected").map((s, _i) => s.id);
+  const missing = specs.filter((_, i) => settled[i].status === "rejected").map((s) => s.id);
   const response = new Response(JSON.stringify({ items, missing }), {
     headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=3600" },
   });
