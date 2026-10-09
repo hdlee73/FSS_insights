@@ -282,6 +282,9 @@ private fun StatTile(item: StatItem, modifier: Modifier, onClick: () -> Unit) {
     }
 }
 
+/** 오늘의 브리핑 시장 지표에서 뺀 항목: S&P 500, WTI, US 10Y, 필라델피아 반도체. */
+private val BRIEFING_EXCLUDED = setOf("^GSPC", "CL=F", "^TNX", "^SOX")
+
 /** 오른쪽 끝에 맞춘 "21,345.10 (▲0.52%)": 수치는 크게, 등락은 괄호에 넣어 작은 글자로. */
 @Composable
 private fun ValueWithDelta(value: String, delta: String?, color: Color, modifier: Modifier = Modifier) {
