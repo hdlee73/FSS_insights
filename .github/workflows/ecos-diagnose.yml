@@ -1,0 +1,25 @@
+name: ECOS diagnose (temporary)
+on:
+  push:
+    branches: [claude/project-thread-169eyo]
+    paths: [.github/workflows/ecos-diagnose.yml]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query ECOS
+        env:
+          K: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          set -u
+          B="https://ecos.bok.or.kr/api"
+          curl -s "$B/StatisticTableList/$K/json/kr/1/5000/" > tables.json
+          python3 - <<'PY'
+          import json
+          rows=json.load(open('tables.json')).get('StatisticTableList',{}).get('row',[])
+          print("tables:",len(rows))
+          for r in rows:
+              n=r['STAT_NAME']
+              if '가계대출' in n or ('예금' in n and '대출' in n) or '시장금리' in n or '가계신용' in n or '연체' in n:
+                  print(r['STAT_CODE'],r.get('CYCLE'),r['STAT_NAME'])
+          PY
