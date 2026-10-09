@@ -21,4 +21,10 @@ class UpdateCheckerTest {
         assertFalse(UpdateChecker.isNewer("0.11.9", "0.12.0"))
         assertFalse(UpdateChecker.isNewer("garbage", "0.12.0"))
     }
+
+    @Test fun extractsOnlyVersionChanges() {
+        val body = "# 앱\n소개\n\n## v0.22.0 변경 내용\n- 하나\n- 둘\n\n## 기타\n다른 내용"
+        assertEquals("- 하나\n- 둘", UpdateChecker.extractChanges(body))
+        assertEquals("그냥 본문", UpdateChecker.extractChanges(" 그냥 본문 "))
+    }
 }
