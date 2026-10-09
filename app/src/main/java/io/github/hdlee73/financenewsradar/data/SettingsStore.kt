@@ -124,11 +124,35 @@ class SettingsStore(context: Context) {
             .apply()
     }
 
-    /** 키워드 알림(새 기사·보도자료 푸시) 사용 여부. 기본은 꺼짐. */
-    fun keywordAlertsEnabled(): Boolean = preferences.getBoolean(KEYWORD_ALERTS, false)
+    /**
+     * 키워드별 새 소식 알림 방식. 저장된 적이 없으면, 예전 버전(v0.20 이하)에서 알림 스위치를 켠 사용자는 '1시간',
+     * 아니면 '끔'으로 본다.
+     */
+    fun keywordAlertMode(keyword: String): KeywordAlertMode =
+        KeywordAlertMode.entries.firstOrNull { it.name == preferences.getString("$ALERT_MODE_PREFIX$keyword", null) }
+            ?: if (preferences.getBoolean(KEYWORD_ALERTS, false)) KeywordAlertMode.HOURLY else KeywordAlertMode.OFF
 
-    fun setKeywordAlertsEnabled(enabled: Boolean) {
-        preferences.edit().putBoolean(KEYWORD_ALERTS, enabled).apply()
+    fun setKeywordAlertMode(keyword: String, mode: KeywordAlertMode) {
+        preferences.edit().putString("$ALERT_MODE_PREFIX$keyword", mode.name).apply()
+    }
+
+    /** 기관별 새 보도자료·연구자료 알림 사용 여부. 기본은 꺼짐. */
+    fun materialAlertEnabled(agency: AgencyId): Boolean = preferences.getBoolean("$MATERIAL_ALERT_PREFIX${agency.name}", false)
+
+    fun setMaterialAlertEnabled(agency: AgencyId, enabled: Boolean) {
+        preferences.edit().putBoolean("$MATERIAL_ALERT_PREFIX${agency.name}", enabled).apply()
+    }
+
+    /** 오늘의 브리핑 알림 사용 여부(기본 꺼짐)와 시각(자정부터의 분, 기본 오전 8시 30분). */
+    fun briefingAlertEnabled(): Boolean = preferences.getBoolean(BRIEFING_ALERT, false)
+
+    fun briefingAlertMinutes(): Int = preferences.getInt(BRIEFING_ALERT_MINUTES, 8 * 60 + 30).coerceIn(0, 24 * 60 - 1)
+
+    fun setBriefingAlert(enabled: Boolean, minutesOfDay: Int) {
+        preferences.edit()
+            .putBoolean(BRIEFING_ALERT, enabled)
+            .putInt(BRIEFING_ALERT_MINUTES, minutesOfDay.coerceIn(0, 24 * 60 - 1))
+            .apply()
     }
 
     /** 기관별로 이미 본 자료 링크. 한 번도 저장한 적이 없으면 null(첫 실행이라 NEW 표시를 하지 않는다). */
@@ -199,7 +223,11 @@ class SettingsStore(context: Context) {
         private const val LINKS_MIGRATED_EDGAR = "links_migrated_edgar"
         const val LINKS = "useful_links"
         private const val SAVED_RELEASES = "saved_releases"
-        private const val KEYWORD_ALERTS = "keyword_alerts_enabled"
+        private const val KEYWORD_ALERTS = "keyword_alerts_enabled"   // v0.20 이하의 전체 스위치(새 설정의 기본값 판단에만 쓴다)
+        private const val ALERT_MODE_PREFIX = "alert_mode_"
+        private const val MATERIAL_ALERT_PREFIX = "material_alert_"
+        private const val BRIEFING_ALERT = "briefing_alert_enabled"
+        private const val BRIEFING_ALERT_MINUTES = "briefing_alert_minutes"
         private const val SEEN_PREFIX = "seen_"
         private const val KEYWORD_SEPARATOR = "\u001F"
         private const val RECORD_SEPARATOR = "\u001E"
