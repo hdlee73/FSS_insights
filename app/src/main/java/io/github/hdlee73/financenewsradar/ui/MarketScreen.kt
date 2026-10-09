@@ -535,12 +535,12 @@ private fun IndexTile(
     }
 }
 
-private fun statText(item: StatItem, value: Double): String {
+internal fun statText(item: StatItem, value: Double): String {
     val digits = if (item.isRate) 2 else if (kotlin.math.abs(value) >= 1000) 0 else 1
     return grouped(value, digits) + (if (item.isRate) "%" else if (item.unit.isNotBlank()) " ${item.unit}" else "")
 }
 
-private fun statDelta(item: StatItem): String? {
+internal fun statDelta(item: StatItem): String? {
     val change = item.change ?: return null
     val digits = if (item.isRate) 2 else if (kotlin.math.abs(item.value) >= 1000) 0 else 1
     val percent = if (item.isRate) "" else item.changePercent?.let { " (${signed(it, 2, "%")})" }.orEmpty()

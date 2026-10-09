@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import io.github.hdlee73.financenewsradar.data.Instrument
 import io.github.hdlee73.financenewsradar.data.IntradaySeries
 import io.github.hdlee73.financenewsradar.data.Quote
+import io.github.hdlee73.financenewsradar.data.StatItem
+import io.github.hdlee73.financenewsradar.data.periodLabel
 import io.github.hdlee73.financenewsradar.data.Weather
 import io.github.hdlee73.financenewsradar.data.WeatherClient
 import io.github.hdlee73.financenewsradar.ui.theme.AppColors
@@ -128,6 +130,19 @@ fun BriefingScreen(
                             pair.forEach { (item, quote) ->
                                 MarketTile(item, quote, market.intraday[item.symbol], Modifier.weight(1f)) { onOpenTab(TAB_MARKET) }
                             }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+
+            val keyStats = BRIEFING_STATS.mapNotNull { id -> market.stats.firstOrNull { it.id == id && id !in market.hiddenStats } }
+            if (keyStats.isNotEmpty()) {
+                SectionTitle("주요 금융 통계", "한국은행 ECOS") { onOpenTab(TAB_MARKET) }
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    keyStats.chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            pair.forEach { StatTile(it, Modifier.weight(1f)) { onOpenTab(TAB_MARKET) } }
                             if (pair.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
@@ -254,6 +269,22 @@ private fun MarketTile(item: Instrument, quote: Quote, series: IntradaySeries?, 
         }
     }
 }
+
+/** ECOS 통계 한 칸: 이름, 값, 증감, 기준일. */
+@Composable
+private fun StatTile(item: StatItem, modifier: Modifier, onClick: () -> Unit) {
+    val color = changeColor(item.change)
+    Surface(modifier.clickable(onClick = onClick), shape = RoundedCornerShape(16.dp), color = color.copy(alpha = 0.09f)) {
+        Column(Modifier.padding(12.dp)) {
+            Text(item.name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(statText(item, item.value), Modifier.padding(top = 2.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(statDelta(item) ?: "직전 값 —", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
+            Text(periodLabel(item.period) + " 기준", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+private val BRIEFING_STATS = listOf("base-rate", "ktb-3y", "ktb-10y", "bank-delinquency")
 
 private fun arrowPercent(value: Double): String =
     (if (value > 0) "▲" else if (value < 0) "▼" else "") + String.format(Locale.KOREA, "%.2f%%", kotlin.math.abs(value))
