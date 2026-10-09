@@ -284,7 +284,7 @@ private val SoftFill = Color(0xFFF2F5F4)
 private val SoftLine = Color(0xFFE6EBE8)
 
 @Composable
-private fun changeColor(change: Double?): Color = when {
+internal fun changeColor(change: Double?): Color = when {
     change == null || change == 0.0 -> MaterialTheme.colorScheme.onSurfaceVariant
     change > 0 -> UpColor
     else -> DownColor
@@ -298,10 +298,10 @@ private fun signed(value: Double, digits: Int, suffix: String = ""): String =
     (if (value > 0) "▲" else if (value < 0) "▼" else "") + grouped(kotlin.math.abs(value), digits) + suffix
 
 /** 대비 금액과 등락률을 "▼92.30 (▼1.30%)"처럼 등락률을 괄호 안에 묶어 표시한다. */
-private fun deltaText(item: Instrument, quote: Quote): String? =
+internal fun deltaText(item: Instrument, quote: Quote): String? =
     quote.change?.let { "${signed(it, changeDigits(item))} (${signed(quote.changePercent ?: 0.0, 2, "%")})" }
 
-private fun priceText(item: Instrument, value: Double): String = when {
+internal fun priceText(item: Instrument, value: Double): String = when {
     item.type == Instrument.TYPE_FX -> grouped(value, 2) + if (item.currency == "KRW") "원" else ""
     item.type == Instrument.TYPE_RATE -> grouped(value, 3) + "%"
     item.isIndex -> grouped(value, 2)
@@ -598,7 +598,7 @@ private fun StatsPanel(stats: List<StatItem>, hidden: Set<String>, editing: Bool
 
 /** 전일 종가 기준선(점선)과 당일 흐름선, 기준선과 흐름선 사이 옅은 면, 마지막 점. */
 @Composable
-private fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modifier = Modifier) {
+internal fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val data = series ?: return@Canvas
         val pts = data.points

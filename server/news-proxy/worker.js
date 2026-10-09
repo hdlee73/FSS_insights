@@ -147,6 +147,23 @@ async function buildIndex(env) {
   return data;
 }
 
+// 자료실 폴더들 안에서 본문에 모든 검색어가 들어 있는 파일 ID 집합(드라이브 fullText). 폴더를 20개씩 묶어 조회한다.
+async function bodySearch(words, index, env) {
+  const esc = (w) => w.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const terms = words.slice(0, 5).map((w) => `fullText contains '${esc(w)}'`).join(" and ");
+  const folders = [...index.byFolder.keys()];
+  const batches = [];
+  for (let i = 0; i < folders.length; i += 20) batches.push(folders.slice(i, i + 20));
+  const ids = new Set();
+  await Promise.all(batches.map(async (batch) => {
+    const parents = batch.map((f) => `'${f}' in parents`).join(" or ");
+    const res = await drive("", env, { q: `(${parents}) and ${terms} and trashed = false`, fields: "files(id)", pageSize: "100" });
+    if (!res.ok) throw new Error(`드라이브 응답 ${res.status}`);
+    for (const f of (await res.json()).files || []) if (index.files.has(f.id)) ids.add(f.id);
+  }));
+  return ids;
+}
+
 async function library(url, env) {
   if (!env.GOOGLE_API_KEY || !env.GDRIVE_FOLDER_ID) return fail(501, "자료실(구글 드라이브)이 아직 연결되지 않았습니다.");
   const path = url.pathname.replace(/^\/library/, "").replace(/\/+$/, "");
@@ -169,11 +186,13 @@ async function library(url, env) {
     const tagQuery = q.startsWith("#") ? q.slice(1) : null;
     const words = q.split(/\s+/).filter(Boolean);
     const hits = [];
+    // 본문 검색: 드라이브가 파일 내용(PDF·문서·오피스 등)을 직접 색인해 두므로 fullText 검색을 그대로 쓴다. 실패하면 제목·설명 검색만 한다.
+    const bodyIds = tagQuery !== null ? new Set() : await bodySearch(words, index, env).catch(() => new Set());
     for (const item of index.files.values()) {
       if (item.folder) continue;
       const haystack = `${item.name} ${item.description} ${item.tags.join(" ")}`.toLowerCase();
       const ok = tagQuery !== null ? item.tags.some((t) => t.toLowerCase() === tagQuery) : words.every((w) => haystack.includes(w));
-      if (ok) hits.push({ ...item, location: index.names.get(item.parent) || "" });
+      if (ok || bodyIds.has(item.id)) hits.push({ ...item, location: index.names.get(item.parent) || "", bodyMatch: !ok });
     }
     hits.sort((a, b) => (b.modified || "").localeCompare(a.modified || ""));
     return json({ items: hits.slice(0, 100), tags: index.tags });
