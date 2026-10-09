@@ -86,7 +86,15 @@ class WatchlistStore(context: Context) {
         preferences.edit().putString(PANEL, symbols.joinToString(",")).apply()
     }
 
+    /** 국내 금융 통계 칸 중 사용자가 숨긴 항목 id. */
+    fun loadHiddenStats(): Set<String> = preferences.getStringSet(HIDDEN_STATS, emptySet()) ?: emptySet()
+
+    fun saveHiddenStats(ids: Set<String>) {
+        preferences.edit().putStringSet(HIDDEN_STATS, ids).apply()
+    }
+
     private companion object {
+        const val HIDDEN_STATS = "hidden_stats"
         const val ITEMS = "items"
         const val PANEL = "panel_slots"
         const val SOX_REMOVED = "sox_removed_v17"
