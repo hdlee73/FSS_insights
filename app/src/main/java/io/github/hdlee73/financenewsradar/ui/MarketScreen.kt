@@ -116,6 +116,8 @@ data class MarketUiState(
     /** 지수 칸 그래프용 당일(장 마감 후엔 직전 거래일) 분봉. */
     val intraday: Map<String, IntradaySeries> = emptyMap(),
     val watch: List<Instrument> = emptyList(),
+    /** 관심종목 카드 그래프 종류(전체 공통): true면 당일, false면 1년 추이. */
+    val watchIntraday: Boolean = false,
     val quotes: Map<String, Quote> = emptyMap(),
     val histories: Map<String, PriceHistory> = emptyMap(),
     val isRefreshing: Boolean = false,
@@ -137,7 +139,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     private var statsLoadedAt = 0L
     /** 통계 요청 번호. 선택을 바꾼 뒤 늦게 도착한 이전 요청의 응답이 새 결과를 덮어쓰지 않게 한다. */
     private var statsRequest = 0
-    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection()))
+    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection(), watchIntraday = store.loadWatchIntraday()))
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
     private var refreshJob: Job? = null
     private val chartFailedAt = HashMap<String, Long>()
@@ -223,6 +225,13 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch { loadStats(force = true) }
     }
 
+    /** 관심종목 그래프를 1년 추이/당일 중 고르고 저장한다. 당일을 고르면 분봉을 바로 받는다. */
+    fun setWatchIntraday(value: Boolean) {
+        store.saveWatchIntraday(value)
+        _state.update { it.copy(watchIntraday = value) }
+        if (value) viewModelScope.launch { loadIntraday() }
+    }
+
     /** 증시동향·브리핑에 보일 지표 선택을 저장하고 시세를 다시 받아 온다. */
     fun setIndexSelection(selection: IndexSelection) {
         store.saveIndexSelection(selection)
@@ -243,7 +252,8 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     /** 지수 칸 그래프(당일 분봉)를 1분에 한 번만 다시 받는다. 실패해도 1분 뒤에 다시 시도한다. */
     private suspend fun loadIntraday() {
         val now = System.currentTimeMillis()
-        val todo = indexSymbols().filter { now - (intradayTriedAt[it] ?: 0) > 60_000 }
+        val symbols = if (_state.value.watchIntraday) (indexSymbols() + _state.value.watch.map { it.symbol }).distinct() else indexSymbols()
+        val todo = symbols.filter { now - (intradayTriedAt[it] ?: 0) > 60_000 }
         todo.forEach { intradayTriedAt[it] = now }
         todo.chunked(4).forEach { chunk ->
             coroutineScope {
@@ -393,6 +403,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
                 editing = editing,
                 onToggleCollapsed = { watchCollapsed = !watchCollapsed },
                 onToggleEditing = { editing = !editing },
+                onChartMode = viewModel::setWatchIntraday,
                 onAdd = { adding = true },
                 onMove = viewModel::move,
                 onRemove = { removing = it }
@@ -746,6 +757,7 @@ private fun WatchSection(
     editing: Boolean,
     onToggleCollapsed: () -> Unit,
     onToggleEditing: () -> Unit,
+    onChartMode: (Boolean) -> Unit,
     onAdd: () -> Unit,
     onMove: (Instrument, Int) -> Unit,
     onRemove: (Instrument) -> Unit
@@ -760,6 +772,9 @@ private fun WatchSection(
             Text("${state.watch.size}", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.weight(1f))
             if (!collapsed) {
+                TextButton(onClick = { onChartMode(!state.watchIntraday) }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text(if (state.watchIntraday) "그래프: 당일" else "그래프: 1년", fontSize = 12.sp)
+                }
                 TextButton(onClick = onToggleEditing, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (editing) "완료" else "편집", fontSize = 12.sp) }
                 TextButton(onClick = onAdd, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("+ 종목", fontSize = 12.sp) }
             }
@@ -780,6 +795,8 @@ private fun WatchSection(
                                 item = item,
                                 quote = state.quotes[item.symbol],
                                 history = state.histories[item.symbol],
+                                intraday = state.intraday[item.symbol],
+                                showIntraday = state.watchIntraday,
                                 editing = editing,
                                 canUp = index > 0,
                                 canDown = index < state.watch.lastIndex,
@@ -802,6 +819,8 @@ private fun WatchCell(
     item: Instrument,
     quote: Quote?,
     history: PriceHistory?,
+    intraday: IntradaySeries?,
+    showIntraday: Boolean,
     editing: Boolean,
     canUp: Boolean,
     canDown: Boolean,
@@ -818,7 +837,8 @@ private fun WatchCell(
                 quote?.let { priceText(item, it.price) } ?: "—",
                 Modifier.weight(1f), style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp), color = color, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
-            if (history != null) Sparkline(history.closes, Modifier.width(44.dp).height(18.dp))
+            if (showIntraday) IntradayChart(intraday, color, Modifier.width(44.dp).height(18.dp))
+            else if (history != null) Sparkline(history.closes, Modifier.width(44.dp).height(18.dp))
         }
         Text(
             quote?.let { deltaText(item, it) } ?: "—",
