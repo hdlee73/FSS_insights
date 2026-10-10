@@ -65,6 +65,15 @@ data class StatSelection(val market: Set<String>, val briefing: Set<String>) {
     val all: List<String> get() = STAT_CATALOG.map { it.id }.filter { it in market || it in briefing }
 }
 
+/** 서버 /stats 응답: 값이 있는 [items]와, 서버가 값을 못 찾았다고 알려 준 통계 id [missing]. */
+data class StatsResult(val items: List<StatItem>, val missing: Set<String> = emptySet())
+
+internal fun parseStatsResult(body: String): StatsResult {
+    val root = JSONObject(body)
+    val missing = root.optJSONArray("missing")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }.orEmpty()
+    return StatsResult(parseStats(body), missing)
+}
+
 /** 서버 /stats 응답에서 값이 있는 항목만 읽는다. */
 internal fun parseStats(body: String): List<StatItem> {
     val array = JSONObject(body).optJSONArray("items") ?: return emptyList()
@@ -93,15 +102,15 @@ internal fun periodLabel(period: String): String = when {
 
 /** 서버(/stats)에서 한국은행 ECOS 통계를 받아 온다. 서버가 없거나 키가 없으면 빈 목록. */
 class StatsApi(private val context: Context) {
-    suspend fun load(ids: List<String>): List<StatItem> = withContext(Dispatchers.IO) {
-        if (!NewsProxy.isConfigured || ids.isEmpty()) return@withContext emptyList()
+    suspend fun load(ids: List<String>): StatsResult = withContext(Dispatchers.IO) {
+        if (!NewsProxy.isConfigured || ids.isEmpty()) return@withContext StatsResult(emptyList())
         val c = URI(NewsProxy.url.trimEnd('/') + "/stats?ids=" + ids.joinToString(",")).toURL().openConnection() as HttpURLConnection
         c.connectTimeout = 12_000
         c.readTimeout = 40_000
         c.setRequestProperty("X-App-Token", NewsProxy.token)
         try {
             if (c.responseCode != 200) error("통계 서버 응답 ${c.responseCode}")
-            parseStats(c.inputStream.use { String(it.readBytes(), Charsets.UTF_8) })
+            parseStatsResult(c.inputStream.use { String(it.readBytes(), Charsets.UTF_8) })
         } finally {
             c.disconnect()
         }

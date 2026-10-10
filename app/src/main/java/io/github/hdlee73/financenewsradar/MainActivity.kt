@@ -31,6 +31,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             checkForUpdate()
             restoreAlertSchedules()
+            UpdateChecker.scheduleBackgroundCheck(this)
             if (UpdateChecker.needsNotificationPermission(this)) {
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
             }

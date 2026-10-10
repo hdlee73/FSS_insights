@@ -51,4 +51,21 @@ class StatsApiTest {
         val selection = StatSelection(market = setOf("corp-aa", "base-rate"), briefing = setOf("ktb-3y", "corp-aa"))
         assertEquals(listOf("base-rate", "ktb-3y", "corp-aa"), selection.all)
     }
+
+    @Test
+    fun parsesMissingIdsFromServer() {
+        val body = """{"items":[{"id":"ktb-3y","name":"국고채 3년","unit":"%","value":3.1,"previous":3.0,"period":"20261007"}],"missing":["ktb-5y","bank-mortgage"]}"""
+        val result = parseStatsResult(body)
+        assertEquals(1, result.items.size)
+        assertEquals(setOf("ktb-5y", "bank-mortgage"), result.missing)
+        assertTrue(parseStatsResult("""{"items":[]}""").missing.isEmpty())
+    }
+
+    @Test
+    fun indexSelectionKeepsCatalogOrder() {
+        val selection = IndexSelection(setOf("^N225", "^KS11", "^GSPC"), setOf("^KS11"))
+        assertEquals(listOf("^KS11", "^GSPC", "^N225"), selection.marketItems.map { it.symbol })
+        assertEquals(listOf("^KS11"), selection.briefingItems.map { it.symbol })
+        assertEquals(setOf("^N225", "^KS11", "^GSPC"), selection.all)
+    }
 }

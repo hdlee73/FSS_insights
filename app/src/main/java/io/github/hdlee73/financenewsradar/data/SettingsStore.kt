@@ -86,7 +86,10 @@ class SettingsStore(context: Context) {
         val raw = preferences.getString(LINKS, null) ?: return UsefulLink.DEFAULTS
         var links = raw.split(RECORD_SEPARATOR).mapNotNull { record ->
             val parts = record.split(KEYWORD_SEPARATOR)
-            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) UsefulLink(parts[0], parts[1]) else null
+            // 설명 칸이 없던 예전 저장값(2칸)은 기본 사이트 설명을 채운다. 설명을 직접 비운 경우(3칸)는 그대로 둔다.
+            if (parts.size in 2..3 && parts[0].isNotBlank() && parts[1].isNotBlank())
+                UsefulLink(parts[0], parts[1], if (parts.size == 3) parts[2] else UsefulLink.defaultDescription(parts[1]))
+            else null
         }
         if (!preferences.getBoolean(LINKS_MIGRATED_V051, false)) {
             // 채권정보센터 주소 변경 반영 + 새 기본 사이트(DART·파인·KRX)를 금융위원회 아래에 한 번만 추가.
@@ -120,7 +123,7 @@ class SettingsStore(context: Context) {
 
     fun saveLinks(links: List<UsefulLink>) {
         preferences.edit()
-            .putString(LINKS, links.joinToString(RECORD_SEPARATOR) { "${it.name}$KEYWORD_SEPARATOR${it.url}" })
+            .putString(LINKS, links.joinToString(RECORD_SEPARATOR) { "${it.name}$KEYWORD_SEPARATOR${it.url}$KEYWORD_SEPARATOR${it.description}" })
             .apply()
     }
 

@@ -101,7 +101,24 @@ class WatchlistStore(context: Context) {
         preferences.edit().putStringSet(STAT_MARKET, selection.market).putStringSet(STAT_BRIEFING, selection.briefing).apply()
     }
 
+    /**
+     * 증시동향 지표 선택. 저장된 값이 없으면 예전의 6칸 구성(저장돼 있으면 그대로)을 이어받고,
+     * 브리핑은 예전처럼 일부 지표(S&P 500·WTI·US 10Y·필라델피아 반도체)를 뺀 값으로 시작한다.
+     */
+    fun loadIndexSelection(): IndexSelection {
+        val saved = preferences.getStringSet(INDEX_MARKET, null)
+        val market = saved ?: (KOREA_INDEXES.map { it.symbol } + panelSlots(loadPanelSlots()).map { it.symbol }).toSet()
+        val briefing = preferences.getStringSet(INDEX_BRIEFING, null) ?: (market - BRIEFING_EXCLUDED_DEFAULT)
+        return IndexSelection(market, briefing)
+    }
+
+    fun saveIndexSelection(selection: IndexSelection) {
+        preferences.edit().putStringSet(INDEX_MARKET, selection.market).putStringSet(INDEX_BRIEFING, selection.briefing).apply()
+    }
+
     private companion object {
+        const val INDEX_MARKET = "index_market_v1"
+        const val INDEX_BRIEFING = "index_briefing_v1"
         const val HIDDEN_STATS = "hidden_stats"
         const val STAT_MARKET = "stat_market_v1"
         const val STAT_BRIEFING = "stat_briefing_v1"
@@ -185,6 +202,19 @@ fun panelSlots(saved: List<String>): List<Instrument> {
     val fill = DEFAULT_PANEL_SLOTS.mapNotNull { symbol -> PANEL_CATALOG.firstOrNull { it.symbol == symbol } }
         .filter { it !in chosen } + PANEL_CATALOG.filter { it !in chosen }
     return (chosen + fill.distinct()).take(PANEL_SLOT_COUNT)
+}
+
+/** 증시동향·브리핑에서 고를 수 있는 지표 전체(코스피·코스닥 포함). 화면에는 이 순서로 보인다. */
+val INDEX_CHOICES: List<Instrument> = KOREA_INDEXES + PANEL_CATALOG
+
+/** 처음에 브리핑 시장 지표에서 뺀 항목: S&P 500, WTI, US 10Y, 필라델피아 반도체. */
+val BRIEFING_EXCLUDED_DEFAULT = setOf("^GSPC", "CL=F", "^TNX", "^SOX")
+
+/** 사용자가 고른 증시 지표: 증시동향에 보일 것과 오늘의 브리핑에 보일 것(심볼). */
+data class IndexSelection(val market: Set<String>, val briefing: Set<String>) {
+    val all: Set<String> get() = market + briefing
+    val marketItems: List<Instrument> get() = INDEX_CHOICES.filter { it.symbol in market }
+    val briefingItems: List<Instrument> get() = INDEX_CHOICES.filter { it.symbol in briefing }
 }
 
 /** 검색 전에 보여 주는 자주 찾는 종목. */

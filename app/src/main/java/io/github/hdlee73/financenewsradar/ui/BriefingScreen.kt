@@ -122,8 +122,7 @@ fun BriefingScreen(
             }
 
             SectionTitle("시장 지표", "한눈에 보는 오늘 시장") { onOpenTab(TAB_MARKET) }
-            val tiles = (KOREA_INDEXES + market.panel).distinctBy { it.symbol }
-                .filter { it.symbol !in BRIEFING_EXCLUDED }
+            val tiles = market.indexes.briefingItems
                 .mapNotNull { item -> market.quotes[item.symbol]?.let { item to it } }
             if (tiles.isEmpty()) {
                 Hint(if (market.isRefreshing) "시세 연결 중…" else "시세를 불러오지 못했습니다.")
@@ -281,9 +280,6 @@ private fun StatTile(item: StatItem, modifier: Modifier, onClick: () -> Unit) {
         }
     }
 }
-
-/** 오늘의 브리핑 시장 지표에서 뺀 항목: S&P 500, WTI, US 10Y, 필라델피아 반도체. */
-private val BRIEFING_EXCLUDED = setOf("^GSPC", "CL=F", "^TNX", "^SOX")
 
 /** 오른쪽 끝에 맞춘 "21,345.10 (▲0.52%)": 수치는 크게, 등락은 괄호에 넣어 작은 글자로. */
 @Composable

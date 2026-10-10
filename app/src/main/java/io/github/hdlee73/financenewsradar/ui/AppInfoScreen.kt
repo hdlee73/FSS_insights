@@ -47,40 +47,8 @@ fun AppInfoScreen(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val update by UpdateStatus.available.collectAsStateWithLifecycle()
     val state by UpdateStatus.state.collectAsStateWithLifecycle()
-    var progress by remember { mutableStateOf<Float?>(null) }
-    var message by remember { mutableStateOf<String?>(null) }
-    var downloaded by remember { mutableStateOf<File?>(null) }
-    val busy = progress != null
-
-    fun startDownload(info: UpdateInfo) {
-        scope.launch {
-            message = null
-            progress = 0f
-            try {
-                val apk = UpdateInstaller.download(context, info) { progress = it }
-                downloaded = apk
-                progress = null
-                UpdateInstaller.install(context, apk)
-            } catch (e: Exception) {
-                progress = null
-                message = e.message ?: "내려받기에 실패했습니다."
-            }
-        }
-    }
-
-    // '출처를 알 수 없는 앱 설치'를 허용하고 돌아오면 받아 둔 APK 설치를 이어 간다.
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && downloaded != null && UpdateInstaller.canInstall(context)) {
-                val apk = downloaded
-                downloaded = null
-                if (apk != null && apk.exists()) runCatching { UpdateInstaller.install(context, apk) }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
+    val flow = rememberUpdateInstallFlow()
+    val busy = flow.busy
 
     Column(modifier.fillMaxSize()) {
     LargeTitle("앱 정보")
@@ -119,28 +87,11 @@ fun AppInfoScreen(modifier: Modifier = Modifier) {
             if (info.apkUrl != null) {
                 val sizeText = if (info.apkSize > 0) " (${"%.1f".format(info.apkSize / 1_048_576.0)}MB)" else ""
                 Button(
-                    onClick = {
-                        if (UpdateInstaller.canInstall(context)) startDownload(info)
-                        else {
-                            message = "이 앱의 '출처를 알 수 없는 앱 설치'를 허용한 뒤 돌아오면 이어서 설치합니다."
-                            scope.launch {
-                                // 허용 화면으로 가기 전에 APK부터 받아 둔다.
-                                try {
-                                    progress = 0f
-                                    downloaded = UpdateInstaller.download(context, info) { progress = it }
-                                    progress = null
-                                    UpdateInstaller.openInstallPermissionSettings(context)
-                                } catch (e: Exception) {
-                                    progress = null
-                                    message = e.message ?: "내려받기에 실패했습니다."
-                                }
-                            }
-                        }
-                    },
+                    onClick = { flow.start(info) },
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("자동 업데이트: 내려받아 설치$sizeText") }
-                progress?.let { p ->
+                flow.progress?.let { p ->
                     if (p >= 0f) LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
                     else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
@@ -151,7 +102,7 @@ fun AppInfoScreen(modifier: Modifier = Modifier) {
                 )
             }
         }
-        message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        flow.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         OutlinedButton(
             onClick = {
                 val link = update?.url ?: UpdateChecker.RELEASES_URL
