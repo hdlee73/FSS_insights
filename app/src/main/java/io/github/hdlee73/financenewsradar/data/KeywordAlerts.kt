@@ -67,7 +67,7 @@ object KeywordAlerts {
         val store = SettingsStore(app)
         val modes = store.loadSettings().keywords.map(store::keywordAlertMode)
         val fast = KeywordAlertMode.FAST in modes
-        val hourly = KeywordAlertMode.HOURLY in modes || NewMaterialAlerts.anyEnabled(store)
+        val hourly = KeywordAlertMode.HOURLY in modes || NewMaterialAlerts.anyEnabled(store) || store.libraryAlertEnabled()
         enqueue(app, WORK_FAST, KeywordAlertMode.FAST, FAST_MINUTES, fast)
         enqueue(app, WORK_HOURLY, KeywordAlertMode.HOURLY, HOURLY_MINUTES, hourly)
     }
@@ -129,8 +129,11 @@ class KeywordAlertWorker(context: Context, params: WorkerParameters) : Coroutine
     override suspend fun doWork(): Result {
         val mode = KeywordAlerts.modeOf(inputData)
         runCatching { KeywordAlerts.check(applicationContext, mode) }
-        // 보도자료·연구자료 새 글 알림은 1시간 작업에 함께 실어 확인한다.
-        if (mode == KeywordAlertMode.HOURLY) runCatching { NewMaterialAlerts.check(applicationContext) }
+        // 보도자료·연구자료·참고자료 새 글 알림은 1시간 작업에 함께 실어 확인한다.
+        if (mode == KeywordAlertMode.HOURLY) {
+            runCatching { NewMaterialAlerts.check(applicationContext) }
+            runCatching { LibraryAlerts.check(applicationContext) }
+        }
         return Result.success()
     }
 }
