@@ -226,7 +226,7 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun saveLinks(links: List<UsefulLink>) {
-        val clean = links.map { UsefulLink(it.name.trim(), normalizeUrl(it.url)) }
+        val clean = links.map { UsefulLink(it.name.trim(), normalizeUrl(it.url), it.description.trim().replace(Regex("[\\r\\n]+"), " ")) }
             .filter { it.name.isNotBlank() && it.url.isNotBlank() }
         settingsStore.saveLinks(clean)
         _state.update { it.copy(links = clean) }

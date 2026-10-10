@@ -537,7 +537,11 @@ private fun SiteRow(link: UsefulLink, editMode: Boolean, onOpen: () -> Unit, onE
         }
         Column(Modifier.weight(1f).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(link.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(host.ifBlank { link.url }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // 사이트 이름 아래에 간략한 설명, 그 아래에 주소.
+            if (link.description.isNotBlank()) {
+                Text(link.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
+            Text(host.ifBlank { link.url }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (editMode) {
             IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = "${link.name} 수정", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -552,6 +556,7 @@ private fun SiteRow(link: UsefulLink, editMode: Boolean, onOpen: () -> Unit, onE
 private fun LinkEditDialog(initial: UsefulLink?, onDismiss: () -> Unit, onConfirm: (UsefulLink) -> Unit) {
     var name by remember { mutableStateOf(initial?.name.orEmpty()) }
     var url by remember { mutableStateOf(initial?.url.orEmpty()) }
+    var description by remember { mutableStateOf(initial?.description.orEmpty()) }
     val normalized = ReleasesViewModel.normalizeUrl(url)
     val valid = name.isNotBlank() && runCatching { Uri.parse(normalized).host?.contains('.') == true }.getOrDefault(false)
     AlertDialog(
@@ -568,9 +573,16 @@ private fun LinkEditDialog(initial: UsefulLink?, onDismiss: () -> Unit, onConfir
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth()
                 )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it.take(80) },
+                    label = { Text("간략한 설명 (선택)") },
+                    maxLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         },
-        confirmButton = { TextButton(enabled = valid, onClick = { onConfirm(UsefulLink(name.trim(), normalized)) }) { Text("저장") } },
+        confirmButton = { TextButton(enabled = valid, onClick = { onConfirm(UsefulLink(name.trim(), normalized, description.trim())) }) { Text("저장") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } }
     )
 }

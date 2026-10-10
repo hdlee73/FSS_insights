@@ -12,8 +12,16 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import io.github.hdlee73.financenewsradar.BuildConfig
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
 import java.net.HttpURLConnection
 import java.net.URI
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +59,7 @@ object UpdateChecker {
     private const val NOTIFICATION_ID = 1001
     private const val PREFS = "update_checker"
     private const val KEY_NOTIFIED = "notified_version"
+    private const val WORK_NAME = "update_check"
 
     /** "v0.12.1" / "0.12.1-debug" 같은 문자열을 숫자 목록으로. 해석 불가면 null. */
     internal fun parseVersion(raw: String): List<Int>? {
@@ -134,6 +143,21 @@ object UpdateChecker {
         notifyOnce(context.applicationContext, latest)
     }
 
+    /** 앱을 열지 않아도 새 버전이 나오면 알림이 울리도록 12시간마다 확인한다. 이미 예약돼 있으면 그대로 둔다. */
+    fun scheduleBackgroundCheck(context: Context) {
+        val request = PeriodicWorkRequestBuilder<UpdateCheckWorker>(12, TimeUnit.HOURS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(context.applicationContext)
+            .enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+    }
+
+    /** 백그라운드 확인: 새 버전이면 알림만 보낸다(화면 상태는 건드리지 않는다). */
+    internal suspend fun checkQuietly(context: Context) {
+        val latest = runCatching { fetchLatest() }.getOrNull() ?: return
+        if (isNewer(latest.version, BuildConfig.VERSION_NAME)) notifyOnce(context.applicationContext, latest)
+    }
+
     fun needsNotificationPermission(context: Context): Boolean =
         Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -146,21 +170,29 @@ object UpdateChecker {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         if (Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "앱 업데이트", NotificationManager.IMPORTANCE_DEFAULT)
+                NotificationChannel(CHANNEL_ID, "앱 업데이트", NotificationManager.IMPORTANCE_HIGH)
             )
         }
-        val open = PendingIntent.getActivity(
-            context, 0, Intent(Intent.ACTION_VIEW, Uri.parse(info.url)),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        // 알림을 누르면 앱이 열리면서 업데이트 팝업이 뜬다.
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: Intent(Intent.ACTION_VIEW, Uri.parse(info.url))
+        val open = PendingIntent.getActivity(context, 0, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle("FSS Insights 새 버전 ${info.version}")
-            .setContentText("GitHub 릴리스에서 업데이트를 받을 수 있습니다.")
+            .setContentText("눌러서 앱을 열고 업데이트하세요.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()
         manager.notify(NOTIFICATION_ID, notification)
         prefs.edit().putString(KEY_NOTIFIED, info.version).apply()
+    }
+}
+
+class UpdateCheckWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        runCatching { UpdateChecker.checkQuietly(applicationContext) }
+        return Result.success()
     }
 }

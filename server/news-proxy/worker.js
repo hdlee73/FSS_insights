@@ -390,7 +390,7 @@ export const selectSpecs = (idsParam) => {
 async function stats(url, env, ctx) {
   if (!env.ECOS_API_KEY) return fail(503, "ECOS_API_KEY가 설정되지 않았습니다");
   const specs = selectSpecs(url.searchParams.get("ids"));
-  const cacheKey = new Request(`https://stats.cache/ecos-v2/${specs.map((s) => s.id).sort().join(",")}`);
+  const cacheKey = new Request(`https://stats.cache/ecos-v3/${specs.map((s) => s.id).sort().join(",")}`);
   const cache = caches.default;
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
