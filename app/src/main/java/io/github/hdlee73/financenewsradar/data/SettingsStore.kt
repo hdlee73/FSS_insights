@@ -146,6 +146,13 @@ class SettingsStore(context: Context) {
         preferences.edit().putBoolean("$MATERIAL_ALERT_PREFIX${agency.name}", enabled).apply()
     }
 
+    /** 참고자료(자료실)에 새 파일이 올라오면 알리는 설정. 기본은 꺼짐. */
+    fun libraryAlertEnabled(): Boolean = preferences.getBoolean(LIBRARY_ALERT, false)
+
+    fun setLibraryAlertEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(LIBRARY_ALERT, enabled).apply()
+    }
+
     /** 오늘의 브리핑 알림 사용 여부(기본 꺼짐)와 시각(자정부터의 분, 기본 오전 8시 30분). */
     fun briefingAlertEnabled(): Boolean = preferences.getBoolean(BRIEFING_ALERT, false)
 
@@ -166,9 +173,9 @@ class SettingsStore(context: Context) {
     fun seenLinks(key: String): List<String>? =
         preferences.getString("$SEEN_PREFIX$key", null)?.split(KEYWORD_SEPARATOR)?.filter { it.isNotBlank() }
 
-    fun saveSeenLinks(key: String, links: List<String>) {
+    fun saveSeenLinks(key: String, links: List<String>, limit: Int = 300) {
         preferences.edit()
-            .putString("$SEEN_PREFIX$key", links.distinct().takeLast(300).joinToString(KEYWORD_SEPARATOR))
+            .putString("$SEEN_PREFIX$key", links.distinct().takeLast(limit).joinToString(KEYWORD_SEPARATOR))
             .apply()
     }
 
@@ -229,6 +236,7 @@ class SettingsStore(context: Context) {
         private const val KEYWORD_ALERTS = "keyword_alerts_enabled"   // v0.20 이하의 전체 스위치(새 설정의 기본값 판단에만 쓴다)
         private const val ALERT_MODE_PREFIX = "alert_mode_"
         private const val MATERIAL_ALERT_PREFIX = "material_alert_"
+        private const val LIBRARY_ALERT = "library_alert_enabled"
         private const val BRIEFING_ALERT = "briefing_alert_enabled"
         private const val BRIEFING_ALERT_MINUTES = "briefing_alert_minutes"
         private const val SEEN_PREFIX = "seen_"
