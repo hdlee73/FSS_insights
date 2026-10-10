@@ -111,6 +111,44 @@ object NewMaterialAlerts {
     }
 }
 
+/** 참고자료(구글 드라이브 자료실)에 새 파일이 올라오면 알리는 기능. 1시간 작업에 함께 실려 확인한다. */
+object LibraryAlerts {
+    private const val CHANNEL_ID = "library_alerts"
+    private const val SEEN_KEY = "library_files"
+    private const val MAX_FOLDERS = 30
+
+    internal suspend fun check(context: Context) {
+        val store = SettingsStore(context)
+        if (!store.libraryAlertEnabled() || UpdateChecker.needsNotificationPermission(context)) return
+        val api = LibraryApi(context)
+        if (!api.isConfigured) return
+        val hits = runCatching { allFiles(api) }.getOrNull()
+        val (fresh, seen) = KeywordAlertLogic.diff(hits, store.seenLinks(SEEN_KEY))
+        if (seen != null) store.saveSeenLinks(SEEN_KEY, seen, 2000)
+        if (fresh.isNotEmpty()) {
+            AlertNotifier.post(
+                context, CHANNEL_ID, "참고자료 알림", 3003,
+                "새 참고자료 ${fresh.size}건", fresh.map { if (it.source.isBlank()) it.title else "[${it.source}] ${it.title}" }
+            )
+        }
+    }
+
+    /** 자료실 최상위부터 하위 폴더까지 둘러보며 파일을 모은다(폴더 수 제한). 링크 자리에는 파일 ID를 쓴다. */
+    private suspend fun allFiles(api: LibraryApi): List<AlertHit> {
+        val queue = ArrayDeque<Pair<String?, String>>().apply { add(null to "") }
+        val files = mutableListOf<AlertHit>()
+        var visited = 0
+        while (queue.isNotEmpty() && visited < MAX_FOLDERS) {
+            val (id, name) = queue.removeFirst()
+            visited++
+            for (entry in api.list(id).items) {
+                if (entry.isFolder) queue.add(entry.id to entry.name) else files += AlertHit(entry.name, entry.id, name)
+            }
+        }
+        return files
+    }
+}
+
 /** 매일 정한 시각에 오늘의 브리핑(시장·주요 기사·최근 보도자료)을 요약해 알린다. */
 object BriefingAlert {
     private const val WORK_NAME = "briefing_alert"
