@@ -127,12 +127,15 @@ private fun unitMultiplier(unit: String): Double? {
 /** 순위 정렬용: 값을 원 단위로 환산(단위를 모르면 원래 값). */
 internal fun fisisWon(value: Double, unit: String): Double = value * (unitMultiplier(unit) ?: 1.0)
 
-/** 금액은 항상 소수점 없이 "603,926억원"으로, 비율은 소수 둘째 자리까지 "12.34%"로 보여 준다. 단위를 모르면 원래 값과 단위를 그대로 보여 준다. */
+/** 금액은 항상 억원으로(10억원 이상은 소수점 없이 "603,926억원"), 비율은 소수 둘째 자리까지 "12.34%"로 보여 준다. 단위를 모르면 원래 값과 단위를 그대로 보여 준다. */
 internal fun fisisValueText(value: Double, unit: String): String {
     val us = java.util.Locale.US
     if (unit.contains("%")) return String.format(us, "%,.2f", value) + "%"
     val mult = unitMultiplier(unit) ?: return String.format(us, "%,.2f", value).trimEnd('0').trimEnd('.') + unit
-    return String.format(us, "%,d억원", Math.round(value * mult / 1e8))
+    val eok = value * mult / 1e8
+    // 10억원 이상은 소수점 없이, 그보다 작은 금액(소규모 회사)은 0으로 사라지지 않게 소수 둘째 자리까지 보여 준다.
+    return if (kotlin.math.abs(eok) >= 10 || eok == 0.0) String.format(us, "%,d억원", Math.round(eok))
+    else String.format(us, "%,.2f", eok).trimEnd('0').trimEnd('.') + "억원"
 }
 
 private fun homepageKey(name: String) = name.replace(Regex("\\s|\\(주\\)|주식회사|㈜"), "")

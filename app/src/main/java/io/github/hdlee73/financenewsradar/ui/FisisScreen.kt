@@ -57,6 +57,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private const val DATA_NOTICE = "원본 오류로 인해 일부 수치가 잘못 표시되어 있을 수 있습니다."
+
 private const val FISIS_SOURCE = "자료출처: 금융감독원 금융통계정보시스템"
 
 /** 비교에 담을 수 있는 회사 수. */
@@ -74,7 +76,7 @@ private val FINANCE_LABELS = mapOf(
 private val PL_KEYS = setOf("revenue", "expense", "opinc", "netincome")
 
 /** 증권사 목록에서 외국계(외국 증권사 서울지점·한국법인)를 가려내는 이름 조각. */
-private val FOREIGN_BROKER = Regex("지점|골드만|모간스탠리|모건스탠리|메릴린치|비엔피|BNP|씨엘에스에이|CLSA|크레디|노무라|맥쿼리|유비에스|UBS|제이피모간|JP모간|도이치|소시에테|나틱시스|다이와|미즈호|HSBC|에이치에스비씨|바클레이|스탠다드차타드|씨티|ING|아이엔지|SMBC|라자드|이스트스프링")
+private val FOREIGN_BROKER = Regex("지점|골드만|모간스탠리|모건스탠리|메릴린치|비엔피|BNP|씨엘에스에이|CLSA|크레디|노무라|맥쿼리|유비에스|UBS|제이피모간|JP모간|도이치|소시에테|나틱시스|다이와|미즈호|HSBC|에이치에스비씨|바클레이|스탠다드차타드|씨티|ING|아이엔지|SMBC|라자드|이스트스프링|아이씨엠|ICM|CMS|씨엠에스|에스지|SG|CGS|CIMB|씨아이엠비|글로벌마켓|알비에스|RBS|스미토모|미쓰비시|도쿄|SBI증권")
 
 /** 비교표에 넣는 재무 지표. */
 private val COMPARE_KEYS = listOf("assets", "liab", "equity", "revenue", "opinc", "netincome")
@@ -238,10 +240,10 @@ private fun CompanyList(state: FisisUiState, viewModel: FisisViewModel) {
             Text(
                 when {
                     state.picks.isNotEmpty() -> "비교 선택 ${state.picks.size}/$MAX_COMPARE: " + state.picks.joinToString(", ") { it.name }
-                    state.ranking -> "자산총계 순위를 불러오는 중… 회사를 누르면 상세, 체크하면 비교"
-                    else -> "자산총계 큰 순(증권사는 국내 → 외국계) · 회사를 누르면 상세, 체크하면 비교(최대 $MAX_COMPARE 곳)"
+                    state.ranking -> "순위를 불러오는 중… 회사를 누르면 상세, 체크하면 비교"
+                    else -> "회사를 누르면 상세, 체크하면 비교(최대 $MAX_COMPARE 곳) · $DATA_NOTICE"
                 },
-                Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis
+                Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis
             )
             if (state.picks.size >= 2) TextButton(onClick = { viewModel.open(FisisView.Compare) }) { Text("비교하기") }
         }
@@ -342,7 +344,7 @@ private fun ColumnScope.CompanyDetail(company: FisisCompany, state: FisisUiState
                     RatioTab(sectorCode, profile, ratioMonth, onMonth = { ratioMonth = it })
                 }
                 if (tab == 0) HomepageButton(company)
-                Note("$FISIS_SOURCE. 금액은 억원 단위입니다.")
+                Note("$FISIS_SOURCE. 금액은 억원 단위입니다. $DATA_NOTICE")
             }
         }
     }

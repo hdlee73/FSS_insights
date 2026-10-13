@@ -48,7 +48,13 @@ async function buildSector(sector) {
   const cache = new Map();
   const probe = (code, listNo, accountCd) => {
     const k = `${code}/${listNo}/${accountCd}`;
-    if (!cache.has(k)) cache.set(k, fetchTable((p) => call("statisticsInfoSearch", p), code, listNo, "Q", accountCd));
+    if (!cache.has(k)) {
+      cache.set(k, fetchTable((p) => call("statisticsInfoSearch", p), code, listNo, "Q", accountCd).then((t) => {
+        // 단위 점검용: 통계표가 말하는 단위와 실제 값의 크기(Deploy 로그에서 확인)
+        if (t) console.log(`  [${sector}] 단위 ${code} ${listNo} unit="${t.unit}" term=${t.term} 최대값=${t.max}`);
+        return t;
+      }));
+    }
     return cache.get(k);
   };
   await validateSpec(spec, samples, probe, (line) => console.log(`  [${sector}] ${line}`));
