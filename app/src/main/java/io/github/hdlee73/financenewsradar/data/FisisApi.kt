@@ -6,15 +6,14 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
-import kotlin.math.abs
 
 /** FISIS 금융권역. [code]는 FISIS 금융권역코드(A 은행, F 증권사, G 자산운용사, H 생명보험, I 손해보험, E 저축은행, C 카드사). */
 data class FisisSector(val code: String, val label: String)
 
 /** 화면에 보여 주는 권역 순서. */
 val FISIS_SECTORS: List<FisisSector> = listOf(
-    FisisSector("F", "금융투자(증권사)"),
-    FisisSector("G", "금융투자(자산운용사)"),
+    FisisSector("F", "증권사"),
+    FisisSector("G", "자산운용사"),
     FisisSector("A", "은행"),
     FisisSector("H", "생명보험"),
     FisisSector("I", "손해보험"),
@@ -128,18 +127,12 @@ private fun unitMultiplier(unit: String): Double? {
 /** 순위 정렬용: 값을 원 단위로 환산(단위를 모르면 원래 값). */
 internal fun fisisWon(value: Double, unit: String): Double = value * (unitMultiplier(unit) ?: 1.0)
 
-/** 금액은 항상 "603,926억원"처럼 억원으로, 비율은 %(배율은 배)로 보여 준다. 단위를 모르면 원래 값과 단위를 그대로 보여 준다. */
+/** 금액은 항상 소수점 없이 "603,926억원"으로, 비율은 소수 첫째 자리까지 "12.3%"로 보여 준다. 단위를 모르면 원래 값과 단위를 그대로 보여 준다. */
 internal fun fisisValueText(value: Double, unit: String): String {
     val us = java.util.Locale.US
-    if (unit.contains("%")) return String.format(us, "%,.2f", value) + "%"
-    if (unit.trim() == "배") return String.format(us, "%,.2f", value) + "배"
+    if (unit.contains("%")) return String.format(us, "%,.1f", value) + "%"
     val mult = unitMultiplier(unit) ?: return String.format(us, "%,.2f", value).trimEnd('0').trimEnd('.') + unit
-    val eok = value * mult / 1e8
-    return when {
-        eok == 0.0 -> "0억원"
-        abs(eok) >= 100 -> String.format(us, "%,d억원", Math.round(eok))
-        else -> String.format(us, "%,.2f", eok).trimEnd('0').trimEnd('.') + "억원"
-    }
+    return String.format(us, "%,d억원", Math.round(value * mult / 1e8))
 }
 
 private fun homepageKey(name: String) = name.replace(Regex("\\s|\\(주\\)|주식회사|㈜"), "")

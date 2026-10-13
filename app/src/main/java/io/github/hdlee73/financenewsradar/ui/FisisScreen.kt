@@ -62,11 +62,31 @@ private const val FISIS_SOURCE = "자료출처: 금융감독원 금융통계정�
 /** 비교에 담을 수 있는 회사 수. */
 private const val MAX_COMPARE = 3
 
-/** 현황·비교에 보여 주는 재무 지표(순서 고정). */
-private val SUMMARY_KEYS = listOf("assets", "liab", "equity", "revenue", "netincome")
+/** 재무현황에 보여 주는 지표(순서 고정). */
+private val FINANCE_KEYS = listOf("assets", "liab", "equity", "revenue", "expense", "opinc", "netincome")
 
-/** 재무정보 탭에 보여 주는 지표(순서 고정). */
-private val FINANCE_KEYS = listOf("assets", "liab", "equity", "capital", "revenue", "expense", "netincome")
+private val FINANCE_LABELS = mapOf(
+    "assets" to "자산총계", "liab" to "부채총계", "equity" to "자기자본",
+    "revenue" to "영업수익", "expense" to "영업비용", "opinc" to "영업이익", "netincome" to "당기(분반기)순이익"
+)
+
+/** 비교표에 넣는 재무 지표. */
+private val COMPARE_KEYS = listOf("assets", "liab", "equity", "revenue", "opinc", "netincome")
+
+/** 권역별 주요경영지표(키 → 이름). 자료가 없으면 "-"로 보여 준다. 자산운용사는 제공하지 않는다. */
+private val RATIO_ROWS: Map<String, List<Pair<String, String>>> = mapOf(
+    "F" to listOf("ncr" to "순자본비율(개별)", "ncr_c" to "순자본비율(연결)", "lev" to "레버리지비율", "liq" to "유동성비율"),
+    "A" to listOf("bis" to "BIS기준 자기자본비율", "delinq" to "총대출채권 연체율", "npl" to "고정이하여신비율", "lcr" to "유동성커버리지비율"),
+    "H" to listOf("solv" to "지급여력비율"),
+    "I" to listOf("solv" to "지급여력비율"),
+    "E" to listOf("bis" to "BIS자기자본비율", "npl" to "고정이하여신비율", "delinq" to "연체율", "liq" to "유동성비율"),
+    "C" to listOf("adj" to "조정자기자본비율", "npl" to "고정이하채권비율")
+)
+
+/** 재무 시점은 2024년 이후만 고를 수 있다. */
+private const val FIRST_MONTH = "202401"
+
+private val BASES = listOf("별도", "연결")
 
 /** 화면 안에서의 위치: 회사 목록 → 회사 상세 또는 비교. */
 sealed interface FisisView {
@@ -165,7 +185,7 @@ class FisisViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
-/** 금융사 주요 경영정보: 권역별로 총자산 순으로 회사를 찾고, 현황·재무정보·재무비율을 보고, 회사 2~3곳을 비교한다. */
+/** 금융회사 주요 현황: 권역별로 자산총계 순으로 회사를 찾고, 재무현황·주요경영지표를 보고, 회사 2~3곳을 비교한다. */
 @Composable
 fun FisisScreen(viewModel: FisisViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -173,7 +193,7 @@ fun FisisScreen(viewModel: FisisViewModel, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize()) {
         when (val view = state.view) {
             FisisView.Companies -> {
-                LargeTitle("금융사 주요 경영정보")
+                LargeTitle("금융회사 주요 현황")
                 Text(FISIS_SOURCE, Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!viewModel.isConfigured) CenterMessage("서버가 연결되지 않아 경영정보를 불러올 수 없습니다.")
                 else CompanyList(state, viewModel)
@@ -207,8 +227,8 @@ private fun CompanyList(state: FisisUiState, viewModel: FisisViewModel) {
             Text(
                 when {
                     state.picks.isNotEmpty() -> "비교 선택 ${state.picks.size}/$MAX_COMPARE: " + state.picks.joinToString(", ") { it.name }
-                    state.ranking -> "총자산 순위를 불러오는 중… 회사를 누르면 상세, 체크하면 비교"
-                    else -> "총자산 큰 순 · 회사를 누르면 상세, 체크하면 비교(최대 $MAX_COMPARE 곳)"
+                    state.ranking -> "자산총계 순위를 불러오는 중… 회사를 누르면 상세, 체크하면 비교"
+                    else -> "자산총계 큰 순 · 회사를 누르면 상세, 체크하면 비교(최대 $MAX_COMPARE 곳)"
                 },
                 Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis
             )
@@ -241,13 +261,10 @@ private fun CompanyList(state: FisisUiState, viewModel: FisisViewModel) {
 
 /** 값 한 줄: 이름과 값, 그 아래에 출처(어느 통계표·계정인지)와 시점. */
 @Composable
-private fun MetricRow(label: String, value: String, sub: String? = null) {
+private fun MetricRow(label: String, value: String) {
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.Top) {
-            Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                Text(label, style = MaterialTheme.typography.bodyLarge)
-                if (sub != null) Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            Text(label, Modifier.weight(1f).padding(end = 12.dp), style = MaterialTheme.typography.bodyLarge)
             Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
         }
         RowDivider()
@@ -255,20 +272,10 @@ private fun MetricRow(label: String, value: String, sub: String? = null) {
 }
 
 @Composable
-private fun MetricRow(metric: FisisMetric, month: String?, showMonth: Boolean = false) {
-    val p = metric.at(month)
-    val text = when {
-        p == null -> "자료 없음"
-        p.text != null -> p.text
-        p.value != null -> fisisValueText(p.value, metric.unit)
-        else -> "자료 없음"
-    }
-    val sub = buildString {
-        if (showMonth && p != null) append(fisisMonthLabel(p.month)).append(" · ")
-        append(metric.source)
-        if (metric.column.isNotBlank()) append(" · ").append(metric.column)
-    }
-    MetricRow(metric.label, text, sub)
+private fun MetricRow(label: String, metric: FisisMetric?, month: String?) {
+    val p = metric?.at(month)
+    val text = if (p?.value != null && metric != null) fisisValueText(p.value, metric.unit) else "-"
+    MetricRow(label, text)
 }
 
 @Composable
@@ -293,7 +300,7 @@ private fun PeriodPicker(months: List<String>, selected: String?, term: String, 
     }
 }
 
-private fun monthsOf(metrics: List<FisisMetric>): List<String> = metrics.flatMap { m -> m.points.map { it.month } }.distinct().sortedDescending()
+private fun monthsOf(metrics: List<FisisMetric>): List<String> = metrics.flatMap { m -> m.points.map { it.month } }.filter { it >= FIRST_MONTH }.distinct().sortedDescending()
 
 @Composable
 private fun ColumnScope.CompanyDetail(company: FisisCompany, state: FisisUiState, viewModel: FisisViewModel) {
@@ -302,100 +309,72 @@ private fun ColumnScope.CompanyDetail(company: FisisCompany, state: FisisUiState
     val key = profileKey(sectorCode, company.code)
     LaunchedEffect(key) { viewModel.ensure(sectorCode, company) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    var basisChoice by rememberSaveable { mutableStateOf<String?>(null) }
+    var basis by rememberSaveable { mutableStateOf(BASES.first()) }
     var financeMonth by rememberSaveable { mutableStateOf<String?>(null) }
     var ratioMonth by rememberSaveable { mutableStateOf<String?>(null) }
     val profile = state.profiles[key]
 
     BackHeader(company.name, onBack = viewModel::back)
-    UnderlineTabs(listOf("현황", "재무정보", "재무비율"), tab, { tab = it })
+    UnderlineTabs(listOf("재무현황", "주요경영지표"), tab, { tab = it })
     Box(Modifier.weight(1f).fillMaxWidth()) {
         when {
             key in state.loading || (profile == null && key !in state.errors) -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             key in state.errors -> CenterMessage(state.errors[key].orEmpty(), isError = true, actionLabel = "다시 시도", onAction = { viewModel.retry(sectorCode, company) })
-            profile == null || profile.metrics.isEmpty() -> CenterMessage("이 회사는 ${sector.label} 경영정보 자료를 찾지 못했습니다.")
-            else -> {
-                val basis = basisChoice?.takeIf { it in profile.basisOptions } ?: profile.basisOptions.firstOrNull()
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    when (tab) {
-                        0 -> SummaryTab(company, profile, basis)
-                        1 -> {
-                            if (profile.basisOptions.size > 1) {
-                                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    profile.basisOptions.forEach { b -> PillChip("$b 재무제표", onClick = { basisChoice = b; financeMonth = null }, selected = b == basis, onPanel = true) }
-                                }
-                            } else {
-                                Note("연결 기준 자료를 찾지 못해 ${basis ?: "별도"}(개별) 기준으로 표시합니다.")
-                            }
-                            FinanceTab(profile, basis, financeMonth, onMonth = { financeMonth = it })
-                        }
-                        else -> RatioTab(profile, ratioMonth, onMonth = { ratioMonth = it })
+            profile == null || profile.metrics.isEmpty() -> CenterMessage("이 회사는 ${sector.label} 자료를 찾지 못했습니다.")
+            else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                if (tab == 0) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        BASES.forEach { b -> PillChip("$b 재무제표", onClick = { basis = b; financeMonth = null }, selected = b == basis, onPanel = true) }
                     }
-                    Note("$FISIS_SOURCE(FISIS). 금액은 억원 단위입니다.")
+                    FinanceTab(profile, basis, financeMonth, onMonth = { financeMonth = it })
+                } else {
+                    RatioTab(sectorCode, profile, ratioMonth, onMonth = { ratioMonth = it })
                 }
+                if (tab == 0) HomepageButton(company)
+                Note("$FISIS_SOURCE. 금액은 억원 단위입니다.")
             }
         }
     }
 }
 
 @Composable
-private fun SummaryTab(company: FisisCompany, profile: FisisProfile, basis: String?) {
-    val fin = profile.group("fin", basis)
-    val latest = monthsOf(fin).firstOrNull()
-    SubTitle("현황자료 · 최근 시점 ${latest?.let { fisisMonthLabel(it) + " (" + fisisTermLabel(profile.term) + ")" } ?: "자료 없음"}")
-    SUMMARY_KEYS.forEach { k ->
-        val m = fin.firstOrNull { it.key == k }
-        if (m != null) MetricRow(m, latest) else MetricRow(FINANCE_LABELS.getValue(k), "자료 없음", "FISIS에서 찾지 못했습니다")
-    }
-    val funds = profile.group("fund").filter { it.key == "fund_all" || it.key == "nav_all" }
-    if (funds.isNotEmpty()) {
-        SubTitle("펀드 현황")
-        funds.forEach { MetricRow(it, null, showMonth = true) }
-    }
-    val ratios = profile.group("ratio")
-    SubTitle("핵심 감독지표")
-    if (ratios.isEmpty()) Note("이 권역의 감독지표를 FISIS에서 찾지 못했습니다.")
-    ratios.forEach { MetricRow(it, null, showMonth = true) }
-    SubTitle("홈페이지")
-    val home = fisisHomepage(company.name)
-    val uriHandler = LocalUriHandler.current
-    TextButton(onClick = { runCatching { uriHandler.openUri(home.url) } }, Modifier.padding(horizontal = 12.dp)) {
-        Text(if (home.known) "${home.url.removePrefix("https://")} 열기" else "공식 홈페이지 검색하기")
-    }
-}
-
-private val FINANCE_LABELS = mapOf(
-    "assets" to "총자산", "liab" to "총부채", "equity" to "자기자본", "capital" to "자본금",
-    "revenue" to "영업수익", "expense" to "영업비용", "netincome" to "당기순이익"
-)
-
-@Composable
-private fun FinanceTab(profile: FisisProfile, basis: String?, month: String?, onMonth: (String) -> Unit) {
-    val fin = profile.group("fin", basis)
+private fun FinanceTab(profile: FisisProfile, basis: String, month: String?, onMonth: (String) -> Unit) {
+    val fin = profile.group("fin", basis).filter { it.basis == basis }
     val funds = profile.group("fund")
     val months = monthsOf(fin + funds)
     val selected = month?.takeIf { it in months } ?: months.firstOrNull()
     PeriodPicker(months, selected, profile.term, onMonth)
-    SubTitle("주요 재무정보${basis?.let { " ($it)" }.orEmpty()}")
-    FINANCE_KEYS.forEach { k ->
-        val m = fin.firstOrNull { it.key == k }
-        if (m != null) MetricRow(m, selected) else MetricRow(FINANCE_LABELS.getValue(k), "자료 없음", "FISIS에서 찾지 못했습니다")
-    }
+    if (fin.isEmpty()) Note("$basis 재무제표 자료가 없습니다.")
+    SubTitle("재무현황 ($basis)")
+    FINANCE_KEYS.forEach { k -> MetricRow(FINANCE_LABELS.getValue(k), fin.firstOrNull { it.key == k }, selected) }
     if (funds.isNotEmpty()) {
         SubTitle("펀드 설정원본 · 순자산")
-        funds.forEach { MetricRow(it, selected) }
+        funds.forEach { MetricRow(it.label, it, selected) }
     }
 }
 
 @Composable
-private fun RatioTab(profile: FisisProfile, month: String?, onMonth: (String) -> Unit) {
+private fun RatioTab(sector: String, profile: FisisProfile, month: String?, onMonth: (String) -> Unit) {
+    val rows = RATIO_ROWS[sector]
+    if (rows == null) {
+        Note("이 권역은 주요경영지표를 제공하지 않습니다.")
+        return
+    }
     val ratios = profile.group("ratio")
     val months = monthsOf(ratios)
     val selected = month?.takeIf { it in months } ?: months.firstOrNull()
     PeriodPicker(months, selected, ratios.firstOrNull()?.term ?: profile.term, onMonth)
-    SubTitle("주요 재무비율(감독지표)")
-    if (ratios.isEmpty()) Note("이 권역의 재무비율을 FISIS에서 찾지 못했습니다.")
-    ratios.forEach { MetricRow(it, selected) }
+    SubTitle("주요경영지표")
+    rows.forEach { (k, label) -> MetricRow(label, ratios.firstOrNull { it.key == k }, selected) }
+}
+
+@Composable
+private fun HomepageButton(company: FisisCompany) {
+    val home = fisisHomepage(company.name)
+    val uriHandler = LocalUriHandler.current
+    TextButton(onClick = { runCatching { uriHandler.openUri(home.url) } }, Modifier.padding(horizontal = 12.dp)) {
+        Text(if (home.known) "홈페이지 열기 (${home.url.removePrefix("https://")})" else "공식 홈페이지 검색하기")
+    }
 }
 
 /** 회사 2~3곳의 현황을 한 표로 비교한다(각 회사의 최근 시점 기준). */
@@ -422,18 +401,18 @@ private fun ColumnScope.CompareView(state: FisisUiState, viewModel: FisisViewMod
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp)) {
                     Text("기준 시점", Modifier.weight(1.1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     profiles.forEach { p ->
-                        val m = p?.group("fin", p.basisOptions.firstOrNull())?.let(::monthsOf)?.firstOrNull()
+                        val m = p?.group("fin", "별도")?.let(::monthsOf)?.firstOrNull()
                         Text(m?.let { fisisMonthLabel(it) } ?: "-", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 HorizontalDivider(Modifier.padding(top = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                val ratioKeys = profiles.filterNotNull().flatMap { p -> p.group("ratio").map { it.key to it.label } }.distinct()
-                val rows = SUMMARY_KEYS.map { it to FINANCE_LABELS.getValue(it) } + ratioKeys
+                val ratioKeys = RATIO_ROWS[sectorCode].orEmpty()
+                val rows = COMPARE_KEYS.map { it to FINANCE_LABELS.getValue(it) } + ratioKeys
                 rows.forEach { (k, label) ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(label, Modifier.weight(1.1f), style = MaterialTheme.typography.bodyMedium)
                         profiles.forEach { p ->
-                            val m = p?.metric(k, p.basisOptions.firstOrNull())
+                            val m = p?.metric(k, "별도")
                             val v = m?.at(null)?.value
                             val text = if (m != null && v != null) fisisValueText(v, m.unit) else "-"
                             Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)

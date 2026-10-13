@@ -422,7 +422,9 @@ async function stats(url, env, ctx) {
 // Worker는 한 번의 호출에 하위 요청(외부 호출·캐시 포함)을 50건까지만 보낼 수 있다. 그래서 많은 호출이 필요한 작업
 // (권역별 회사 목록, 총자산 순위, 통계표·계정 찾기)은 배포할 때 build-fisis-data.mjs가 미리 해서 fisis-data.json에 넣어 둔다.
 // 서버는 그 자료로 순위·목록을 바로 돌려주고, 회사 상세만 실시간으로 받는다(통계표 몇 개).
-const FISIS_SET = new Set(FISIS_SECTORS);
+// 화면의 권역: 증권사(F)에는 선물사(W)를 합쳐 보여 준다. 선물사는 FISIS에서 통계표가 따로라 자료도 따로 만든다.
+const FISIS_SET = new Set(["F", "G", "A", "H", "I", "E", "C"]);
+const subSectors = (sector) => (sector === "F" ? ["F", "W"] : [sector]);
 const bundled = (sector) => (fisisData && fisisData.sectors && fisisData.sectors[sector]) || null;
 
 // 같은 요청은 서버 메모리에만 잠시 보관한다(Cache API 호출도 하위 요청 한도에 들어가므로 쓰지 않는다).
@@ -442,9 +444,10 @@ async function fisis(url, env) {
   const action = url.pathname.slice("/fisis/".length);
   const sector = url.searchParams.get("sector") || "";
   if (!FISIS_SET.has(sector)) return fail(400, "지원하지 않는 권역입니다.");
-  const data = bundled(sector);
+  const parts = subSectors(sector).map((s) => ({ sector: s, data: bundled(s) }));
+  const ready = parts.filter((p) => p.data);
   if (action === "companies") {
-    if (data) return json({ items: data.companies.map(([code, name]) => ({ code, name })) });
+    if (ready.length) return json({ items: ready.flatMap((p) => p.data.companies).map(([code, name]) => ({ code, name })) });
     // 아직 배포 때 자료를 만들지 않은 경우: 회사 목록만 실시간으로 받는다.
     return json(await memo(`companies/${sector}`, 21600, async () => {
       const r = await fisisCall(env, "companySearch", { partDiv: sector });
@@ -453,15 +456,16 @@ async function fisis(url, env) {
   }
   if (action === "ranking") {
     const assets = {};
-    for (const [code, v] of Object.entries((data && data.assets) || {})) assets[code] = { value: v[0], month: v[1], unit: v[2] };
-    return json({ assets, next: null, total: data ? data.companies.length : 0, ranked: Boolean(data) });
+    for (const p of ready) for (const [code, v] of Object.entries(p.data.assets || {})) assets[code] = { value: v[0], month: v[1], unit: v[2] };
+    return json({ assets, next: null, total: ready.reduce((n, p) => n + p.data.companies.length, 0), ranked: ready.length > 0 });
   }
-  if (action === "spec") return json(data ? data.spec : { error: "fisis-data.json이 아직 만들어지지 않았습니다" }); // 어떤 통계표·계정을 쓰는지 확인용
+  if (action === "spec") return json(Object.fromEntries(ready.map((p) => [p.sector, p.data.spec]))); // 어떤 통계표·계정을 쓰는지 확인용
   if (action === "profile") {
     const finance = url.searchParams.get("finance") || "";
     if (!/^[0-9A-Za-z]{4,12}$/.test(finance)) return fail(400, "회사 코드가 올바르지 않습니다.");
-    if (!data) return fail(503, "경영정보 설정이 아직 만들어지지 않았습니다. 관리자가 Deploy news proxy를 다시 실행해야 합니다.");
-    return json(await memo(`profile/${sector}/${finance}`, 21600, () => fisisProfile(env, data, finance)));
+    if (!ready.length) return fail(503, "경영정보 설정이 아직 만들어지지 않았습니다. 관리자가 Deploy news proxy를 다시 실행해야 합니다.");
+    const owner = ready.find((p) => p.data.companies.some(([code]) => code === finance)) || ready[0];
+    return json(await memo(`profile/${owner.sector}/${finance}`, 21600, () => fisisProfile(env, owner.data, finance)));
   }
   return new Response("Not found", { status: 404 });
 }
@@ -469,12 +473,17 @@ async function fisis(url, env) {
 /** 한 회사의 경영정보: 미리 찾아 둔 통계표·계정에 맞춰 통계표 몇 개만 받는다. */
 async function fisisProfile(env, data, finance) {
   const spec = data.spec;
-  const listNos = specListNos(spec).slice(0, 12);
+  const listNos = specListNos(spec).slice(0, 16);
   const companyName = ((data.companies.find(([code]) => code === finance) || [])[1]) || "";
   const errors = [];
+  let used = 0; // Worker는 한 번에 하위 요청 50건까지라 45건에서 멈춘다
+  const budgeted = (p) => {
+    if (++used > 45) throw new Error("FISIS 호출 수가 한도에 가까워 일부 통계표를 건너뜁니다.");
+    return fisisCall(env, "statisticsInfoSearch", p);
+  };
   const tableList = await Promise.all(
     listNos.map((listNo) =>
-      fetchTable((p) => fisisCall(env, "statisticsInfoSearch", p), finance, listNo, (spec.terms && spec.terms[listNo]) || "Q").catch((e) => {
+      fetchTable(budgeted, finance, listNo, (spec.terms && spec.terms[listNo]) || "Q").catch((e) => {
         errors.push(e);
         return null;
       })
