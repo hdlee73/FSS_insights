@@ -42,16 +42,16 @@ internal fun CapitalMarketPanel(groups: List<KofiaGroup>, loading: Boolean, fail
                 Text(
                     group.title,
                     Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 12.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.primary
                 )
                 group.sections.forEach { section ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(
                             section.title + if (section.asOf.isNotEmpty()) " (${section.asOf})" else "",
-                            style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary
+                            style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary
                         )
-                        Text(section.unit, style = TextStyle(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(section.unit, style = TextStyle(fontSize = 11.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     section.items.forEach { item ->
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
