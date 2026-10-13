@@ -19,12 +19,14 @@ enum class AgencyId(val label: String, val shortLabel: String, val group: Agency
     BOK_RESEARCH("한국은행", "한국은행", AgencyGroup.RESEARCH, "https://www.bok.or.kr/portal/singl/newsData/list.do?targetDepth=2&menuNo=201156&depth2=201156", "보고서"),
     IOSCO("IOSCO", "IOSCO", AgencyGroup.RESEARCH, "https://www.iosco.org/publications/?subsection=public_reports", "보고서"),
     FSB("FSB", "FSB", AgencyGroup.RESEARCH, "https://www.fsb.org/publications/", "보고서"),
-    BCBS("BCBS", "BCBS", AgencyGroup.RESEARCH, "https://www.bis.org/committees/bcbs/publications", "보고서"),
+    BCBS("바젤은행감독위원회(BIS)", "BCBS", AgencyGroup.RESEARCH, "https://www.bis.org/publications", "보고서"),
     ESMA("ESMA", "ESMA", AgencyGroup.RESEARCH, "https://www.esma.europa.eu/databases-library/esma-library", "보고서"),
-    FCA("FCA", "FCA", AgencyGroup.RESEARCH, "https://www.fca.org.uk/publications/search-results?category=research&sort_by=dmetaZ", "보고서"),
-    MAS("MAS", "MAS", AgencyGroup.RESEARCH, "https://www.mas.gov.sg/publications", "보고서"),
+    FCA("영국 금융행위감독청", "FCA", AgencyGroup.RESEARCH, "https://www.fca.org.uk/research", "보고서"),
+    MAS("싱가포르 통화청", "MAS", AgencyGroup.RESEARCH, "https://www.mas.gov.sg/publications", "보고서"),
     /** 사용자가 직접 추가한 연구소(이름·주소는 [CustomInstitute]). */
-    CUSTOM("추가한 연구소", "추가", AgencyGroup.RESEARCH, "", "자료");
+    CUSTOM("추가한 연구소", "추가", AgencyGroup.RESEARCH, "", "자료"),
+    /** 사용자가 직접 추가한 보도자료 기관. */
+    CUSTOM_PRESS("추가한 기관", "추가", AgencyGroup.PRESS, "", "보도자료");
 
     /** 처음 보여 줄 최근 자료 수: 보도자료·연구자료 모두 20건. */
     val latestCount: Int get() = 20
@@ -43,7 +45,10 @@ data class ReleaseItem(
     val label: String get() = sourceLabel ?: agency.shortLabel
 }
 
-data class CustomInstitute(val name: String, val url: String)
+/** 사용자가 추가한 기관. [group]이 PRESS면 보도자료 화면, RESEARCH면 연구자료 화면에 나온다. */
+data class CustomInstitute(val name: String, val url: String, val group: AgencyGroup = AgencyGroup.RESEARCH) {
+    val agency: AgencyId get() = if (group == AgencyGroup.PRESS) AgencyId.CUSTOM_PRESS else AgencyId.CUSTOM
+}
 
 data class ReleasePage(
     val items: List<ReleaseItem>,
@@ -68,7 +73,10 @@ data class UsefulLink(val name: String, val url: String, val description: String
             "seibro.or.kr" to "증권 예탁·결제, 주식·채권 발행과 권리행사 정보를 제공합니다.",
             "kcmi.re.kr" to "자본시장 정책·제도 연구보고서와 이슈 분석을 제공합니다.",
             "kif.re.kr" to "금융·거시경제 연구보고서와 금융 전망을 제공합니다.",
-            "iosco.org" to "국제증권관리위원회기구(IOSCO)의 보고서와 규제 기준을 제공합니다."
+            "iosco.org" to "국제증권관리위원회기구(IOSCO)의 보고서와 규제 기준을 제공합니다.",
+            "bis.org" to "국제결제은행(BIS)과 바젤위원회의 간행물·보고서를 제공합니다.",
+            "fca.org.uk" to "영국 금융행위감독청(FCA)의 연구·정책 자료를 제공합니다.",
+            "mas.gov.sg" to "싱가포르 통화청(MAS)의 간행물과 감독 자료를 제공합니다."
         )
 
         /** [url]에 해당하는 기본 설명. 모르는 사이트면 빈 문자열. */

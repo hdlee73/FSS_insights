@@ -8,6 +8,7 @@ import io.github.hdlee73.financenewsradar.model.AgencyId
 import io.github.hdlee73.financenewsradar.model.AppSettings
 import io.github.hdlee73.financenewsradar.model.NaverApiType
 import io.github.hdlee73.financenewsradar.model.NaverCredentials
+import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.model.CustomInstitute
 import io.github.hdlee73.financenewsradar.model.NewsProviderType
 import io.github.hdlee73.financenewsradar.model.OutletScope
@@ -190,12 +191,14 @@ class SettingsStore(context: Context) {
     fun loadInstitutes(): List<CustomInstitute> =
         preferences.getString(INSTITUTES, null)?.split(RECORD_SEPARATOR)?.mapNotNull { record ->
             val parts = record.split(KEYWORD_SEPARATOR)
-            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) CustomInstitute(parts[0], parts[1]) else null
+            if (parts.size !in 2..3 || parts[0].isBlank() || parts[1].isBlank()) return@mapNotNull null
+            val group = if (parts.getOrNull(2) == AgencyGroup.PRESS.name) AgencyGroup.PRESS else AgencyGroup.RESEARCH
+            CustomInstitute(parts[0], parts[1], group)
         }.orEmpty()
 
     fun saveInstitutes(items: List<CustomInstitute>) {
         preferences.edit()
-            .putString(INSTITUTES, items.joinToString(RECORD_SEPARATOR) { "${it.name}$KEYWORD_SEPARATOR${it.url}" })
+            .putString(INSTITUTES, items.joinToString(RECORD_SEPARATOR) { "${it.name}$KEYWORD_SEPARATOR${it.url}$KEYWORD_SEPARATOR${it.group.name}" })
             .apply()
     }
 

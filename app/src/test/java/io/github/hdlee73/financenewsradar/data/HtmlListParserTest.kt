@@ -254,4 +254,24 @@ class HtmlListParserTest {
         assertEquals(LocalDate.of(2026, 10, 12), fsb[0].date)
         assertEquals("Global stablecoin arrangements", fsb[0].title)
     }
+
+    @Test
+    fun kcmiReportsByLinkReadManyItemsWithoutTextLayoutAssumptions() {
+        val rows = (1..12).joinToString("\n") { n ->
+            """<li><div class="tit">보고서 제목 번호 $n 자본시장 이슈</div><span>연구위원 홍길동 · 2026.09.${(n % 28) + 1}</span>
+               <a href="/flexer/view?fid=${29000 + n}&amp;fgu=002002&amp;fty=004003">바로보기</a>
+               <a href="/common/downloadw?fid=${29000 + n}&amp;fgu=002002&amp;fty=004003">다운로드</a></li>"""
+        }
+        val result = HtmlListParser.extractReportsByLink("<ul>$rows</ul>", "https://www.kcmi.re.kr/report/report_list")
+        assertEquals(12, result.size)
+        assertTrue(result[0].title.startsWith("보고서 제목 번호 1"))
+        assertEquals("https://www.kcmi.re.kr/flexer/view?fid=29001&fgu=002002&fty=004003", result[0].url)
+    }
+
+    @Test
+    fun genericFallbackListsSameSiteTitleLinks() {
+        val html = """<main><ul><li><a href="/publications/consultations/2026/climate-risk-disclosure-paper">Climate risk disclosure consultation paper</a></li></ul></main>"""
+        val result = HtmlListParser.extractGeneric(html, "https://www.mas.gov.sg/publications")
+        assertEquals(1, result.size)
+    }
 }

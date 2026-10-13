@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.AgencyRepository
 import io.github.hdlee73.financenewsradar.data.SettingsStore
+import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.model.AgencyId
 import io.github.hdlee73.financenewsradar.model.CustomInstitute
 import io.github.hdlee73.financenewsradar.model.ReleaseItem
@@ -47,6 +48,7 @@ data class ReleasesUiState(
 ) {
     fun of(agency: AgencyId): AgencyUiState = agencies[agency] ?: AgencyUiState()
     fun ofCustom(url: String): AgencyUiState = custom[url] ?: AgencyUiState()
+    fun institutesOf(group: AgencyGroup): List<CustomInstitute> = institutes.filter { it.group == group }
     val savedLinks: Set<String> get() = saved.map { it.link }.toSet()
 }
 
@@ -57,9 +59,21 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
     private val customJobs = mutableMapOf<String, Job>()
 
     private val _state = MutableStateFlow(
-        ReleasesUiState(links = settingsStore.loadLinks(), saved = settingsStore.savedReleases(), institutes = settingsStore.loadInstitutes())
+        ReleasesUiState(links = settingsStore.loadLinks(), saved = settingsStore.savedReleases(), institutes = loadInstitutesMigrated())
     )
     val state: StateFlow<ReleasesUiState> = _state.asStateFlow()
+
+    /** 이제 기본 탭인 BCBS·FCA·MAS를 이전에 직접 추가해 둔 항목은 중복되지 않도록 목록에서 뺀다. */
+    private fun loadInstitutesMigrated(): List<CustomInstitute> {
+        val saved = settingsStore.loadInstitutes()
+        val builtIn = listOf("bis.org", "fca.org.uk", "mas.gov.sg")
+        val kept = saved.filterNot { inst ->
+            val host = runCatching { java.net.URI(inst.url).host }.getOrNull().orEmpty().lowercase()
+            builtIn.any { host == it || host.endsWith(".$it") }
+        }
+        if (kept.size != saved.size) settingsStore.saveInstitutes(kept)
+        return kept
+    }
 
     private fun update(agency: AgencyId, change: (AgencyUiState) -> AgencyUiState) {
         _state.update { it.copy(agencies = it.agencies + (agency to change(it.of(agency)))) }
@@ -162,11 +176,11 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
         _state.update { it.copy(custom = it.custom + (url to change(it.ofCustom(url)))) }
     }
 
-    fun addInstitute(name: String, rawUrl: String) {
+    fun addInstitute(name: String, rawUrl: String, group: AgencyGroup = AgencyGroup.RESEARCH) {
         val url = normalizeUrl(rawUrl)
         val clean = name.trim()
         if (clean.isBlank() || url.isBlank()) return
-        val next = _state.value.institutes.filter { it.url != url } + CustomInstitute(clean, url)
+        val next = _state.value.institutes.filter { it.url != url } + CustomInstitute(clean, url, group)
         settingsStore.saveInstitutes(next)
         _state.update { it.copy(institutes = next) }
     }

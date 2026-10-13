@@ -35,7 +35,11 @@ internal object AgencySources {
         /** 목록을 자바스크립트로 그려 첫 HTTP 응답에는 항목이 없는 사이트: 곧바로 WebView로 읽는다. */
         val jsRendered: Boolean = false,
         /** 링크 패턴 대신 쓰는 전용 목록 파서. */
-        val customParser: ((body: String, url: String) -> List<ParsedLink>)? = null
+        val customParser: ((body: String, url: String) -> List<ParsedLink>)? = null,
+        /** HTTP 응답에서 읽은 항목이 이보다 적으면 WebView로도 읽어 더 많이 읽힌 쪽을 쓴다(서버가 목록 일부만 내려주는 사이트용). */
+        val minItems: Int = 1,
+        /** 링크 패턴으로 못 읽으면 날짜 붙은 링크 → 같은 사이트의 긴 제목 링크 순으로 한 번씩 더 시도한다. */
+        val genericFallback: Boolean = false
     )
 
     private fun enc(text: String) = URLEncoder.encode(text, StandardCharsets.UTF_8.toString())
@@ -61,8 +65,14 @@ internal object AgencySources {
             listUrl = { page, size -> "https://www.kcmi.re.kr/report/report_list?pg=$page&pp=$size" },
             // 한 항목에 바로보기가 둘(보도자료 fty=004010 / 보고서 fty=004003)이고 보고서 링크가 없는 항목도 있어,
             // 제목·저자·날짜는 글 조각 순서로 읽고 링크는 보고서용을 우선한다.
-            customParser = { body, url -> HtmlListParser.extractReports(body, url) },
-            pageSize = 30
+            customParser = { body, url ->
+                // 글 조각 순서로 읽는 방식과 보고서 링크 기준 방식 중 더 많이 읽힌 쪽을 쓴다(일부만 읽히던 문제 대비).
+                val byText = HtmlListParser.extractReports(body, url)
+                val byLink = HtmlListParser.extractReportsByLink(body, url)
+                if (byLink.size > byText.size) byLink else byText
+            },
+            pageSize = 30,
+            minItems = 10
         )
         AgencyId.KIF -> Source(
             listUrl = { _, _ -> "https://www.kif.re.kr/kif4/publication/pub_list?mid=10" },
@@ -98,12 +108,6 @@ internal object AgencySources {
             },
             deepSearch = false
         )
-        AgencyId.BCBS -> Source(
-            listUrl = { page, _ -> "https://www.bis.org/committees/bcbs/publications" + if (page > 1) "?page=$page" else "" },
-            linkPattern = Regex("""/(publications|publ)/[\w.-]{6,}"""),
-            requireDate = true,
-            deepSearch = false
-        )
         AgencyId.ESMA -> Source(
             // 드루팔 목록: 쪽 번호는 0부터.
             listUrl = { page, _ -> "https://www.esma.europa.eu/databases-library/esma-library?page=${page - 1}" },
@@ -111,26 +115,33 @@ internal object AgencySources {
             requireDate = true,
             deepSearch = false
         )
+        AgencyId.CUSTOM, AgencyId.CUSTOM_PRESS -> error("사용자가 추가한 기관은 별도 경로로 읽습니다.")
+        // 아래 세 곳은 목록을 자바스크립트로 그리거나 일반 요청을 막는 일이 있어 처음부터 WebView(쿠키 허용)로 읽는다.
+        // 링크 패턴을 틀리게 짚어도 목록이 나오도록 genericFallback을 켜 둔다.
+        AgencyId.BCBS -> Source(
+            listUrl = { _, _ -> "https://www.bis.org/publications" },
+            linkPattern = Regex("""(?i)/(publ|bcbs/publ|fsi/publ|speeches|review|cpmi/publ|ifc/publ|iosco/publ)/(?!index\.)[A-Za-z0-9_.-]+\.(htm|html|pdf)"""),
+            pageable = false,
+            deepSearch = false,
+            jsRendered = true,
+            genericFallback = true
+        )
         AgencyId.FCA -> Source(
-            // 검색 결과는 10건씩이고 start가 시작 번호(1부터).
-            listUrl = { page, size ->
-                "https://www.fca.org.uk/publications/search-results?p_search_term&category=research%2Cresearch-external%20research%2Cresearch-financial%20lives%2Cresearch-occasional%20papers%2Cresearch-research%20articles%2Cresearch-research%20insights%2Cresearch-research%20notes%2Cresearch-research&sort_by=dmetaZ" +
-                    if (page > 1) "&start=${(page - 1) * size + 1}" else ""
-            },
-            linkPattern = Regex("""/publication/[\w./-]+"""),
-            requireDate = true,
-            deepSearch = false
+            listUrl = { _, _ -> "https://www.fca.org.uk/research" },
+            linkPattern = Regex("""(?i)/(publications?|research|data)/[A-Za-z0-9-]+/[A-Za-z0-9][A-Za-z0-9._-]{5,}"""),
+            pageable = false,
+            deepSearch = false,
+            jsRendered = true,
+            genericFallback = true
         )
         AgencyId.MAS -> Source(
-            // 목록을 자바스크립트로 그리므로 곧바로 WebView로 읽고, 쪽 이동은 확인하지 못해 첫 쪽만 쓴다.
             listUrl = { _, _ -> "https://www.mas.gov.sg/publications" },
-            linkPattern = Regex("""/publications/[\w-]+/[\w./-]+"""),
+            linkPattern = Regex("""(?i)/publications/[A-Za-z0-9-]+/(\d{4}/)?[A-Za-z0-9][A-Za-z0-9-]{5,}"""),
             pageable = false,
-            requireDate = true,
             deepSearch = false,
-            jsRendered = true
+            jsRendered = true,
+            genericFallback = true
         )
-        AgencyId.CUSTOM -> error("사용자가 추가한 연구소는 별도 경로로 읽습니다.")
         AgencyId.IOSCO -> Source(
             listUrl = { page, _ -> "https://www.iosco.org/publications/?subsection=public_reports" + if (page > 1) "&page=$page" else "" },
             searchUrl = { q, page ->
@@ -151,7 +162,10 @@ internal object AgencySources {
             AgencyId.KCMI -> "https://www.kcmi.re.kr/report/report_list"
             AgencyId.KIF -> "https://www.kif.re.kr/kif4/publication/pub_list?mid=10"
             AgencyId.IOSCO -> "https://www.iosco.org/publications/?subsection=public_reports"
-            AgencyId.CUSTOM -> "https://www.google.com/search?q=$q"
+            AgencyId.BCBS -> "https://www.bis.org/publications"
+            AgencyId.FCA -> "https://www.fca.org.uk/research"
+            AgencyId.MAS -> "https://www.mas.gov.sg/publications"
+            AgencyId.CUSTOM, AgencyId.CUSTOM_PRESS -> "https://www.google.com/search?q=$q"
             else -> agency.homeUrl
         }
     }
@@ -246,20 +260,20 @@ class AgencyRepository(private val context: android.content.Context) {
     }
 
     private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> =
-        fetchParsed(agency.label, url, source.jsRendered) { body -> parse(source, body, url) }
+        fetchParsed(agency.label, url, source.jsRendered, source.minItems) { body -> parse(source, body, url) }
             .map { ReleaseItem(agency, it.title, it.url, it.date, author = it.author) }
 
     /** 사용자가 추가한 연구소의 목록(최근 [count]건). 주소 패턴을 모르므로 범용 추출을 쓴다. */
     suspend fun latestCustom(institute: CustomInstitute, count: Int = 20): List<ReleaseItem> =
         fetchParsed(institute.name, institute.url) { body -> HtmlListParser.extractGeneric(body, institute.url) }
             .take(count)
-            .map { ReleaseItem(AgencyId.CUSTOM, it.title, it.url, it.date, institute.name) }
+            .map { ReleaseItem(institute.agency, it.title, it.url, it.date, institute.name) }
 
     /** 추가한 연구소는 검색 주소를 모르므로 읽어 온 목록(최대 30건)에서 제목을 걸러 낸다. */
     suspend fun searchCustom(institute: CustomInstitute, query: String): List<ReleaseItem> =
         latestCustom(institute, 30).filter { AgencySources.matches(it.title, query) }
 
-    private suspend fun fetchParsed(label: String, url: String, webViewOnly: Boolean = false, parse: (String) -> List<ParsedLink>): List<ParsedLink> {
+    private suspend fun fetchParsed(label: String, url: String, webViewOnly: Boolean = false, minItems: Int = 1, parse: (String) -> List<ParsedLink>): List<ParsedLink> {
         var parsed: List<ParsedLink> = emptyList()
         var lastBody = ""
         var failure: Throwable? = null
@@ -274,8 +288,9 @@ class AgencyRepository(private val context: android.content.Context) {
                 continue
             }
             lastBody = body
-            parsed = parse(body)
-            if (parsed.isNotEmpty()) break
+            val result = parse(body)
+            if (result.size > parsed.size) parsed = result
+            if (parsed.size >= minItems) break
         }
         if (parsed.isEmpty()) {
             val detail = if (lastBody.isEmpty()) (failure?.message ?: "응답 없음")
@@ -292,6 +307,7 @@ class AgencyRepository(private val context: android.content.Context) {
         if (source.requireDate) parsed = parsed.filter { it.date != null }.sortedByDescending { it.date }
         // 링크 형식이 예상과 다르면(금융연구원 등) 날짜가 붙은 링크를 목록으로 간주하는 방식으로 한 번 더 시도한다.
         if (parsed.isEmpty() && source.requireDate) parsed = HtmlListParser.extractLoose(body, url)
+        if (parsed.isEmpty() && source.genericFallback) parsed = HtmlListParser.extractGeneric(body, url)
         return parsed
     }
 
@@ -310,6 +326,13 @@ class AgencyRepository(private val context: android.content.Context) {
 internal object HtmlFetcher {
     private const val USER_AGENT =
         "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36"
+
+    init {
+        // HTTP 요청도 쿠키를 모두 받아 다음 요청에 돌려보낸다(쿠키 동의가 필요한 사이트용).
+        if (java.net.CookieHandler.getDefault() == null) {
+            java.net.CookieHandler.setDefault(java.net.CookieManager(null, java.net.CookiePolicy.ACCEPT_ALL))
+        }
+    }
 
     suspend fun get(url: String): String = withContext(Dispatchers.IO) {
         val connection = URI(url).toURL().openConnection() as HttpURLConnection
