@@ -89,6 +89,8 @@ import io.github.hdlee73.financenewsradar.data.DEFAULT_MARKET_STATS
 import io.github.hdlee73.financenewsradar.data.STAT_CATALOG
 import io.github.hdlee73.financenewsradar.data.StatSelection
 import io.github.hdlee73.financenewsradar.data.StatItem
+import io.github.hdlee73.financenewsradar.data.KofiaApi
+import io.github.hdlee73.financenewsradar.data.KofiaGroup
 import io.github.hdlee73.financenewsradar.data.StatsApi
 import io.github.hdlee73.financenewsradar.data.periodLabel
 import io.github.hdlee73.financenewsradar.data.WatchlistStore
@@ -130,8 +132,16 @@ data class MarketUiState(
     val stats: List<StatItem> = emptyList(),
     /** 고른 통계 중 서버가 값을 주지 않은 것(서버에 없거나 한국은행에 값이 없음). */
     val statsMissing: Set<String> = emptySet(),
+    /** 서버가 알려 준 통계별 못 받은 사유(id → 사유). */
+    val statsReasons: Map<String, String> = emptyMap(),
     /** 통계를 받는 중(선택을 바꾼 직후 포함). */
     val statsLoading: Boolean = false,
+    /** 금융투자협회 자본시장 통계(펀드·자금동향). */
+    val kofia: List<KofiaGroup> = emptyList(),
+    val kofiaLoading: Boolean = false,
+    val kofiaFailed: Boolean = false,
+    /** 자본시장 통계에서 사용자가 숨긴 항목 키. */
+    val kofiaHidden: Set<String> = emptySet(),
     /** 사용자가 고른 국내 금융 통계(시장동향 탭 / 오늘의 브리핑). */
     val statSelection: StatSelection = StatSelection(DEFAULT_MARKET_STATS.toSet(), DEFAULT_BRIEFING_STATS.toSet())
 )
@@ -140,10 +150,12 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     private val client = MarketClient(application)
     private val store = WatchlistStore(application)
     private val statsApi = StatsApi(application)
+    private val kofiaApi = KofiaApi()
+    private var kofiaLoadedAt = 0L
     private var statsLoadedAt = 0L
     /** 통계 요청 번호. 선택을 바꾼 뒤 늦게 도착한 이전 요청의 응답이 새 결과를 덮어쓰지 않게 한다. */
     private var statsRequest = 0
-    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection(), watchIntraday = store.loadWatchIntraday(), indexIntraday = store.loadIndexIntraday()))
+    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection(), kofiaHidden = store.loadKofiaHidden(), watchIntraday = store.loadWatchIntraday(), indexIntraday = store.loadIndexIntraday()))
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
     private var refreshJob: Job? = null
     private val chartFailedAt = HashMap<String, Long>()
@@ -199,6 +211,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
             loadIntraday()
             loadCharts()
             loadStats()
+            loadKofia()
         }
     }
 
@@ -217,9 +230,25 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
                 // 그 사이 선택이 또 바뀌었으면 이 응답은 버린다(새 요청이 결과를 채운다).
                 if (request != statsRequest) return@onSuccess
                 if (result.items.isEmpty()) statsLoadedAt = 0L
-                _state.update { it.copy(stats = result.items.ifEmpty { it.stats }, statsMissing = result.missing, statsLoading = false) }
+                _state.update { it.copy(stats = result.items.ifEmpty { it.stats }, statsMissing = result.missing, statsReasons = result.reasons, statsLoading = false) }
             }
             .onFailure { if (request == statsRequest) { statsLoadedAt = 0L; _state.update { it.copy(statsLoading = false) } } }
+    }
+
+    /** 자본시장 통계(펀드·자금동향)는 일 단위 자료라 10분에 한 번만 받는다. */
+    private suspend fun loadKofia() {
+        if (System.currentTimeMillis() - kofiaLoadedAt < 600_000) return
+        kofiaLoadedAt = System.currentTimeMillis()
+        _state.update { it.copy(kofiaLoading = true) }
+        runCatching { kofiaApi.load() }
+            .onSuccess { groups -> _state.update { it.copy(kofia = groups, kofiaLoading = false, kofiaFailed = false) } }
+            .onFailure { kofiaLoadedAt = 0L; _state.update { it.copy(kofiaLoading = false, kofiaFailed = true) } }
+    }
+
+    /** 자본시장 통계에서 보지 않을 항목을 저장한다. */
+    fun setKofiaHidden(hidden: Set<String>) {
+        store.saveKofiaHidden(hidden)
+        _state.update { it.copy(kofiaHidden = hidden) }
     }
 
     /** 통계 선택을 저장하고, 새로 고른 통계를 바로 다시 받아 온다. */
@@ -381,6 +410,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
     var removing by remember { mutableStateOf<Instrument?>(null) }
     var indexPicking by remember { mutableStateOf(false) }
     var statPicking by remember { mutableStateOf(false) }
+    var kofiaPicking by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     // 화면이 보이는 동안만 갱신한다(탭을 벗어나면 중단): 지수 10초, 전체 20초.
@@ -427,6 +457,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
             )
         }
         item { StatsPanel(state, state.statSelection.market) { statPicking = true } }
+        item { CapitalMarketPanel(state.kofia, state.kofiaHidden, state.kofiaLoading, state.kofiaFailed) { kofiaPicking = true } }
         item {
             Text(
                 if (state.failed) "일부 시세를 불러오지 못했습니다. 새로고침으로 다시 시도해 주세요."
@@ -453,6 +484,9 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
     if (statPicking) {
         StatPickerDialog(state.statSelection, onDismiss = { statPicking = false }) { viewModel.setStatSelection(it); statPicking = false }
     }
+    if (kofiaPicking) {
+        KofiaPickerDialog(state.kofia, state.kofiaHidden, onDismiss = { kofiaPicking = false }) { viewModel.setKofiaHidden(it); kofiaPicking = false }
+    }
     if (indexPicking) {
         IndexPickerDialog(state.indexes, onDismiss = { indexPicking = false }) { viewModel.setIndexSelection(it); indexPicking = false }
     }
@@ -468,7 +502,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
 
 /** 소제목(증시동향, 국내 금융 통계): 왼쪽에 강조선을 두고 오른쪽 끝에 선택 버튼 등을 둔다. */
 @Composable
-private fun SubHeading(title: String, trailing: @Composable () -> Unit = {}) {
+internal fun SubHeading(title: String, trailing: @Composable () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(start = 2.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(4.dp).height(18.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
         Text(title, Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp))
@@ -477,7 +511,7 @@ private fun SubHeading(title: String, trailing: @Composable () -> Unit = {}) {
 }
 
 @Composable
-private fun SoftButton(onClick: () -> Unit, enabled: Boolean = true, content: @Composable () -> Unit) {
+internal fun SoftButton(onClick: () -> Unit, enabled: Boolean = true, content: @Composable () -> Unit) {
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -625,7 +659,8 @@ private fun StatsPanel(state: MarketUiState, selected: Set<String>, onPick: () -
         }
         if (absent.isNotEmpty() && !state.statsLoading && state.stats.isNotEmpty()) {
             Text(
-                "받지 못한 통계: " + absent.joinToString(", ") { it.name } + ". 서버가 아직 해당 통계를 지원하지 않거나 한국은행에 값이 없습니다(서버 재배포 필요).",
+                "받지 못한 통계: " + absent.joinToString("; ") { d -> d.name + (state.statsReasons[d.id]?.let { " [$it]" } ?: "") } +
+                    if (state.statsReasons.isEmpty()) ". 서버가 아직 해당 통계를 지원하지 않거나 한국은행에 값이 없습니다(서버 재배포 필요)." else ".",
                 Modifier.padding(start = 2.dp, top = 6.dp),
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.error
             )

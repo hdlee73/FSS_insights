@@ -81,8 +81,8 @@ object NewMaterialAlerts {
         for (group in AgencyGroup.entries) {
             val fresh = mutableListOf<AlertHit>()
             for (agency in enabled.filter { it.group == group }) {
-                if (agency == AgencyId.CUSTOM) {
-                    for (institute in store.loadInstitutes()) {
+                if (agency == AgencyId.CUSTOM || agency == AgencyId.CUSTOM_PRESS) {
+                    for (institute in store.loadInstitutes().filter { it.group == group }) {
                         val hits = runCatching { agencies.latestCustom(institute, 20) }.getOrNull()
                             ?.map { AlertHit(it.title, it.link, institute.name) }
                         fresh += diffAndRecord(store, "material_custom_${institute.url}", hits)
@@ -94,7 +94,7 @@ object NewMaterialAlerts {
                 }
             }
             if (fresh.isNotEmpty()) {
-                val noun = if (group == AgencyGroup.PRESS) "보도자료" else "연구자료"
+                val noun = if (group == AgencyGroup.PRESS) "보도자료" else "금융리포트"
                 AlertNotifier.post(
                     context, CHANNEL_ID, "새 자료 알림", 3001 + group.ordinal,
                     "새 $noun ${fresh.size}건", fresh.map { "[${it.source}] ${it.title}" }
@@ -127,8 +127,8 @@ object LibraryAlerts {
         if (seen != null) store.saveSeenLinks(SEEN_KEY, seen, 2000)
         if (fresh.isNotEmpty()) {
             AlertNotifier.post(
-                context, CHANNEL_ID, "참고자료 알림", 3003,
-                "새 참고자료 ${fresh.size}건", fresh.map { if (it.source.isBlank()) it.title else "[${it.source}] ${it.title}" }
+                context, CHANNEL_ID, "참고 자료실 알림", 3003,
+                "새 참고 자료실 자료 ${fresh.size}건", fresh.map { if (it.source.isBlank()) it.title else "[${it.source}] ${it.title}" }
             )
         }
     }

@@ -20,6 +20,8 @@ object HtmlListParser {
     private val href = Regex("href\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')", RegexOption.IGNORE_CASE)
     private val tag = Regex("<[^>]+>")
     private val numericDate = Regex("(20\\d{2})\\s*[-./]\\s*(\\d{1,2})\\s*[-./]\\s*(\\d{1,2})")
+    // "10/09/2026" 일/월/년(유럽 사이트).
+    private val dmySlashDate = Regex("(?<![\\d/])(\\d{1,2})/(\\d{1,2})/(20\\d{2})(?![\\d/])")
     // "08 Sep 2026" 형식. 마감일 문구의 "1 December 2026"(월 전체 이름)은 일부러 제외한다.
     private val englishDate = Regex(
         "\\b(\\d{1,2})\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?![A-Za-z])\\.?,?\\s+(20\\d{2})",
@@ -40,6 +42,13 @@ object HtmlListParser {
 
     private class Hit(val start: Int, val end: Int, val url: String, val title: String)
     private class DateHit(val date: LocalDate, val start: Int, val end: Int)
+
+    private val fullMonthDate = Regex(
+        "\\b(\\d{1,2})\\s+(January|February|March|April|May|June|July|August|September|October|November|December)\\s+(20\\d{2})"
+    )
+
+    /** "12 October 2026"을 "12 Oct 2026"으로 바꿔 날짜 인식이 되게 한다(월 이름 전체를 쓰는 사이트용). */
+    fun abbreviateMonths(html: String): String = fullMonthDate.replace(html) { "${it.groupValues[1]} ${it.groupValues[2].take(3)} ${it.groupValues[3]}" }
 
     fun anchorCount(html: String): Int = anchor.findAll(html).count()
 
@@ -135,6 +144,44 @@ object HtmlListParser {
             val url = pick?.let { resolve(base, it) } ?: baseUrl
             ParsedLink(title, url, date, author.ifEmpty { null })
         }.distinctBy { it.url + it.title }
+    }
+
+    /**
+     * [extractReports]의 보완. 글 조각 배치를 가정하지 않고 보고서 링크(fid 기준)를 하나씩 찾아,
+     * 바로 앞 항목의 링크 뒤부터 이 링크 앞까지의 글에서 제목(가장 가까운 긴 글)과 날짜를 읽는다.
+     */
+    fun extractReportsByLink(html: String, baseUrl: String): List<ParsedLink> {
+        val clean = noise.replace(html, " ")
+        val base = runCatching { URI(baseUrl) }.getOrNull()
+        val linkRegex = Regex("""href\s*=\s*["']([^"']*(?:flexer/view|common/downloadw)\?[^"']*)["']""", RegexOption.IGNORE_CASE)
+        class Link(val fid: String, val url: String, val start: Int, val end: Int, val report: Boolean)
+        val links = linkRegex.findAll(clean).mapNotNull { m ->
+            val raw = decodeEntities(m.groupValues[1])
+            val fid = Regex("""fid=(\d+)""").find(raw)?.groupValues?.get(1) ?: return@mapNotNull null
+            val url = resolve(base, raw) ?: return@mapNotNull null
+            Link(fid, url, m.range.first, m.range.last + 1, raw.contains("fty=004003"))
+        }.toList()
+        val groups = links.groupBy { it.fid }.values.sortedBy { g -> g.minOf { it.start } }
+        var prevEnd = 0
+        val out = mutableListOf<ParsedLink>()
+        for (g in groups) {
+            val first = g.minOf { it.start }
+            val region = clean.substring(prevEnd, first)
+            prevEnd = g.maxOf { it.end }
+            val nodes = textNode.findAll(region).map { compact(decodeEntities(it.groupValues[1])) }.filter { it.isNotEmpty() }.toList()
+            val dm = nodes.firstNotNullOfOrNull { dotDate.findAll(it).lastOrNull() } ?: continue
+            val date = runCatching { LocalDate.of(dm.groupValues[1].toInt(), dm.groupValues[2].toInt(), dm.groupValues[3].toInt()) }.getOrNull() ?: continue
+            val dateIdx = nodes.indexOfFirst { dotDate.containsMatchIn(it) }
+            // 제목: 날짜 조각 앞쪽에서 가장 가까운 제목다운 글(8자 이상, 안내 문구 아님). 없으면 뒤쪽에서 찾는다.
+            val title = nodes.take(dateIdx).lastOrNull { it.length >= 8 && !genericLabel.matches(it) }
+                ?: nodes.drop(dateIdx + 1).firstOrNull { it.length >= 8 && !genericLabel.matches(it) }
+                ?: continue
+            val dateNode = nodes[dateIdx]
+            val author = dateNode.substring(0, dotDate.findAll(dateNode).last().range.first).trim().ifEmpty { null }
+            val pick = (g.firstOrNull { it.report } ?: g.first()).url
+            out += ParsedLink(title, pick, date, author)
+        }
+        return out.distinctBy { it.url + it.title }
     }
 
     /** RSS 2.0 `<item>`에서 제목·링크·발행일을 읽는다. */
@@ -275,6 +322,10 @@ object HtmlListParser {
         for (m in englishDate.findAll(text)) {
             val month = months.indexOf(m.groupValues[2].lowercase(Locale.ROOT)) + 1
             runCatching { LocalDate.of(m.groupValues[3].toInt(), month, m.groupValues[1].toInt()) }
+                .getOrNull()?.let { found += DateHit(it, m.range.first, m.range.last + 1) }
+        }
+        for (m in dmySlashDate.findAll(text)) {
+            runCatching { LocalDate.of(m.groupValues[3].toInt(), m.groupValues[2].toInt(), m.groupValues[1].toInt()) }
                 .getOrNull()?.let { found += DateHit(it, m.range.first, m.range.last + 1) }
         }
         if (found.isEmpty()) {

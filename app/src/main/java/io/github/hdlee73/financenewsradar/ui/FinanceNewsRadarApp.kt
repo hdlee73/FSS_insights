@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -93,6 +94,7 @@ private const val SCREEN_LIBRARY = 5
 private const val SCREEN_SITES = 6
 private const val SCREEN_ALERTS = 7
 private const val SCREEN_INFO = 8
+private const val SCREEN_FISIS = 9
 
 // 왼쪽 서랍 메뉴에 나오는 모든 화면(순서 = 화면 번호). 오늘의 브리핑·뉴스·시장동향의 번호는 브리핑 화면의 바로가기와 같다.
 private val appScreens = listOf(
@@ -100,16 +102,17 @@ private val appScreens = listOf(
     AppScreen("뉴스 검색", Icons.Filled.Newspaper),
     AppScreen("금융시장 동향", Icons.Filled.ShowChart),
     AppScreen("보도자료", Icons.Filled.Description),
-    AppScreen("연구원 자료", Icons.Filled.Science),
-    AppScreen("참고자료", Icons.Filled.FolderOpen),
+    AppScreen("금융관련 리포트", Icons.Filled.Science),
+    AppScreen("참고 자료실", Icons.Filled.FolderOpen),
     AppScreen("주요사이트", Icons.Filled.Language),
     AppScreen("알림", Icons.Filled.Notifications),
-    AppScreen("앱 정보", Icons.Filled.Info)
+    AppScreen("앱 정보", Icons.Filled.Info),
+    AppScreen("금융회사 주요 현황", Icons.Filled.Business)
 )
 
 // 서랍 메뉴의 묶음: 소제목과 그 아래 화면 번호.
 private val drawerSections = listOf(
-    null to listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET),
+    null to listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_FISIS),
     "자료" to listOf(SCREEN_PRESS, SCREEN_RESEARCH, SCREEN_LIBRARY),
     "더보기" to listOf(SCREEN_SITES, SCREEN_ALERTS, SCREEN_INFO)
 )
@@ -120,7 +123,8 @@ fun FinanceNewsRadarApp(
     newsViewModel: NewsViewModel = viewModel(),
     releasesViewModel: ReleasesViewModel = viewModel(),
     libraryViewModel: LibraryViewModel = viewModel(),
-    marketViewModel: MarketViewModel = viewModel()
+    marketViewModel: MarketViewModel = viewModel(),
+    fisisViewModel: FisisViewModel = viewModel()
 ) {
     val newsState by newsViewModel.state.collectAsStateWithLifecycle()
     val releases by releasesViewModel.state.collectAsStateWithLifecycle()
@@ -138,6 +142,8 @@ fun FinanceNewsRadarApp(
         }
     }
     var screen by rememberSaveable { mutableIntStateOf(SCREEN_BRIEFING) }
+    // 앱 안에서 거쳐 온 화면(뒤로가기 시 이전 화면으로). "1,2" 형태의 문자열로 저장해 화면 회전에도 유지한다.
+    var history by rememberSaveable { mutableStateOf("") }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -150,8 +156,16 @@ fun FinanceNewsRadarApp(
     fun go(target: Int) {
         keyboard?.hide()
         focusManager.clearFocus()
-        screen = target
+        if (target != screen) {
+            history = (history.split(',').filter { it.isNotEmpty() } + screen.toString()).takeLast(30).joinToString(",")
+            screen = target
+        }
         scope.launch { drawerState.close() }
+    }
+    BackHandler(enabled = history.isNotEmpty() && !drawerState.isOpen) {
+        val stack = history.split(',').filter { it.isNotEmpty() }
+        screen = stack.last().toInt()
+        history = stack.dropLast(1).joinToString(",")
     }
     BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
 
@@ -215,6 +229,7 @@ fun FinanceNewsRadarApp(
                     SCREEN_BRIEFING -> BriefingScreen(newsViewModel, releasesViewModel, marketViewModel, onOpenTab = ::go)
                     SCREEN_NEWS -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     SCREEN_MARKET -> MarketScreen(marketViewModel)
+                    SCREEN_FISIS -> FisisScreen(fisisViewModel)
                     SCREEN_PRESS -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
                     SCREEN_RESEARCH -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
                     SCREEN_LIBRARY -> LibraryScreen(libraryViewModel)
@@ -246,4 +261,7 @@ fun FinanceNewsRadarApp(
 
     // 새 버전이 있으면 앱을 열 때마다(설치 전까지) 팝업으로 알린다.
     UpdatePrompt(onOpenAppInfo = { screen = SCREEN_INFO })
+
+    // 최초 실행 1회: 비공식 앱 안내(확인해야 닫힘).
+    DisclaimerDialog()
 }

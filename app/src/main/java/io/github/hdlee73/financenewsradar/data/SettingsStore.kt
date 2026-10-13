@@ -8,6 +8,7 @@ import io.github.hdlee73.financenewsradar.model.AgencyId
 import io.github.hdlee73.financenewsradar.model.AppSettings
 import io.github.hdlee73.financenewsradar.model.NaverApiType
 import io.github.hdlee73.financenewsradar.model.NaverCredentials
+import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.model.CustomInstitute
 import io.github.hdlee73.financenewsradar.model.NewsProviderType
 import io.github.hdlee73.financenewsradar.model.OutletScope
@@ -146,6 +147,13 @@ class SettingsStore(context: Context) {
         preferences.edit().putBoolean("$MATERIAL_ALERT_PREFIX${agency.name}", enabled).apply()
     }
 
+    /** 최초 실행 시 비공식 앱 안내를 확인했는지 여부. */
+    fun disclaimerAccepted(): Boolean = preferences.getBoolean(DISCLAIMER_ACCEPTED, false)
+
+    fun setDisclaimerAccepted() {
+        preferences.edit().putBoolean(DISCLAIMER_ACCEPTED, true).apply()
+    }
+
     /** 참고자료(자료실)에 새 파일이 올라오면 알리는 설정. 기본은 꺼짐. */
     fun libraryAlertEnabled(): Boolean = preferences.getBoolean(LIBRARY_ALERT, false)
 
@@ -183,12 +191,14 @@ class SettingsStore(context: Context) {
     fun loadInstitutes(): List<CustomInstitute> =
         preferences.getString(INSTITUTES, null)?.split(RECORD_SEPARATOR)?.mapNotNull { record ->
             val parts = record.split(KEYWORD_SEPARATOR)
-            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) CustomInstitute(parts[0], parts[1]) else null
+            if (parts.size !in 2..3 || parts[0].isBlank() || parts[1].isBlank()) return@mapNotNull null
+            val group = if (parts.getOrNull(2) == AgencyGroup.PRESS.name) AgencyGroup.PRESS else AgencyGroup.RESEARCH
+            CustomInstitute(parts[0], parts[1], group)
         }.orEmpty()
 
     fun saveInstitutes(items: List<CustomInstitute>) {
         preferences.edit()
-            .putString(INSTITUTES, items.joinToString(RECORD_SEPARATOR) { "${it.name}$KEYWORD_SEPARATOR${it.url}" })
+            .putString(INSTITUTES, items.joinToString(RECORD_SEPARATOR) { "${it.name}$KEYWORD_SEPARATOR${it.url}$KEYWORD_SEPARATOR${it.group.name}" })
             .apply()
     }
 
@@ -220,6 +230,7 @@ class SettingsStore(context: Context) {
         enumValues<T>().firstOrNull { it.name == raw } ?: fallback
 
     companion object {
+        private const val DISCLAIMER_ACCEPTED = "disclaimer_accepted"
         private const val INSTITUTES = "custom_institutes"
         private const val KEYWORDS = "keywords"
         private const val PROVIDER = "provider"

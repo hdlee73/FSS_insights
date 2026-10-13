@@ -102,8 +102,9 @@ internal fun shareItem(context: Context, item: ReleaseItem) {
 fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val agencies = remember(group) { AgencyId.entries.filter { it.group == group && it != AgencyId.CUSTOM } }
-    val institutes = if (group == AgencyGroup.RESEARCH) state.institutes else emptyList()
+    val agencies = remember(group) { AgencyId.entries.filter { it.group == group && it != AgencyId.CUSTOM && it != AgencyId.CUSTOM_PRESS } }
+    val institutes = state.institutesOf(group)
+    val addNoun = if (group == AgencyGroup.PRESS) "기관" else "연구소"
     var selected by rememberSaveable(group.name) { mutableIntStateOf(0) }
     var clearTick by remember { mutableIntStateOf(0) }
     var showSaved by rememberSaveable(group.name + "-saved") { mutableStateOf(false) }
@@ -123,9 +124,10 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
 
     if (addOpen) {
         AddInstituteDialog(
+            group = group,
             onDismiss = { addOpen = false },
             onAdd = { name, url ->
-                viewModel.addInstitute(name, url)
+                viewModel.addInstitute(name, url, group)
                 addOpen = false
                 showSaved = false
                 selected = agencies.size + institutes.size
@@ -136,7 +138,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text("${target.name} 삭제") },
-            text = { Text("이 연구소를 목록에서 뺍니다.") },
+            text = { Text("이 $addNoun 을(를) 목록에서 뺍니다.") },
             confirmButton = {
                 TextButton(onClick = { viewModel.removeInstitute(target); deleteTarget = null; selected = 0 }) { Text("삭제") }
             },
@@ -149,10 +151,8 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "title") {
             LargeTitle(group.label) {
-                if (group == AgencyGroup.RESEARCH) {
-                    IconButton(onClick = { addOpen = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "연구소 추가")
-                    }
+                IconButton(onClick = { addOpen = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "$addNoun 추가")
                 }
                 IconButton(onClick = { showSaved = !showSaved }) {
                     Icon(
@@ -212,8 +212,8 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 key = "custom-${institute.url}",
                 name = institute.name,
                 shortName = institute.name,
-                noun = "자료",
-                group = AgencyGroup.RESEARCH,
+                noun = if (group == AgencyGroup.PRESS) "보도자료" else "자료",
+                group = group,
                 homeUrl = institute.url,
                 searchable = false,
                 latestCount = 20,
@@ -240,18 +240,20 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
 
 /** 연구소 이름과 목록 주소를 받아 추가한다. 목록은 앱이 해당 페이지에서 직접 읽는다. */
 @Composable
-private fun AddInstituteDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
+private fun AddInstituteDialog(group: AgencyGroup, onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
+    val noun = if (group == AgencyGroup.PRESS) "기관" else "연구소"
+    val listName = if (group == AgencyGroup.PRESS) "보도자료" else "보고서"
     var name by rememberSaveable { mutableStateOf("") }
     var url by rememberSaveable { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("연구소 추가") },
+        title = { Text("$noun 추가") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("연구소 이름") }, singleLine = true)
-                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("보고서 목록 주소(URL)") }, singleLine = true)
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("$noun 이름") }, singleLine = true)
+                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("$listName 목록 주소(URL)") }, singleLine = true)
                 Text(
-                    "보고서·간행물 목록이 보이는 페이지 주소를 넣으면, 앱이 그 페이지에서 최근 자료를 읽어 옵니다.",
+                    "$listName 목록이 보이는 페이지 주소를 넣으면, 앱이 그 페이지에서 최근 자료를 읽어 옵니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
