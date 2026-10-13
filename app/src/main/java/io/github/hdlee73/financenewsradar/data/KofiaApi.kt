@@ -9,6 +9,8 @@ import java.net.URI
 
 /** 자본시장 통계 한 줄(예: 공모펀드 순자산총액). [change]·[changePercent]는 직전 대비. */
 data class KofiaItem(
+    /** 선택 저장용 고유 키("구분>소제목>이름"). */
+    val key: String,
     val name: String,
     val value: String,
     val change: Double?,
@@ -51,6 +53,7 @@ internal fun parseKofia(body: String): List<KofiaGroup> {
                 val title = parts[1].trim()
                 val change = r.num("TMPV6")
                 val item = KofiaItem(
+                    key = parts.joinToString(">") { it.replace(Regex("\\s*\\n\\s*"), " ").trim() },
                     name = parts.drop(2).joinToString(">").replace(Regex("\\s*\\n\\s*"), " ").trim(),
                     value = value,
                     change = change,
