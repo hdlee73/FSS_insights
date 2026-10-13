@@ -40,7 +40,7 @@ class FisisApiTest {
     fun formatsAmountsInEokWon() {
         assertEquals("123,456억원", fisisValueText(12_345_600.0, "백만원"))
         assertEquals("30,000억원", fisisValueText(30_000.0, "억원"))
-        assertEquals("603,926억원", fisisValueText(603_926_114_000_000.0, "원"))
+        assertEquals("6,039,261억원", fisisValueText(603_926_114_000_000.0, "원"))
         assertEquals("-120억원", fisisValueText(-12_000.0, "백만원"))
         assertEquals("15.50%", fisisValueText(15.5, "%"))
         assertEquals("2.10배", fisisValueText(2.1, "배"))
