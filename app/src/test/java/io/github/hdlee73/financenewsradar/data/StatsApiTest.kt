@@ -18,6 +18,14 @@ class StatsApiTest {
     }
 
     @Test
+    fun parsesReasonsForMissingStats() {
+        val r = parseStatsResult("""{"items":[],"missing":["bank-delinquency"],"reasons":{"bank-delinquency":"값 없음(901Y054 조회 500행, 조건 일치 0행, 500행 한도 도달)"}}""")
+        assertEquals(setOf("bank-delinquency"), r.missing)
+        assertTrue(r.reasons.getValue("bank-delinquency").contains("500행"))
+        assertTrue(parseStatsResult("""{"items":[]}""").reasons.isEmpty())
+    }
+
+    @Test
     fun changeIsNullWithoutPrevious() {
         val item = StatItem("a", "a", "", 10.0, null, "202609")
         assertNull(item.change)
