@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hdlee73.financenewsradar.ArticleReaderActivity
 import io.github.hdlee73.financenewsradar.data.KOREA_INDEXES
+import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.model.AgencyId
 import io.github.hdlee73.financenewsradar.model.NewsArticle
 import io.github.hdlee73.financenewsradar.model.ReleaseItem
@@ -94,10 +95,10 @@ fun BriefingScreen(
     LaunchedEffect(releases.institutes) { releases.institutes.forEach(releasesViewModel::ensureCustom) }
     LaunchedEffect(weatherTick) { WeatherClient.fetch()?.let { weather = it } }
 
-    val pressItems = BRIEFING_PRESS.flatMap { releases.of(it).latest }
+    val pressItems = (BRIEFING_PRESS.flatMap { releases.of(it).latest } + releases.institutesOf(AgencyGroup.PRESS).flatMap { releases.ofCustom(it.url).latest })
         .sortedByDescending { it.date }
         .take(5)
-    val newLinks = BRIEFING_PRESS.flatMap { releases.of(it).newLinks }.toSet()
+    val newLinks = (BRIEFING_PRESS.flatMap { releases.of(it).newLinks } + releases.institutesOf(AgencyGroup.PRESS).flatMap { releases.ofCustom(it.url).newLinks }).toSet()
     val pressLoading = BRIEFING_PRESS.any { releases.of(it).isLoading } && pressItems.isEmpty()
     val articles = news.articles
         .filter { it.matchedKeywords.isNotEmpty() }
@@ -105,7 +106,7 @@ fun BriefingScreen(
         .sortedByDescending { it.publishedAt }
         .take(5)
     val weekAgo = LocalDate.now(SEOUL).minusDays(7)
-    val researchItems = (BRIEFING_RESEARCH.flatMap { releases.of(it).latest } + releases.institutes.flatMap { releases.ofCustom(it.url).latest })
+    val researchItems = (BRIEFING_RESEARCH.flatMap { releases.of(it).latest } + releases.institutesOf(AgencyGroup.RESEARCH).flatMap { releases.ofCustom(it.url).latest })
         .filter { item -> item.date?.let { !it.isBefore(weekAgo) } == true }
         .distinctBy { it.link }
         .sortedByDescending { it.date }

@@ -149,7 +149,11 @@ fun AlertSettingsScreen(keywords: List<String>, modifier: Modifier = Modifier) {
                     if (group == AgencyGroup.PRESS) Note("자료가 새로 올라오면 1시간 안팎 간격으로 확인해 알려 드립니다. 켜기 전에 이미 올라온 자료는 알리지 않습니다.")
                     NewMaterialAlerts.sources.filter { it.group == group }.forEach { agency ->
                         SwitchRow(
-                            if (agency == AgencyId.CUSTOM) "직접 추가한 연구소" else agency.label,
+                            when (agency) {
+                                AgencyId.CUSTOM -> "직접 추가한 연구소"
+                                AgencyId.CUSTOM_PRESS -> "직접 추가한 기관"
+                                else -> agency.label
+                            },
                             null,
                             materials[agency] == true
                         ) { on -> if (on) enabling { applyMaterial(agency, true) } else applyMaterial(agency, false) }

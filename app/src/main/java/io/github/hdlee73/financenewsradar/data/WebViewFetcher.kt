@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -77,6 +78,13 @@ internal object WebViewFetcher {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(context: Context): WebView = WebView(context.applicationContext).apply {
+        // 쿠키는 모두 허용(쿠키 동의·봇 확인을 거치는 사이트용). 제3자 쿠키도 받는다.
+        val view = this
+        val cookies = CookieManager.getInstance()
+        cookies.setAcceptCookie(true)
+        cookies.setAcceptThirdPartyCookies(view, true)
+        // 기본 사용자 에이전트의 WebView 표시("; wv")를 빼 일반 크롬처럼 보이게 한다.
+        settings.userAgentString = settings.userAgentString.replace("; wv", "")
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.loadsImagesAutomatically = false

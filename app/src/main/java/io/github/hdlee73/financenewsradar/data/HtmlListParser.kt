@@ -137,6 +137,44 @@ object HtmlListParser {
         }.distinctBy { it.url + it.title }
     }
 
+    /**
+     * [extractReports]의 보완. 글 조각 배치를 가정하지 않고 보고서 링크(fid 기준)를 하나씩 찾아,
+     * 바로 앞 항목의 링크 뒤부터 이 링크 앞까지의 글에서 제목(가장 가까운 긴 글)과 날짜를 읽는다.
+     */
+    fun extractReportsByLink(html: String, baseUrl: String): List<ParsedLink> {
+        val clean = noise.replace(html, " ")
+        val base = runCatching { URI(baseUrl) }.getOrNull()
+        val linkRegex = Regex("""href\s*=\s*["']([^"']*(?:flexer/view|common/downloadw)\?[^"']*)["']""", RegexOption.IGNORE_CASE)
+        class Link(val fid: String, val url: String, val start: Int, val end: Int, val report: Boolean)
+        val links = linkRegex.findAll(clean).mapNotNull { m ->
+            val raw = decodeEntities(m.groupValues[1])
+            val fid = Regex("""fid=(\d+)""").find(raw)?.groupValues?.get(1) ?: return@mapNotNull null
+            val url = resolve(base, raw) ?: return@mapNotNull null
+            Link(fid, url, m.range.first, m.range.last + 1, raw.contains("fty=004003"))
+        }.toList()
+        val groups = links.groupBy { it.fid }.values.sortedBy { g -> g.minOf { it.start } }
+        var prevEnd = 0
+        val out = mutableListOf<ParsedLink>()
+        for (g in groups) {
+            val first = g.minOf { it.start }
+            val region = clean.substring(prevEnd, first)
+            prevEnd = g.maxOf { it.end }
+            val nodes = textNode.findAll(region).map { compact(decodeEntities(it.groupValues[1])) }.filter { it.isNotEmpty() }.toList()
+            val dm = nodes.firstNotNullOfOrNull { dotDate.findAll(it).lastOrNull() } ?: continue
+            val date = runCatching { LocalDate.of(dm.groupValues[1].toInt(), dm.groupValues[2].toInt(), dm.groupValues[3].toInt()) }.getOrNull() ?: continue
+            val dateIdx = nodes.indexOfFirst { dotDate.containsMatchIn(it) }
+            // 제목: 날짜 조각 앞쪽에서 가장 가까운 제목다운 글(8자 이상, 안내 문구 아님). 없으면 뒤쪽에서 찾는다.
+            val title = nodes.take(dateIdx).lastOrNull { it.length >= 8 && !genericLabel.matches(it) }
+                ?: nodes.drop(dateIdx + 1).firstOrNull { it.length >= 8 && !genericLabel.matches(it) }
+                ?: continue
+            val dateNode = nodes[dateIdx]
+            val author = dateNode.substring(0, dotDate.findAll(dateNode).last().range.first).trim().ifEmpty { null }
+            val pick = (g.firstOrNull { it.report } ?: g.first()).url
+            out += ParsedLink(title, pick, date, author)
+        }
+        return out.distinctBy { it.url + it.title }
+    }
+
     /** RSS 2.0 `<item>`에서 제목·링크·발행일을 읽는다. */
     fun parseRss(xml: String, baseUrl: String): List<ParsedLink> {
         val itemRegex = Regex("<item\\b.*?</item>", options)
