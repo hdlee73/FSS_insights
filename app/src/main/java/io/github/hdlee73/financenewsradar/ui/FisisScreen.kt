@@ -32,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,13 +40,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import io.github.hdlee73.financenewsradar.data.FISIS_RATIO_METHODS
 import io.github.hdlee73.financenewsradar.data.FISIS_SECTORS
 import io.github.hdlee73.financenewsradar.data.FisisApi
 import io.github.hdlee73.financenewsradar.data.FisisAsset
 import io.github.hdlee73.financenewsradar.data.FisisCompany
 import io.github.hdlee73.financenewsradar.data.FisisMetric
 import io.github.hdlee73.financenewsradar.data.FisisProfile
+import io.github.hdlee73.financenewsradar.data.fisisHomepage
 import io.github.hdlee73.financenewsradar.data.fisisMonthLabel
 import io.github.hdlee73.financenewsradar.data.fisisTermLabel
 import io.github.hdlee73.financenewsradar.data.fisisValueText
@@ -55,6 +56,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+private const val FISIS_SOURCE = "자료출처: 금융감독원 금융통계정보시스템"
 
 /** 비교에 담을 수 있는 회사 수. */
 private const val MAX_COMPARE = 3
@@ -171,6 +174,7 @@ fun FisisScreen(viewModel: FisisViewModel, modifier: Modifier = Modifier) {
         when (val view = state.view) {
             FisisView.Companies -> {
                 LargeTitle("금융사 주요 경영정보")
+                Text(FISIS_SOURCE, Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!viewModel.isConfigured) CenterMessage("서버가 연결되지 않아 경영정보를 불러올 수 없습니다.")
                 else CompanyList(state, viewModel)
             }
@@ -224,9 +228,6 @@ private fun CompanyList(state: FisisUiState, viewModel: FisisViewModel) {
                         ) {
                             Column(Modifier.weight(1f).padding(vertical = 12.dp)) {
                                 Text(company.name, style = MaterialTheme.typography.bodyLarge)
-                                assets[company.code]?.let {
-                                    Text("총자산 ${fisisValueText(it.value, it.unit)} (${fisisMonthLabel(it.month)})", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
                             }
                             Checkbox(checked = company in state.picks, onCheckedChange = { viewModel.togglePick(company) })
                         }
@@ -254,7 +255,7 @@ private fun MetricRow(label: String, value: String, sub: String? = null) {
 }
 
 @Composable
-private fun MetricRow(metric: FisisMetric, month: String?, showMonth: Boolean = false, method: String? = null) {
+private fun MetricRow(metric: FisisMetric, month: String?, showMonth: Boolean = false) {
     val p = metric.at(month)
     val text = when {
         p == null -> "자료 없음"
@@ -266,7 +267,6 @@ private fun MetricRow(metric: FisisMetric, month: String?, showMonth: Boolean = 
         if (showMonth && p != null) append(fisisMonthLabel(p.month)).append(" · ")
         append(metric.source)
         if (metric.column.isNotBlank()) append(" · ").append(metric.column)
-        if (method != null) append("\n").append(method)
     }
     MetricRow(metric.label, text, sub)
 }
@@ -318,7 +318,7 @@ private fun ColumnScope.CompanyDetail(company: FisisCompany, state: FisisUiState
                 val basis = basisChoice?.takeIf { it in profile.basisOptions } ?: profile.basisOptions.firstOrNull()
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     when (tab) {
-                        0 -> SummaryTab(profile, basis)
+                        0 -> SummaryTab(company, profile, basis)
                         1 -> {
                             if (profile.basisOptions.size > 1) {
                                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -331,8 +331,7 @@ private fun ColumnScope.CompanyDetail(company: FisisCompany, state: FisisUiState
                         }
                         else -> RatioTab(profile, ratioMonth, onMonth = { ratioMonth = it })
                     }
-                    Note("자료: 금융감독원 금융통계정보시스템(FISIS). 금액은 원본 단위를 억원·조원으로 환산해 표시합니다.")
-                    if (profile.dart.isNotBlank()) Note("대표이사·최대주주·연결 재무: ${profile.dart} (공시 기준, 회사 이름으로 맞춘 결과이므로 다르면 알려 주세요)")
+                    Note("$FISIS_SOURCE(FISIS). 금액은 억원 단위입니다.")
                 }
             }
         }
@@ -340,7 +339,7 @@ private fun ColumnScope.CompanyDetail(company: FisisCompany, state: FisisUiState
 }
 
 @Composable
-private fun SummaryTab(profile: FisisProfile, basis: String?) {
+private fun SummaryTab(company: FisisCompany, profile: FisisProfile, basis: String?) {
     val fin = profile.group("fin", basis)
     val latest = monthsOf(fin).firstOrNull()
     SubTitle("현황자료 · 최근 시점 ${latest?.let { fisisMonthLabel(it) + " (" + fisisTermLabel(profile.term) + ")" } ?: "자료 없음"}")
@@ -357,10 +356,11 @@ private fun SummaryTab(profile: FisisProfile, basis: String?) {
     SubTitle("핵심 감독지표")
     if (ratios.isEmpty()) Note("이 권역의 감독지표를 FISIS에서 찾지 못했습니다.")
     ratios.forEach { MetricRow(it, null, showMonth = true) }
-    SubTitle("회사 정보")
-    listOf("ceo" to "대표이사", "holder" to "최대주주", "holderPct" to "최대주주 지분율").forEach { (k, label) ->
-        val m = profile.metric(k)
-        if (m != null) MetricRow(m, null) else MetricRow(label, "FISIS 미제공")
+    SubTitle("홈페이지")
+    val home = fisisHomepage(company.name)
+    val uriHandler = LocalUriHandler.current
+    TextButton(onClick = { runCatching { uriHandler.openUri(home.url) } }, Modifier.padding(horizontal = 12.dp)) {
+        Text(if (home.known) "${home.url.removePrefix("https://")} 열기" else "공식 홈페이지 검색하기")
     }
 }
 
@@ -395,7 +395,7 @@ private fun RatioTab(profile: FisisProfile, month: String?, onMonth: (String) ->
     PeriodPicker(months, selected, ratios.firstOrNull()?.term ?: profile.term, onMonth)
     SubTitle("주요 재무비율(감독지표)")
     if (ratios.isEmpty()) Note("이 권역의 재무비율을 FISIS에서 찾지 못했습니다.")
-    ratios.forEach { MetricRow(it, selected, method = FISIS_RATIO_METHODS[it.key]?.let { t -> "산정: $t" }) }
+    ratios.forEach { MetricRow(it, selected) }
 }
 
 /** 회사 2~3곳의 현황을 한 표로 비교한다(각 회사의 최근 시점 기준). */

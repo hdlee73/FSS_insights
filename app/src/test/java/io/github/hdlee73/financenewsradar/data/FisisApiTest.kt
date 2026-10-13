@@ -13,14 +13,13 @@ class FisisApiTest {
 
     @Test
     fun parsesProfile() {
-        val body = """{"name":"국민은행","term":"Q","basisOptions":["별도"],"dart":"OpenDART: 국민은행","metrics":[
+        val body = """{"name":"국민은행","term":"Q","basisOptions":["별도"],"metrics":[
             {"key":"assets","label":"총자산","group":"fin","basis":"별도","unit":"백만원","term":"Q","column":"","source":"재무상태표 · 자산총계",
              "points":[{"month":"202506","value":500},{"month":"202509","value":520}]},
             {"key":"ceo","label":"대표이사","group":"info","basis":"","unit":"","term":"Q","column":"","source":"x",
              "points":[{"month":"202509","text":"홍길동"}]}]}"""
         val profile = parseFisisProfile(body)
         assertEquals(listOf("별도"), profile.basisOptions)
-        assertEquals("OpenDART: 국민은행", profile.dart)
         val assets = profile.metric("assets", "별도")!!
         assertEquals(520.0, assets.at(null)!!.value!!, 1e-9)
         assertEquals(500.0, assets.at("202506")!!.value!!, 1e-9)
@@ -38,13 +37,23 @@ class FisisApiTest {
     }
 
     @Test
-    fun formatsAmountsFromSourceUnit() {
-        assertEquals("12조 3,456억원", fisisValueText(12_345_600.0, "백만원"))
-        assertEquals("3조원", fisisValueText(30_000.0, "억원"))
-        assertEquals("850억원", fisisValueText(85_000.0, "백만원"))
+    fun formatsAmountsInEokWon() {
+        assertEquals("123,456억원", fisisValueText(12_345_600.0, "백만원"))
+        assertEquals("30,000억원", fisisValueText(30_000.0, "억원"))
+        assertEquals("603,926억원", fisisValueText(603_926_114_000_000.0, "원"))
         assertEquals("-120억원", fisisValueText(-12_000.0, "백만원"))
         assertEquals("15.50%", fisisValueText(15.5, "%"))
+        assertEquals("2.10배", fisisValueText(2.1, "배"))
         assertEquals(5e11, fisisWon(500_000.0, "백만원"), 1.0)
+    }
+
+    @Test
+    fun findsKnownHomepageOrSearchLink() {
+        val known = fisisHomepage("주식회사 하나은행")
+        assertEquals("https://www.kebhana.com", known.url)
+        assertEquals(true, known.known)
+        val unknown = fisisHomepage("가나다자산운용")
+        assertEquals(false, unknown.known)
     }
 
     @Test

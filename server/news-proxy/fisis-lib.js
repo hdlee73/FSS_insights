@@ -34,80 +34,119 @@ export async function fisisFetch(key, name, params, fetchImpl = fetch) {
 }
 
 // ---- 통계표·계정 찾기: 통계표 이름·계정 이름으로 필요한 항목을 찾는다(통계표 번호를 코드에 박아 두지 않는다) ----
-export const ACCOUNT_NOISE = /비율|률$|증감|구성비/;
+// 계정 이름은 앞의 번호("Ⅰ.", "1)")와 공백을 떼고 견줘서 "자산 총계", "Ⅰ. 자산총계" 같은 표기 변형도 잡는다.
+export const normName = (s) =>
+  String(s || "")
+    .replace(/[\s\u00a0]/g, "")
+    .replace(/^([\dⅠ-Ⅻ]{1,3}|[가-하]|[A-Za-z]|\(\d+\)|\([가-하]\))[.)\]、]+/, "")
+    .replace(/^[-·ㆍ∙▶▷○●※]+/, "");
+export const ACCOUNT_NOISE = /비율|률$|증감|구성비|전년|전기/;
 export const FIN_METRICS = [
-  { key: "assets", label: "총자산", tables: /재무상태|대차대조|자산/, pats: [/^자산\s*총계$/, /^총\s*자산$/, /자산\s*총계|총\s*자산|자산\s*합계/, /^자산$/] },
-  { key: "liab", label: "총부채", tables: /재무상태|대차대조|부채/, pats: [/^부채\s*총계$/, /^총\s*부채$/, /부채\s*총계|총\s*부채|부채\s*합계/, /^부채$/] },
-  { key: "equity", label: "자기자본", tables: /재무상태|대차대조|자본/, pats: [/^자본\s*총계$/, /^자기자본$/, /자본\s*총계|총\s*자본|자본\s*합계/, /^자본$/] },
-  { key: "capital", label: "자본금", tables: /재무상태|대차대조|자본/, pats: [/^자본금$/, /^납입\s*자본금$/, /자본금/] },
-  { key: "revenue", label: "영업수익", tables: /손익|포괄|영업/, pats: [/^영업\s*수익$/, /영업\s*수익/, /^총\s*수익$/, /수익\s*(합계|총계)/, /^수익$/, /이자\s*수익/] },
-  { key: "expense", label: "영업비용", tables: /손익|포괄|영업/, pats: [/^영업\s*비용$/, /영업\s*비용/, /^총\s*비용$/, /비용\s*(합계|총계)/, /이자\s*비용/] },
-  { key: "netincome", label: "당기순이익", tables: /손익|포괄|영업/, pats: [/^당기\s*순\s*(이익|손익)$/, /당기\s*순\s*(이익|손익)/, /^순\s*(이익|손익)$/] },
+  { key: "assets", label: "총자산", tables: /재무상태|대차대조|자산/, pats: [/^자산총계$/, /^총자산$/, /^자산총액$/, /^자산합계$/, /^자산계$/, /자산총계|총자산|자산합계|자산총액/, /^자산$/] },
+  { key: "liab", label: "총부채", tables: /재무상태|대차대조|부채/, pats: [/^부채총계$/, /^총부채$/, /^부채총액$/, /^부채합계$/, /^부채계$/, /부채총계|총부채|부채합계|부채총액/, /^부채$/] },
+  { key: "equity", label: "자기자본", tables: /재무상태|대차대조|자본/, pats: [/^자본총계$/, /^자기자본$/, /^자기자본총계$/, /^자본총액$/, /^자본합계$/, /^자본계$/, /자본총계|총자본|자본합계|자본총액|자기자본총계/, /^자본$/, /^순자산$/] },
+  { key: "capital", label: "자본금", tables: /재무상태|대차대조|자본/, pats: [/^자본금$/, /^납입자본금$/, /^납입자본$/, /자본금/] },
+  { key: "revenue", label: "영업수익", tables: /손익|포괄|영업/, pats: [/^영업수익$/, /^영업수익\(?합계\)?$/, /영업수익/, /^총수익$/, /수익(합계|총계)/, /^수익$/, /^이자수익$/, /이자수익/] },
+  { key: "expense", label: "영업비용", tables: /손익|포괄|영업/, pats: [/^영업비용$/, /^영업비용\(?합계\)?$/, /영업비용/, /^총비용$/, /비용(합계|총계)/, /^비용$/, /^이자비용$/, /이자비용/] },
+  { key: "netincome", label: "당기순이익", tables: /손익|포괄|영업/, pats: [/^당기순(이익|손익)$/, /^분기순(이익|손익)$/, /^반기순(이익|손익)$/, /^당(분|반)?기순(이익|손익)/, /당기순(이익|손익)/, /^순(이익|손익)$/, /^당기순이익\(손실\)$/] },
 ];
+// 비율 항목: 이름에 "비율/율/배율/NCR"이 든 계정만 후보로 삼는다(금액 계정이 비율로 잡히는 것을 막는다). exclude: 이 이름이면 제외.
 export const RATIO_SPECS = {
   F: [
-    { key: "ncr", label: "순자본비율", pats: [/순자본비율|영업용\s*순자본비율|NCR/] },
-    { key: "lev", label: "레버리지비율", pats: [/레버리지/] },
-    { key: "liq", label: "유동성비율", pats: [/유동성\s*비율|유동성/] },
+    { key: "ncr_old", label: "영업용순자본비율(NCR)", pats: [/^영업용순자본비율/, /영업용순자본비율/] },
+    { key: "ncr", label: "순자본비율(NCR)", pats: [/^순자본비율/, /순자본비율|NCR/], exclude: /영업용/ },
+    { key: "lev", label: "레버리지비율", pats: [/^레버리지비율/, /레버리지/] },
+    { key: "liq", label: "유동성비율", pats: [/^유동성비율/, /^(잔존만기)?3개월이내유동성비율/, /유동성비율/], exclude: /외화|자산|부채/ },
   ],
   G: [
-    { key: "ncr", label: "영업용순자본비율", pats: [/영업용\s*순자본비율|순자본비율|NCR/] },
-    { key: "eqr", label: "자기자본비율", pats: [/자기자본\s*비율/] },
+    { key: "ncr", label: "영업용순자본비율(NCR)", pats: [/^영업용순자본비율/, /영업용순자본비율|순자본비율|NCR/] },
+    { key: "eqr", label: "자기자본비율", pats: [/^자기자본비율/, /자기자본비율/] },
   ],
   A: [
-    { key: "bis", label: "BIS 자기자본비율", pats: [/BIS/, /총자본\s*비율/, /자기자본\s*비율/] },
-    { key: "npl", label: "고정이하여신비율", pats: [/고정이하\s*여신\s*비율/, /부실\s*채권\s*비율/] },
+    { key: "bis", label: "BIS 자기자본비율", pats: [/^(총자본|BIS)(자기자본)?비율/, /BIS/, /총자본비율/, /자기자본비율/] },
+    { key: "npl", label: "고정이하여신비율", pats: [/^고정이하여신비율/, /고정이하여신비율/, /고정이하(채권|대출)비율/, /부실채권비율/] },
     { key: "delinq", label: "연체율", pats: [/연체율/] },
-    { key: "lcr", label: "유동성커버리지비율", pats: [/유동성\s*커버리지|LCR/] },
-    { key: "liq", label: "유동성비율", pats: [/유동성\s*비율/] },
+    { key: "lcr", label: "유동성커버리지비율", pats: [/유동성커버리지/, /LCR/] },
+    { key: "liq", label: "원화유동성비율", pats: [/^원화유동성비율/, /^유동성비율/, /원화.*유동성비율/, /유동성비율/], exclude: /외화|자산|부채|커버리지/ },
   ],
   E: [
-    { key: "bis", label: "BIS 자기자본비율", pats: [/BIS/, /자기자본\s*비율/] },
-    { key: "npl", label: "고정이하여신비율", pats: [/고정이하\s*여신\s*비율/] },
+    { key: "bis", label: "BIS 자기자본비율", pats: [/BIS/, /총자본비율/, /자기자본비율/] },
+    { key: "npl", label: "고정이하여신비율", pats: [/^고정이하여신비율/, /고정이하여신비율/, /고정이하(채권|대출)비율/, /부실채권비율/] },
     { key: "delinq", label: "연체율", pats: [/연체율/] },
-    { key: "liq", label: "유동성비율", pats: [/유동성\s*비율/] },
+    { key: "liq", label: "유동성비율", pats: [/^유동성비율/, /유동성비율/], exclude: /외화|자산|부채|커버리지/ },
   ],
   C: [
-    { key: "adj", label: "조정자기자본비율", pats: [/조정\s*자기자본\s*비율/, /자기자본\s*비율/] },
+    { key: "adj", label: "조정자기자본비율", pats: [/^조정자기자본비율/, /조정자기자본비율/, /자기자본비율/] },
     { key: "delinq", label: "연체율", pats: [/연체율/] },
-    { key: "npl", label: "고정이하채권비율", pats: [/고정이하\s*(채권|여신)\s*비율/, /부실\s*채권\s*비율/] },
+    { key: "npl", label: "고정이하채권비율", pats: [/고정이하(채권|여신|자산)비율/, /부실채권비율/] },
     { key: "lev", label: "레버리지배율", pats: [/레버리지/] },
   ],
   H: [
-    { key: "solv", label: "지급여력비율(K-ICS)", pats: [/K-?ICS|킥스/, /지급여력\s*비율/] },
-    { key: "per13", label: "13회차 유지율", pats: [/13\s*회차/] },
+    { key: "solv", label: "지급여력비율(K-ICS)", pats: [/K-?ICS|킥스|신지급여력/, /지급여력비율/] },
+    { key: "per13", label: "13회차 유지율", pats: [/13회차/] },
   ],
   I: [
-    { key: "solv", label: "지급여력비율(K-ICS)", pats: [/K-?ICS|킥스/, /지급여력\s*비율/] },
-    { key: "loss", label: "손해율", pats: [/손해율/] },
-    { key: "opex", label: "사업비율", pats: [/사업비율/] },
+    { key: "solv", label: "지급여력비율(K-ICS)", pats: [/K-?ICS|킥스|신지급여력/, /지급여력비율/] },
+    { key: "loss", label: "손해율", pats: [/^손해율/, /손해율/] },
+    { key: "opex", label: "사업비율", pats: [/^사업비율/, /사업비율/] },
   ],
 };
-const ANY_ACCT = /^(합\s*계|계|총\s*계|전체|펀드\s*합계|전체\s*펀드)$/;
+const ANY_ACCT = /^(합계|계|총계|전체|펀드합계|전체펀드)$/;
 export const FUND_SPECS = [
-  { key: "fund_all", label: "펀드 설정원본", col: /설정\s*원본/, pats: [ANY_ACCT, /합계|총계/, /설정\s*원본/] },
+  { key: "fund_all", label: "펀드 설정원본", col: /설정원본/, pats: [ANY_ACCT, /합계|총계/, /설정원본/] },
   { key: "nav_all", label: "펀드 순자산", col: /순자산/, pats: [ANY_ACCT, /합계|총계/, /순자산/] },
-  { key: "fund_pub", label: "공모펀드 설정원본", col: /설정\s*원본/, pats: [/공모/] },
+  { key: "fund_pub", label: "공모펀드 설정원본", col: /설정원본/, pats: [/공모/] },
   { key: "nav_pub", label: "공모펀드 순자산", col: /순자산/, pats: [/공모/] },
-  { key: "fund_priv", label: "사모펀드 설정원본", col: /설정\s*원본/, pats: [/사모/] },
+  { key: "fund_priv", label: "사모펀드 설정원본", col: /설정원본/, pats: [/사모/] },
   { key: "nav_priv", label: "사모펀드 순자산", col: /순자산/, pats: [/사모/] },
 ];
-export const INFO_SPECS = [
-  { key: "ceo", label: "대표이사", pats: [/대표\s*이사|대표자|^대표/] },
-  { key: "holder", label: "최대주주", pats: [/^최대\s*주주$|최대\s*주주\s*(명|성명)?$/, /최대\s*주주/] },
-  { key: "holderPct", label: "최대주주 지분율", pats: [/최대\s*주주.*(지분|비율)/, /지분율/] },
-];
 
-/** 패턴 순서대로, 선호하는 통계표 순으로 훑어 처음 맞는 (통계표, 계정)을 돌려준다. */
-export function pickAccount(tables, accountsOf, spec, { skipNoise = false } = {}) {
-  const ordered = spec.tables ? [...tables.filter((t) => spec.tables.test(t.listNm)), ...tables.filter((t) => !spec.tables.test(t.listNm))] : tables;
-  for (const pat of spec.pats) {
-    for (const t of ordered) {
-      const a = (accountsOf.get(t.listNo) || []).find((x) => pat.test(x.name) && !(skipNoise && ACCOUNT_NOISE.test(x.name)));
-      if (a) return { key: spec.key, label: spec.label, listNo: t.listNo, listNm: t.listNm, accountCd: a.code, accountNm: a.name, col: spec.col ? spec.col.source : "" };
+const RATIO_NAME = /비율|율|배율|NCR|ICS/;
+const AMOUNT_NAME = /잔액$|금액|액$|자산$|부채$|채권$/;
+const BAD_SCOPE = /가계|기업|중소|대기업|개인|주택|신용대출|카드론|현금서비스|할부|리스|PF|부동산|건설|신탁|전월|증감|전년|구성/;
+
+/** 후보 점수: 앞선 패턴일수록, 합계·전체 성격일수록 높고, 일부 부문(가계·기업 등)이나 증감은 낮다. */
+function scoreOf(spec, table, acct, patIdx, ratio) {
+  const nm = normName(acct.name);
+  let s = 1000 - patIdx * 50 - nm.length * 0.5;
+  if (spec.tables && spec.tables.test(table.listNm)) s += 20;
+  if (/^(총|전체|합계)|합계|총대출|전체|계$/.test(nm)) s += 30;
+  if (/합계|전체|총/.test(table.listNm)) s += 15;
+  if (ratio && BAD_SCOPE.test(nm + table.listNm) && !(spec.pats.some((p) => p.test(nm)) && BAD_SCOPE.test(spec.label))) s -= 200;
+  if (ratio && /연결/.test(table.listNm)) s -= 5;
+  return s;
+}
+
+/** 패턴에 맞는 (통계표, 계정) 후보를 점수 높은 순으로 돌려준다. */
+export function pickCandidates(tables, accountsOf, spec, { ratio = false, skipNoise = false } = {}) {
+  const found = [];
+  const seen = new Set();
+  spec.pats.forEach((pat, patIdx) => {
+    for (const t of tables) {
+      for (const a of accountsOf.get(t.listNo) || []) {
+        const nm = normName(a.name);
+        if (!pat.test(nm)) continue;
+        if (spec.exclude && spec.exclude.test(nm)) continue;
+        if (skipNoise && ACCOUNT_NOISE.test(nm)) continue;
+        if (ratio && (!RATIO_NAME.test(nm) || AMOUNT_NAME.test(nm))) continue;
+        const id = `${t.listNo}/${a.code}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const label = spec.key === "revenue" && /이자수익/.test(nm) && !/영업/.test(nm) ? "이자수익" : spec.key === "expense" && /이자비용/.test(nm) && !/영업/.test(nm) ? "이자비용" : spec.label;
+        found.push({ score: scoreOf(spec, t, a, patIdx, ratio), key: spec.key, label, listNo: t.listNo, listNm: t.listNm, accountCd: a.code, accountNm: a.name, col: spec.col ? spec.col.source : "" });
+      }
     }
-  }
-  return null;
+  });
+  return found.sort((x, y) => y.score - x.score);
+}
+
+/** 가장 알맞은 후보 하나(나머지는 alts에 남겨 배포 때 실제 자료로 검증한다). */
+export function pickAccount(tables, accountsOf, spec, opt = {}) {
+  const [best, ...rest] = pickCandidates(tables, accountsOf, spec, opt);
+  if (!best) return null;
+  delete best.score;
+  best.alts = rest.slice(0, 4).map(({ score, ...r }) => r);
+  return best;
 }
 
 async function inChunks(items, size, fn) {
@@ -117,17 +156,19 @@ async function inChunks(items, size, fn) {
 }
 
 /**
- * 권역의 통계표·계정 목록에서 재무·비율·펀드·일반현황 항목이 어느 통계표의 어느 계정인지 찾는다.
+ * 권역의 통계표·계정 목록에서 재무·비율·펀드 항목이 어느 통계표의 어느 계정인지 찾는다.
  * api = { lists(sector) → [{sml, listNo, listNm}], accounts(listNo) → [{code, name}] }
  */
 export async function resolveSpec(api, sector) {
   const lists = await api.lists(sector);
   const of = (re) => lists.filter((l) => re.test(l.sml));
-  const fin = of(/재무현황/);
   const ratio = of(/경영지표/);
-  const info = of(/일반현황/);
+  // 재무: 재무현황 분류 + (분류가 달라도) 이름이 재무상태표·손익계산서인 통계표
+  const fin = lists.filter((l) => /재무현황/.test(l.sml) || /재무상태|대차대조|손익|포괄/.test(l.listNm));
   const fund = sector === "G" ? of(/영업활동|재무현황/).filter((l) => /펀드|설정|순자산|수탁|운용/.test(l.listNm)) : [];
-  const wanted = [...new Map([...fin, ...ratio, ...info, ...fund].map((l) => [l.listNo, l])).values()];
+  // 일반 비율 지표가 경영지표 분류 밖에 있을 수도 있어 이름에 지표·비율이 든 통계표도 후보에 넣는다.
+  const ratioPool = [...new Map([...ratio, ...lists.filter((l) => /지표|비율|유동성|자본적정|건전성|연체/.test(l.listNm))].map((l) => [l.listNo, l])).values()];
+  const wanted = [...new Map([...fin, ...ratioPool, ...fund].map((l) => [l.listNo, l])).values()];
   const accountsOf = new Map();
   await inChunks(wanted, 6, async (l) => accountsOf.set(l.listNo, await api.accounts(l.listNo).catch(() => [])));
   const pickAll = (tables, specs, opt) => specs.map((sp) => pickAccount(tables, accountsOf, sp, opt)).filter(Boolean);
@@ -138,18 +179,51 @@ export async function resolveSpec(api, sector) {
   if (connected.length) basis["연결"] = pickAll(connected, FIN_METRICS, { skipNoise: true });
   return {
     basis,
-    ratios: pickAll(ratio, RATIO_SPECS[sector] || []),
+    ratios: pickAll(ratioPool, RATIO_SPECS[sector] || [], { ratio: true }),
     funds: pickAll(fund, FUND_SPECS),
-    info: pickAll(info, INFO_SPECS),
     terms: {},
-    tables: { fin: fin.map((l) => l.listNm), ratio: ratio.map((l) => l.listNm), info: info.map((l) => l.listNm), fund: fund.map((l) => l.listNm) },
+    tables: { fin: fin.map((l) => l.listNm), ratio: ratioPool.map((l) => l.listNm), fund: fund.map((l) => l.listNm) },
   };
 }
 
-/** spec에 쓰인 서로 다른 통계표 번호. */
+/** spec에 쓰인 서로 다른 통계표 번호(대체 후보 포함). */
 export function specListNos(spec) {
-  const all = [...Object.values(spec.basis).flat(), ...spec.ratios, ...spec.funds, ...spec.info];
-  return [...new Set(all.map((m) => m.listNo))];
+  const all = [...Object.values(spec.basis).flat(), ...spec.ratios, ...spec.funds];
+  return [...new Set(all.flatMap((m) => [m.listNo, ...(m.alts || []).map((a) => a.listNo)]))];
+}
+
+/**
+ * 표본 회사로 실제 자료를 받아 보며 각 항목의 첫 번째로 "값이 나오는" 후보를 확정한다(나머지 후보는 버린다).
+ * probe(code, listNo, accountCd) → parseTable 결과(또는 null).
+ */
+export async function validateSpec(spec, samples, probe, log = () => {}) {
+  const groups = [
+    ...Object.entries(spec.basis).map(([b, list]) => ["fin", b, list]),
+    ["ratio", "", spec.ratios],
+    ["fund", "", spec.funds],
+  ];
+  for (const [group, basis, list] of groups) {
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i];
+      const cands = [m, ...(m.alts || [])];
+      let chosen = null;
+      for (const c of cands) {
+        for (const code of samples) {
+          const t = await probe(code, c.listNo, c.accountCd).catch(() => null);
+          if (t && metricFromTable({ ...c, group, basis }, t)) {
+            chosen = c;
+            break;
+          }
+        }
+        if (chosen) break;
+      }
+      const picked = chosen || m;
+      const { alts, ...clean } = picked;
+      list[i] = clean;
+      log(`${group}${basis ? "/" + basis : ""} ${m.label}: ${chosen ? "" : "(표본 자료 없음) "}${clean.listNm} · ${clean.accountNm}`);
+    }
+  }
+  return spec;
 }
 
 export function monthsBack(term, now = new Date()) {
@@ -195,11 +269,54 @@ export async function fetchTable(call, finance, listNo, firstTerm = "Q", account
   return null;
 }
 
-/** 열 이름 패턴이 있으면 그 열, 없으면 첫 열. 없으면 null. */
-export function pickColumn(table, colSource) {
-  if (!colSource) return table.columns[0] || null;
-  const re = new RegExp(colSource);
-  return table.columns.find((c) => re.test(c.name)) || null;
+const AMOUNT_COL = /금액|잔액|채권|여신|대출|원본|자산|부채|규모|액$/;
+
+/** 열 고르기: 열 이름 패턴이 있으면 그 열. 비율은 "…율" 열을, 손익은 누적 열을, 그 밖은 첫 열을 쓴다. */
+export function pickColumn(table, colSource, group = "", key = "") {
+  if (colSource) return table.columns.find((c) => new RegExp(colSource).test(c.name.replace(/\s/g, ""))) || null;
+  const cols = table.columns;
+  if (!cols.length) return null;
+  if (/^(revenue|expense|netincome)$/.test(key) && cols.length > 1) return cols.find((c) => /누적/.test(c.name)) || cols[0];
+  if (group === "ratio" && cols.length > 1) return cols.find((c) => /비율|율|%/.test(c.name)) || cols.find((c) => !AMOUNT_COL.test(c.name)) || cols[0];
+  return cols[0];
+}
+
+/** 단위 글자 → 원 단위 배수(모르면 null). */
+export function unitMult(unit) {
+  const u = String(unit || "").replace(/\s/g, "");
+  if (/조/.test(u)) return 1e12;
+  if (/억/.test(u)) return 1e8;
+  if (/백만/.test(u)) return 1e6;
+  if (/천만/.test(u)) return 1e7;
+  if (/만원|^만$/.test(u)) return 1e4;
+  if (/천원|^천$/.test(u)) return 1e3;
+  if (/원/.test(u)) return 1;
+  return null;
+}
+
+/** 한 항목(m)과 받아 온 표(t)로 화면용 지표 하나를 만든다. 자료가 없거나 값이 말이 안 되면 null. */
+export function metricFromTable(m, t) {
+  const account = t.accounts[m.accountCd];
+  const column = pickColumn(t, m.col, m.group, m.key);
+  if (!account || !column) return null;
+  let points = account.points.map((p) => ({ month: p.month, value: p.v[column.id] })).filter((p) => p.value !== null);
+  if (!points.length) return null;
+  let unit = t.unit;
+  if (m.group === "ratio") {
+    if (points.some((p) => Math.abs(p.value) > 100000)) return null; // 금액이 비율로 잡힌 것
+    unit = /배/.test(t.unit) || /배율/.test(m.label) ? "배" : "%";
+  } else {
+    // 금액은 모두 억원으로 바꿔 보낸다(단위를 모르면 그대로 보낸다).
+    const mult = unitMult(t.unit);
+    if (mult) {
+      points = points.map((p) => ({ month: p.month, value: Math.round(((p.value * mult) / 1e8) * 100) / 100 }));
+      unit = "억원";
+    }
+  }
+  return {
+    key: m.key, label: m.label, group: m.group, basis: m.basis, unit, term: t.term,
+    column: t.columns.length > 1 ? column.name : "", source: `${m.listNm} · ${m.accountNm}`, points,
+  };
 }
 
 /** spec과 받아 온 통계표들(listNo → 표 또는 null)로 화면에 보낼 지표 목록을 만든다. */
@@ -208,7 +325,6 @@ export function buildMetrics(spec, tables) {
     ...Object.entries(spec.basis).flatMap(([basis, list]) => list.map((m) => ({ ...m, group: "fin", basis }))),
     ...spec.ratios.map((m) => ({ ...m, group: "ratio", basis: "" })),
     ...spec.funds.map((m) => ({ ...m, group: "fund", basis: "" })),
-    ...spec.info.map((m) => ({ ...m, group: "info", basis: "" })),
   ];
   let name = "";
   let term = "";
@@ -217,19 +333,10 @@ export function buildMetrics(spec, tables) {
     const t = tables[m.listNo];
     if (!t) continue;
     name = name || t.name;
-    const account = t.accounts[m.accountCd];
-    const column = pickColumn(t, m.col);
-    if (!account || !column) continue;
-    const text = m.group === "info";
-    const points = account.points
-      .map((p) => ({ month: p.month, value: p.v[column.id], text: text ? p.raw[column.id] : undefined }))
-      .filter((p) => (text ? p.text : p.value !== null));
-    if (!points.length) continue;
+    const metric = metricFromTable(m, t);
+    if (!metric) continue;
     if (m.group === "fin" && !term) term = t.term;
-    metrics.push({
-      key: m.key, label: m.label, group: m.group, basis: m.basis, unit: t.unit, term: t.term,
-      column: t.columns.length > 1 ? column.name : "", source: `${m.listNm} · ${m.accountNm}`, points,
-    });
+    metrics.push(metric);
   }
   return { name, term, basisOptions: Object.keys(spec.basis), metrics };
 }
