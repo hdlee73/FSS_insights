@@ -100,8 +100,8 @@ private val appScreens = listOf(
     AppScreen("뉴스 검색", Icons.Filled.Newspaper),
     AppScreen("금융시장 동향", Icons.Filled.ShowChart),
     AppScreen("보도자료", Icons.Filled.Description),
-    AppScreen("연구원 자료", Icons.Filled.Science),
-    AppScreen("참고자료", Icons.Filled.FolderOpen),
+    AppScreen("금융관련 리포트", Icons.Filled.Science),
+    AppScreen("참고 자료실", Icons.Filled.FolderOpen),
     AppScreen("주요사이트", Icons.Filled.Language),
     AppScreen("알림", Icons.Filled.Notifications),
     AppScreen("앱 정보", Icons.Filled.Info)
@@ -138,6 +138,8 @@ fun FinanceNewsRadarApp(
         }
     }
     var screen by rememberSaveable { mutableIntStateOf(SCREEN_BRIEFING) }
+    // 앱 안에서 거쳐 온 화면(뒤로가기 시 이전 화면으로). "1,2" 형태의 문자열로 저장해 화면 회전에도 유지한다.
+    var history by rememberSaveable { mutableStateOf("") }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -150,8 +152,16 @@ fun FinanceNewsRadarApp(
     fun go(target: Int) {
         keyboard?.hide()
         focusManager.clearFocus()
-        screen = target
+        if (target != screen) {
+            history = (history.split(',').filter { it.isNotEmpty() } + screen.toString()).takeLast(30).joinToString(",")
+            screen = target
+        }
         scope.launch { drawerState.close() }
+    }
+    BackHandler(enabled = history.isNotEmpty() && !drawerState.isOpen) {
+        val stack = history.split(',').filter { it.isNotEmpty() }
+        screen = stack.last().toInt()
+        history = stack.dropLast(1).joinToString(",")
     }
     BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
 

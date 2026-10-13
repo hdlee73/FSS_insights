@@ -73,6 +73,60 @@ internal object AgencySources {
             deepSearch = false,
             jsRendered = true
         )
+        AgencyId.MOEF -> Source(
+            listUrl = { page, _ -> "https://www.mofe.go.kr/nw/nes/nesdta.do?bbsId=MOSFBBS_000000000028&menuNo=4010100&pageIndex=$page" },
+            linkPattern = Regex("""(?i)detailNesDtaView\.do|nesdta\.do\?[^"]*nttId"""),
+            requireDate = true
+        )
+        AgencyId.BOK_PRESS -> Source(
+            listUrl = { page, size -> "https://www.bok.or.kr/portal/singl/newsData/list.do?pageIndex=$page&targetDepth=3&menuNo=201263&syncMenuChekKey=1&searchCnd=1&depth2=200038&depth3=201263&sort=1&pageUnit=$size" },
+            linkPattern = Regex("""view\.do\?[^"]*nttId=\d+"""),
+            requireDate = true
+        )
+        AgencyId.BOK_RESEARCH -> Source(
+            listUrl = { page, size -> "https://www.bok.or.kr/portal/singl/newsData/list.do?pageIndex=$page&targetDepth=2&menuNo=201156&syncMenuChekKey=1&searchCnd=1&depth2=201156&sort=1&pageUnit=$size" },
+            linkPattern = Regex("""view\.do\?[^"]*nttId=\d+"""),
+            requireDate = true,
+            deepSearch = false
+        )
+        AgencyId.FSB -> Source(
+            listUrl = { page, _ -> "https://www.fsb.org/publications/" + if (page > 1) "?mt_page=$page" else "" },
+            linkPattern = Regex("""fsb\.org/20\d{2}/\d{2}/[^/?#]+"""),
+            requireDate = true,
+            deepSearch = false
+        )
+        AgencyId.BCBS -> Source(
+            listUrl = { page, _ -> "https://www.bis.org/committees/bcbs/publications" + if (page > 1) "?page=$page" else "" },
+            linkPattern = Regex("""bis\.org/(publications|publ)/[\w.-]{6,}"""),
+            requireDate = true,
+            deepSearch = false
+        )
+        AgencyId.ESMA -> Source(
+            // 드루팔 목록: 쪽 번호는 0부터.
+            listUrl = { page, _ -> "https://www.esma.europa.eu/databases-library/esma-library?page=${page - 1}" },
+            linkPattern = Regex("""esma\.europa\.eu/document/[\w-]+"""),
+            requireDate = true,
+            deepSearch = false
+        )
+        AgencyId.FCA -> Source(
+            // 검색 결과는 10건씩이고 start가 시작 번호(1부터).
+            listUrl = { page, size ->
+                "https://www.fca.org.uk/publications/search-results?p_search_term&category=research%2Cresearch-external%20research%2Cresearch-financial%20lives%2Cresearch-occasional%20papers%2Cresearch-research%20articles%2Cresearch-research%20insights%2Cresearch-research%20notes%2Cresearch-research&sort_by=dmetaZ" +
+                    if (page > 1) "&start=${(page - 1) * size + 1}" else ""
+            },
+            linkPattern = Regex("""fca\.org\.uk/publication/[\w./-]+"""),
+            requireDate = true,
+            deepSearch = false
+        )
+        AgencyId.MAS -> Source(
+            // 목록을 자바스크립트로 그리므로 곧바로 WebView로 읽고, 쪽 이동은 확인하지 못해 첫 쪽만 쓴다.
+            listUrl = { _, _ -> "https://www.mas.gov.sg/publications" },
+            linkPattern = Regex("""mas\.gov\.sg/publications/[\w-]+/[\w./-]+"""),
+            pageable = false,
+            requireDate = true,
+            deepSearch = false,
+            jsRendered = true
+        )
         AgencyId.CUSTOM -> error("사용자가 추가한 연구소는 별도 경로로 읽습니다.")
         AgencyId.IOSCO -> Source(
             listUrl = { page, _ -> "https://www.iosco.org/publications/?subsection=public_reports" + if (page > 1) "&page=$page" else "" },
@@ -95,6 +149,7 @@ internal object AgencySources {
             AgencyId.KIF -> "https://www.kif.re.kr/kif4/publication/pub_list?mid=10"
             AgencyId.IOSCO -> "https://www.iosco.org/publications/?subsection=public_reports"
             AgencyId.CUSTOM -> "https://www.google.com/search?q=$q"
+            else -> agency.homeUrl
         }
     }
 
@@ -115,7 +170,7 @@ class AgencyRepository(private val context: android.content.Context) {
         val items = fetchPage(agency, source, source.listUrl(1, source.pageSize)).toMutableList()
         // 날짜가 있는 항목을 최신순으로(날짜 없는 항목은 뒤로). 사이트 목록 순서가 들쭉날쭉해도 '최근 N건'이 되도록.
         fun current() = items.sortedByDescending { it.date }.take(count)
-        val target = if (agency == AgencyId.KCMI || agency == AgencyId.IOSCO) count * 2 else count
+        val target = if (agency == AgencyId.KCMI || agency == AgencyId.IOSCO || agency == AgencyId.FCA) count * 2 else count
         if (items.size >= target || !source.pageable) return current()
         onPartial(current())
         // 한 쪽이 몇 건인지 알았으니 필요한 쪽(최대 4쪽까지)을 한꺼번에 병렬로 읽는다.

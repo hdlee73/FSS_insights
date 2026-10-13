@@ -64,6 +64,7 @@ import java.util.Locale
 
 private const val TAB_NEWS = 1
 private const val TAB_MARKET = 2
+private const val TAB_RESEARCH = 4
 private const val TAB_PRESS = 3   // 자료 탭(보도자료 구분 탭)
 private val BRIEFING_PRESS = listOf(AgencyId.FSS, AgencyId.FSC)
 private val BRIEFING_RESEARCH = listOf(AgencyId.KCMI, AgencyId.KIF, AgencyId.IOSCO)
@@ -71,7 +72,7 @@ private val SEOUL = ZoneId.of("Asia/Seoul")
 private val dateFormat = DateTimeFormatter.ofPattern("M월 d일 EEEE", Locale.KOREAN)
 private val briefingTime = DateTimeFormatter.ofPattern("M월 d일 HH:mm", Locale.KOREAN).withZone(ZoneId.of("Asia/Seoul"))
 
-/** 앱을 열면 보이는 첫 화면: 날짜·날씨·인사, 시장 지표, 주요 기사, 최근 보도자료, 최근 1주일 연구리포트. */
+/** 앱을 열면 보이는 첫 화면: 날짜·날씨·인사, 시장 지표, 주요 기사, 최근 금융당국 보도자료, 최근 1주일 금융리포트. */
 @Composable
 fun BriefingScreen(
     newsViewModel: NewsViewModel,
@@ -168,7 +169,7 @@ fun BriefingScreen(
                 else -> Hint("저장한 키워드의 새 기사가 없습니다.")
             }
 
-            SectionTitle("최근 보도자료", if (newLinks.isEmpty()) "금융감독원 · 금융위원회" else "새 자료 ${newLinks.size}건", accent = newLinks.isNotEmpty()) { onOpenTab(TAB_PRESS) }
+            SectionTitle("최근 금융당국 보도자료", if (newLinks.isEmpty()) "금융감독원 · 금융위원회" else "새 자료 ${newLinks.size}건", accent = newLinks.isNotEmpty()) { onOpenTab(TAB_PRESS) }
             when {
                 pressItems.isNotEmpty() -> BriefingCard {
                     pressItems.forEachIndexed { i, item ->
@@ -181,7 +182,7 @@ fun BriefingScreen(
             }
 
             if (researchItems.isNotEmpty()) {
-                SectionTitle("이번 주 연구리포트", "최근 7일 내 업데이트") { onOpenTab(TAB_PRESS) }
+                SectionTitle("이번 주 금융리포트", "최근 7일 내 업데이트") { onOpenTab(TAB_RESEARCH) }
                 BriefingCard {
                     researchItems.forEachIndexed { i, item ->
                         if (i > 0) RowDivider(inset = 14.dp)
