@@ -6,7 +6,7 @@
 //  - FISIS 회사 상세에는 OpenDART(DART_API_KEY)로 대표이사·최대주주·연결 재무를 덧붙인다.
 //  - /library/upload : 자료 올리기. 내 계정으로 실행되는 Apps Script 웹앱이 비공개 "업로드 대기" 폴더에만 올린다(관리자가 확인해 자료실로 옮김).
 // 배포할 때 DART 고유번호 목록(금융회사 이름 → corp_code)을 만들어 넣는다. 만들지 않았으면 빈 목록이다.
-import dartCorps from "./dart-corps.json" with { type: "json" };
+import dartCorps from "./dart-corps.json";
 
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
