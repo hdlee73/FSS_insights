@@ -130,6 +130,8 @@ data class MarketUiState(
     val stats: List<StatItem> = emptyList(),
     /** 고른 통계 중 서버가 값을 주지 않은 것(서버에 없거나 한국은행에 값이 없음). */
     val statsMissing: Set<String> = emptySet(),
+    /** 서버가 알려 준 통계별 못 받은 사유(id → 사유). */
+    val statsReasons: Map<String, String> = emptyMap(),
     /** 통계를 받는 중(선택을 바꾼 직후 포함). */
     val statsLoading: Boolean = false,
     /** 사용자가 고른 국내 금융 통계(시장동향 탭 / 오늘의 브리핑). */
@@ -217,7 +219,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
                 // 그 사이 선택이 또 바뀌었으면 이 응답은 버린다(새 요청이 결과를 채운다).
                 if (request != statsRequest) return@onSuccess
                 if (result.items.isEmpty()) statsLoadedAt = 0L
-                _state.update { it.copy(stats = result.items.ifEmpty { it.stats }, statsMissing = result.missing, statsLoading = false) }
+                _state.update { it.copy(stats = result.items.ifEmpty { it.stats }, statsMissing = result.missing, statsReasons = result.reasons, statsLoading = false) }
             }
             .onFailure { if (request == statsRequest) { statsLoadedAt = 0L; _state.update { it.copy(statsLoading = false) } } }
     }
@@ -625,7 +627,8 @@ private fun StatsPanel(state: MarketUiState, selected: Set<String>, onPick: () -
         }
         if (absent.isNotEmpty() && !state.statsLoading && state.stats.isNotEmpty()) {
             Text(
-                "받지 못한 통계: " + absent.joinToString(", ") { it.name } + ". 서버가 아직 해당 통계를 지원하지 않거나 한국은행에 값이 없습니다(서버 재배포 필요).",
+                "받지 못한 통계: " + absent.joinToString("; ") { d -> d.name + (state.statsReasons[d.id]?.let { " [$it]" } ?: "") } +
+                    if (state.statsReasons.isEmpty()) ". 서버가 아직 해당 통계를 지원하지 않거나 한국은행에 값이 없습니다(서버 재배포 필요)." else ".",
                 Modifier.padding(start = 2.dp, top = 6.dp),
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.error
             )

@@ -66,12 +66,13 @@ data class StatSelection(val market: Set<String>, val briefing: Set<String>) {
 }
 
 /** 서버 /stats 응답: 값이 있는 [items]와, 서버가 값을 못 찾았다고 알려 준 통계 id [missing]. */
-data class StatsResult(val items: List<StatItem>, val missing: Set<String> = emptySet())
+data class StatsResult(val items: List<StatItem>, val missing: Set<String> = emptySet(), val reasons: Map<String, String> = emptyMap())
 
 internal fun parseStatsResult(body: String): StatsResult {
     val root = JSONObject(body)
     val missing = root.optJSONArray("missing")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }.orEmpty()
-    return StatsResult(parseStats(body), missing)
+    val reasons = root.optJSONObject("reasons")?.let { o -> o.keys().asSequence().associateWith { o.optString(it) } }.orEmpty()
+    return StatsResult(parseStats(body), missing, reasons)
 }
 
 /** 서버 /stats 응답에서 값이 있는 항목만 읽는다. */
