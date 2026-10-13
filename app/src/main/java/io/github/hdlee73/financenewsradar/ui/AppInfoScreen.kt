@@ -57,6 +57,10 @@ fun AppInfoScreen(modifier: Modifier = Modifier) {
         InfoRow("버전", BuildConfig.VERSION_NAME)
         InfoRow("만든이", "이현덕 (hdlee73@gmail.com)")
 
+        Text("면책 안내", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+        Text(DISCLAIMER_SHORT, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+        Text(DISCLAIMER_DETAIL, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+
         Text("업데이트", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
         InfoRow("현재", BuildConfig.VERSION_NAME)
         InfoRow("최신", update?.version ?: if (state == CheckState.LATEST) BuildConfig.VERSION_NAME else "-")

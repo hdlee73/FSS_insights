@@ -146,6 +146,13 @@ class SettingsStore(context: Context) {
         preferences.edit().putBoolean("$MATERIAL_ALERT_PREFIX${agency.name}", enabled).apply()
     }
 
+    /** 최초 실행 시 비공식 앱 안내를 확인했는지 여부. */
+    fun disclaimerAccepted(): Boolean = preferences.getBoolean(DISCLAIMER_ACCEPTED, false)
+
+    fun setDisclaimerAccepted() {
+        preferences.edit().putBoolean(DISCLAIMER_ACCEPTED, true).apply()
+    }
+
     /** 참고자료(자료실)에 새 파일이 올라오면 알리는 설정. 기본은 꺼짐. */
     fun libraryAlertEnabled(): Boolean = preferences.getBoolean(LIBRARY_ALERT, false)
 
@@ -220,6 +227,7 @@ class SettingsStore(context: Context) {
         enumValues<T>().firstOrNull { it.name == raw } ?: fallback
 
     companion object {
+        private const val DISCLAIMER_ACCEPTED = "disclaimer_accepted"
         private const val INSTITUTES = "custom_institutes"
         private const val KEYWORDS = "keywords"
         private const val PROVIDER = "provider"
