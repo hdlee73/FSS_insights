@@ -43,6 +43,13 @@ object HtmlListParser {
     private class Hit(val start: Int, val end: Int, val url: String, val title: String)
     private class DateHit(val date: LocalDate, val start: Int, val end: Int)
 
+    private val fullMonthDate = Regex(
+        "\\b(\\d{1,2})\\s+(January|February|March|April|May|June|July|August|September|October|November|December)\\s+(20\\d{2})"
+    )
+
+    /** "12 October 2026"을 "12 Oct 2026"으로 바꿔 날짜 인식이 되게 한다(월 이름 전체를 쓰는 사이트용). */
+    fun abbreviateMonths(html: String): String = fullMonthDate.replace(html) { "${it.groupValues[1]} ${it.groupValues[2].take(3)} ${it.groupValues[3]}" }
+
     fun anchorCount(html: String): Int = anchor.findAll(html).count()
 
     fun extract(html: String, baseUrl: String, hrefPattern: Regex, minTitleLength: Int = 4): List<ParsedLink> {

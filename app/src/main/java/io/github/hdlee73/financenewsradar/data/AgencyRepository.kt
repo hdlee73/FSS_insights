@@ -91,20 +91,23 @@ internal object AgencySources {
         )
         AgencyId.FSB -> Source(
             listUrl = { page, _ -> "https://www.fsb.org/publications/" + if (page > 1) "?mt_page=$page" else "" },
-            linkPattern = Regex("""fsb\.org/20\d{2}/\d{2}/[^/?#]+"""),
-            requireDate = true,
+            // 날짜가 "12 October 2026"처럼 월 이름 전체라서 약어로 바꿔 읽는다.
+            customParser = { body, url ->
+                HtmlListParser.extract(HtmlListParser.abbreviateMonths(body), url, Regex("""/20\d{2}/\d{2}/[^/?#]+"""))
+                    .filter { it.date != null }
+            },
             deepSearch = false
         )
         AgencyId.BCBS -> Source(
             listUrl = { page, _ -> "https://www.bis.org/committees/bcbs/publications" + if (page > 1) "?page=$page" else "" },
-            linkPattern = Regex("""bis\.org/(publications|publ)/[\w.-]{6,}"""),
+            linkPattern = Regex("""/(publications|publ)/[\w.-]{6,}"""),
             requireDate = true,
             deepSearch = false
         )
         AgencyId.ESMA -> Source(
             // 드루팔 목록: 쪽 번호는 0부터.
             listUrl = { page, _ -> "https://www.esma.europa.eu/databases-library/esma-library?page=${page - 1}" },
-            linkPattern = Regex("""esma\.europa\.eu/document/[\w-]+"""),
+            linkPattern = Regex("""/document/[\w-]+"""),
             requireDate = true,
             deepSearch = false
         )
@@ -114,14 +117,14 @@ internal object AgencySources {
                 "https://www.fca.org.uk/publications/search-results?p_search_term&category=research%2Cresearch-external%20research%2Cresearch-financial%20lives%2Cresearch-occasional%20papers%2Cresearch-research%20articles%2Cresearch-research%20insights%2Cresearch-research%20notes%2Cresearch-research&sort_by=dmetaZ" +
                     if (page > 1) "&start=${(page - 1) * size + 1}" else ""
             },
-            linkPattern = Regex("""fca\.org\.uk/publication/[\w./-]+"""),
+            linkPattern = Regex("""/publication/[\w./-]+"""),
             requireDate = true,
             deepSearch = false
         )
         AgencyId.MAS -> Source(
             // 목록을 자바스크립트로 그리므로 곧바로 WebView로 읽고, 쪽 이동은 확인하지 못해 첫 쪽만 쓴다.
             listUrl = { _, _ -> "https://www.mas.gov.sg/publications" },
-            linkPattern = Regex("""mas\.gov\.sg/publications/[\w-]+/[\w./-]+"""),
+            linkPattern = Regex("""/publications/[\w-]+/[\w./-]+"""),
             pageable = false,
             requireDate = true,
             deepSearch = false,

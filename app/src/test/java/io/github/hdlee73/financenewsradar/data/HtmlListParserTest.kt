@@ -246,11 +246,12 @@ class HtmlListParserTest {
             <li><span>10/09/2026</span><a href="/document/trends-risks-vulnerabilities-trv-report-no-2-2026">Trends, Risks and Vulnerabilities (TRV) Report, No. 2, 2026</a></li>
             <li><span>12 October 2026</span><a href="https://www.fsb.org/2026/10/global-stablecoin-arrangements-cross-border/">Global stablecoin arrangements</a></li>
         """.trimIndent()
-        val esma = HtmlListParser.extract(html, "https://www.esma.europa.eu/databases-library/esma-library", Regex("""esma\.europa\.eu/document/[\w-]+"""))
+        val esma = HtmlListParser.extract(html, "https://www.esma.europa.eu/databases-library/esma-library", Regex("""/document/[\w-]+"""))
         assertEquals(1, esma.size)
         assertEquals(LocalDate.of(2026, 9, 10), esma[0].date)
-        val fsb = HtmlListParser.extract(html, "https://www.fsb.org/publications/", Regex("""fsb\.org/20\d{2}/\d{2}/[^/?#]+"""))
+        val fsb = HtmlListParser.extract(HtmlListParser.abbreviateMonths(html), "https://www.fsb.org/publications/", Regex("""/20\d{2}/\d{2}/[^/?#]+"""))
         assertEquals(1, fsb.size)
+        assertEquals(LocalDate.of(2026, 10, 12), fsb[0].date)
         assertEquals("Global stablecoin arrangements", fsb[0].title)
     }
 }
