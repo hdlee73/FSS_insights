@@ -3,6 +3,10 @@ package io.github.hdlee73.financenewsradar.ui
 import android.app.Application
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -64,16 +69,10 @@ private const val FISIS_SOURCE = "자료출처: 금융감독원 금융통계정�
 /** 비교에 담을 수 있는 회사 수. */
 private const val MAX_COMPARE = 3
 
-/** 재무현황에 보여 주는 지표(순서 고정). */
-private val FINANCE_KEYS = listOf("assets", "liab", "equity", "revenue", "expense", "opinc", "netincome")
-
 private val FINANCE_LABELS = mapOf(
     "assets" to "자산총계", "liab" to "부채총계", "equity" to "자기자본",
     "revenue" to "영업수익", "expense" to "영업비용", "opinc" to "영업이익", "netincome" to "당기순이익"
 )
-
-/** 당분기·누계를 함께 보여 주는 손익 항목. */
-private val PL_KEYS = setOf("revenue", "expense", "opinc", "netincome")
 
 /** 증권사 목록에서 외국계(외국 증권사 서울지점·한국법인)를 가려내는 이름 조각. */
 private val FOREIGN_BROKER = Regex("지점|골드만|모간스탠리|모건스탠리|메릴린치|비엔피|BNP|씨엘에스에이|CLSA|크레디|노무라|맥쿼리|유비에스|UBS|제이피모간|JP모간|도이치|소시에테|나틱시스|다이와|미즈호|HSBC|에이치에스비씨|바클레이|스탠다드차타드|씨티|ING|아이엔지|SMBC|라자드|이스트스프링|아이씨엠|ICM|CMS|씨엠에스|에스지|SG|CGS|CIMB|씨아이엠비|글로벌마켓|알비에스|RBS|스미토모|미쓰비시|도쿄|SBI증권")
@@ -350,6 +349,53 @@ private fun ColumnScope.CompanyDetail(company: FisisCompany, state: FisisUiState
     }
 }
 
+/** 금액 글자에서 단위("억원")를 뗀 숫자만(단위는 섹션 제목 옆에 한 번만 보여 준다). */
+private fun amountOnly(metric: FisisMetric?, month: String?): String? {
+    if (metric == null) return null
+    val v = metric.at(month)?.value ?: return null
+    return fisisValueText(v, metric.unit).removeSuffix("억원")
+}
+
+@Composable
+private fun SectionHeader(title: String, unit: String? = "단위: 억원") {
+    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        if (unit != null) Text(unit, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** 재무상태 카드: 이름은 왼쪽, 숫자는 오른쪽 정렬. */
+@Composable
+private fun BalanceCard(label: String, value: String, highlight: Boolean, modifier: Modifier) {
+    val bg = if (highlight) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+    Column(modifier.clip(RoundedCornerShape(12.dp)).background(bg).padding(horizontal = 10.dp, vertical = 10.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        Text(
+            value, Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.End, maxLines = 1, color = if (highlight) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+/** 손익 표의 한 줄: 항목, 당분기, 누적(손실은 빨간색). */
+@Composable
+private fun PlRow(label: String, current: FisisMetric?, cumulative: FisisMetric?, month: String?, bold: Boolean = false) {
+    @Composable
+    fun Cell(metric: FisisMetric?, modifier: Modifier) {
+        val v = metric?.at(month)?.value
+        Text(
+            amountOnly(metric, month) ?: "-", modifier, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.End,
+            fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+            color = if (v != null && v < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+        )
+    }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1.2f), style = MaterialTheme.typography.bodyLarge, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal)
+        Cell(current, Modifier.weight(1f))
+        Cell(cumulative, Modifier.weight(1f))
+    }
+}
+
 @Composable
 private fun FinanceTab(profile: FisisProfile, basis: String, month: String?, onMonth: (String) -> Unit) {
     val fin = profile.group("fin", basis).filter { it.basis == basis }
@@ -358,16 +404,40 @@ private fun FinanceTab(profile: FisisProfile, basis: String, month: String?, onM
     val selected = month?.takeIf { it in months } ?: months.firstOrNull()
     PeriodPicker(months, selected, profile.term, onMonth)
     if (fin.isEmpty()) Note("$basis 재무제표 자료가 없습니다.")
-    SubTitle("재무현황 ($basis)")
+    fun metric(key: String) = fin.firstOrNull { it.key == key }
+
+    SectionHeader("재무상태 ($basis)")
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("assets", "liab", "equity").forEach { k ->
+            BalanceCard(FINANCE_LABELS.getValue(k), amountOnly(metric(k), selected) ?: "-", highlight = k == "assets", modifier = Modifier.weight(1f))
+        }
+    }
+    // 부채·자기자본 비중 막대
+    val liab = metric("liab")?.at(selected)?.value
+    val equity = metric("equity")?.at(selected)?.value
+    if (liab != null && equity != null && liab > 0 && equity > 0) {
+        val liabShare = (liab / (liab + equity)).toFloat().coerceIn(0.02f, 0.98f)
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp).height(8.dp).clip(RoundedCornerShape(4.dp))) {
+            Box(Modifier.weight(liabShare).height(8.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)))
+            Box(Modifier.weight(1f - liabShare).height(8.dp).background(MaterialTheme.colorScheme.primary))
+        }
+        Text(
+            String.format(java.util.Locale.US, "■ 부채 %.1f%%   ■ 자기자본 %.1f%%", liabShare * 100, (1f - liabShare) * 100),
+            Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    SectionHeader("손익현황 ($basis)")
     val current = when (profile.term) { "H" -> "당반기"; "Y" -> "당기"; else -> "당분기" }
-    FINANCE_KEYS.forEach { k ->
-        val label = FINANCE_LABELS.getValue(k)
-        if (k in PL_KEYS) {
-            // 손익 항목은 당분기(해당 기간)와 누계(연초부터)를 함께 보여 준다.
-            MetricRow("$label ($current)", fin.firstOrNull { it.key == k }, selected)
-            MetricRow("$label (누계)", fin.firstOrNull { it.key == "${k}_cum" }, selected)
-        } else {
-            MetricRow(label, fin.firstOrNull { it.key == k }, selected)
+    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))) {
+        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text("항목", Modifier.weight(1.2f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(current, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
+            Text("누적", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
+        }
+        listOf("revenue", "expense", "opinc", "netincome").forEachIndexed { i, k ->
+            if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            PlRow(FINANCE_LABELS.getValue(k), metric(k), metric("${k}_cum"), selected, bold = k == "netincome")
         }
     }
     if (funds.isNotEmpty()) {
