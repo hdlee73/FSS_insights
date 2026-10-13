@@ -254,12 +254,21 @@ export function parseTable(result, term) {
     }
     a.points.push({ month: String(row.base_month || ""), v, raw });
   }
-  let max = 0; // 표 안 가장 큰 값(단위 판단용)
+  // 시점별로 표 안 가장 큰 값(단위 판단용). 시점마다 단위가 다르게 들어오는 자료가 있어 시점별로 따로 본다.
+  const monthMax = {};
+  let max = 0;
   for (const a of Object.values(accounts)) {
     a.points.sort((x, y) => x.month.localeCompare(y.month));
-    for (const p of a.points) for (const c of columns) if (p.v[c.id] !== null && Math.abs(p.v[c.id]) > max) max = Math.abs(p.v[c.id]);
+    for (const p of a.points) {
+      for (const c of columns) {
+        const v = p.v[c.id];
+        if (v === null) continue;
+        monthMax[p.month] = Math.max(monthMax[p.month] || 0, Math.abs(v));
+        max = Math.max(max, Math.abs(v));
+      }
+    }
   }
-  return { term, unit: String(desc.unit || ""), name: String((rows[0] && rows[0].finance_nm) || ""), columns, accounts, max };
+  return { term, unit: String(desc.unit || ""), name: String((rows[0] && rows[0].finance_nm) || ""), columns, accounts, max, monthMax };
 }
 
 /** 한 회사·한 통계표를 [firstTerm부터] 분기→반기→연 순으로 받는다. call(params) → statisticsInfoSearch 결과. */
@@ -320,9 +329,12 @@ export function metricFromTable(m, t) {
     unit = "%";
   } else {
     // 금액은 모두 억원으로 바꿔 보낸다. FISIS Open API는 통계표 단위 글자(백만원 등)와 달리 값을 원 단위로 돌려주는 경우가
-    // 있어(외국계 증권사 지점 등), 표 안의 값이 아주 크면 단위 글자와 상관없이 원으로 본다.
-    const mult = t.max >= 1e7 ? 1 : (unitMult(t.unit) ?? 1e6);
-    points = points.map((p) => ({ month: p.month, value: Math.round((p.value * mult) / 1e8) }));
+    // 있어(외국계 증권사 지점 등), 그 시점의 표 안 값이 아주 크면 단위 글자와 상관없이 원으로 본다.
+    // 작은 금액(소규모 회사)이 0억원으로 사라지지 않도록 소수 둘째 자리까지 남긴다.
+    points = points.map((p) => {
+      const mult = (t.monthMax[p.month] ?? t.max) >= 1e7 ? 1 : (unitMult(t.unit) ?? 1e6);
+      return { month: p.month, value: Math.round(((p.value * mult) / 1e8) * 100) / 100 };
+    });
     unit = "억원";
   }
   return {
