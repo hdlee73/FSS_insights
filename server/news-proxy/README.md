@@ -53,3 +53,12 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 통계표·항목 코드는 ECOS 통계표/항목 목록에서 확인한 값을 `STAT_SPECS`에 적어 두었습니다(기준금리·외환보유액만 이름 키워드로 찾음). 앱은 `/stats?ids=ktb-3y,corp-aa,…`처럼 사용자가 고른 통계만 요청하고, `ids`가 없으면 기본 묶음(`DEFAULT_STAT_IDS`)을 돌려줍니다. 못 찾은 항목은 화면에서 빠지며, 응답의 `missing`에 id가 남습니다. 결과는 조합별로 1시간 캐시됩니다.
 
 통계를 추가하려면 `STAT_SPECS`에 한 줄을 더하고(앱의 `STAT_CATALOG`에도 같은 id를 추가), **Deploy news proxy**를 다시 실행하세요. 앱만 새로 설치하고 서버를 다시 배포하지 않으면 새로 늘린 통계는 표시되지 않습니다.
+
+## 금융사 주요 경영정보(FISIS)
+앱의 **금융사 주요 경영정보** 화면은 금융통계정보시스템(FISIS) Open API를 서버(`/fisis/*`)로 중계합니다. 인증키는 서버 비밀값으로만 보관합니다.
+
+1. [FISIS Open API](https://fisis.fss.or.kr/page/api-key.jsp)에서 인증키를 신청합니다(무료).
+2. GitHub Secrets에 `FISIS_API_KEY`로 저장하고 Actions → **Deploy news proxy**를 다시 실행합니다.
+- 권역: 증권사(F), 자산운용사(G), 은행(A), 생명보험(H), 손해보험(I), 저축은행(E), 카드사(C). 이름 끝에 `[폐]`가 붙은 폐업 회사는 제외합니다.
+- 통계표 번호를 코드에 박지 않고, FISIS 통계목록·계정항목에서 통계표·계정 **이름**으로 총자산·총부채·BIS비율 등을 찾습니다(30일 보관). 어떤 통계표·계정을 쓰는지는 `GET /fisis/spec?sector=A`(앱 토큰 필요)로 확인할 수 있고, 앱 화면에도 항목마다 출처가 작게 표시됩니다.
+- 총자산 순위(`/fisis/ranking`)는 회사 30곳씩 나눠 받고 7일 보관합니다. 회사 상세(`/fisis/profile`)는 12시간 보관합니다. FISIS 일일 호출 한도를 아끼기 위한 것입니다.
