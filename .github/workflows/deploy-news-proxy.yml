@@ -8,6 +8,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Build FISIS data
+        # 권역별 금융회사·총자산 순위·통계표 위치를 FISIS에서 미리 받아 서버에 함께 올린다(Worker는 한 번에 하위 요청 50건 제한이 있다).
+        env:
+          FISIS_API_KEY: ${{ secrets.FISIS_API_KEY }}
+        run: node server/news-proxy/build-fisis-data.mjs || echo "FISIS 자료를 만들지 않았습니다."
       - name: Build DART company map
         # DART_API_KEY가 있으면 금융회사 이름 → DART 고유번호 목록을 만들어 서버에 함께 올린다(없으면 건너뜀).
         env:
