@@ -316,9 +316,10 @@ async function statOne(spec, env, tables) {
   const [from, to] = range(spec.cycle, new Date(), spec.want ? 18 : 36);
   const path = `StatisticSearch/{key}/json/kr/1/500/${tableCode}/${spec.cycle}/${from}/${to}` + (itemCode ? `/${itemCode}` : "");
   let rows = (await ecos(env, path)).StatisticSearch.row;
+  const fetched = rows.length;
   if (spec.want) rows = filterRows(rows, spec.want);
   const pair = latestPair(rows, spec.lastChange);
-  if (!pair) throw new Error("값 없음");
+  if (!pair) throw new Error(`값 없음(${tableCode} 조회 ${fetched}행, 조건 일치 ${rows.length}행${fetched >= 500 ? ", 500행 한도 도달" : ""})`);
   const scale = spec.scale || 1;
   return {
     id: spec.id,
@@ -342,7 +343,7 @@ export const selectSpecs = (idsParam) => {
 async function stats(url, env, ctx) {
   if (!env.ECOS_API_KEY) return fail(503, "ECOS_API_KEY가 설정되지 않았습니다");
   const specs = selectSpecs(url.searchParams.get("ids"));
-  const cacheKey = new Request(`https://stats.cache/ecos-v3/${specs.map((s) => s.id).sort().join(",")}`);
+  const cacheKey = new Request(`https://stats.cache/ecos-v4/${specs.map((s) => s.id).sort().join(",")}`);
   const cache = caches.default;
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
@@ -352,7 +353,9 @@ async function stats(url, env, ctx) {
   const settled = await Promise.allSettled(specs.map((s) => statOne(s, env, tableCache.rows)));
   const items = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
   const missing = specs.filter((_, i) => settled[i].status === "rejected").map((s) => s.id);
-  const response = new Response(JSON.stringify({ items, missing }), {
+  // 못 받은 통계마다 사유(ECOS 오류 코드, 통계표·항목 없음, 값 없음 등)를 남긴다.
+  const reasons = Object.fromEntries(specs.flatMap((s, i) => (settled[i].status === "rejected" ? [[s.id, String(settled[i].reason?.message || settled[i].reason).slice(0, 160)]] : [])));
+  const response = new Response(JSON.stringify({ items, missing, reasons }), {
     headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=3600" },
   });
   if (items.length) ctx.waitUntil(cache.put(cacheKey, response.clone()));
