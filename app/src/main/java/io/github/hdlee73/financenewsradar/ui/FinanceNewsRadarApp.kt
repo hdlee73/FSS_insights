@@ -107,7 +107,7 @@ private val appScreens = listOf(
     AppScreen("주요사이트", Icons.Filled.Language),
     AppScreen("알림", Icons.Filled.Notifications),
     AppScreen("앱 정보", Icons.Filled.Info),
-    AppScreen("금융회사 경영정보", Icons.Filled.Business)
+    AppScreen("금융사 주요 경영정보", Icons.Filled.Business)
 )
 
 // 서랍 메뉴의 묶음: 소제목과 그 아래 화면 번호.
