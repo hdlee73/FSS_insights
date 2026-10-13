@@ -5,7 +5,7 @@
 //  - /fisis   : 금융통계정보시스템(FISIS) Open API 중계(금융회사 목록·총자산 순위·주요 경영정보). 인증키는 이 서버의 비밀값(FISIS_API_KEY)으로만 존재한다.
 //  - FISIS 회사 상세에는 OpenDART(DART_API_KEY)로 대표이사·최대주주·연결 재무를 덧붙인다.
 // 배포할 때 DART 고유번호 목록(금융회사 이름 → corp_code)을 만들어 넣는다. 만들지 않았으면 빈 목록이다.
-import dartCorps from "./dart-corps.json" with { type: "json" };
+import dartCorps from "./dart-corps.json";
 
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
