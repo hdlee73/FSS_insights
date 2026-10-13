@@ -42,7 +42,7 @@ class FisisApiTest {
         assertEquals("30,000억원", fisisValueText(30_000.0, "억원"))
         assertEquals("6,039,261억원", fisisValueText(603_926_114_000_000.0, "원"))
         assertEquals("-120억원", fisisValueText(-12_000.0, "백만원"))
-        assertEquals("15.5%", fisisValueText(15.46, "%"))
+        assertEquals("15.46%", fisisValueText(15.46, "%"))
         assertEquals(5e11, fisisWon(500_000.0, "백만원"), 1.0)
     }
 
