@@ -2,6 +2,7 @@
 //  - /news    : 네이버 뉴스 검색 프록시. 네이버 키는 이 서버의 비밀값으로만 존재한다.
 //  - /library : 자료실. 구글 드라이브의 공유 폴더 목록·파일을 읽기 전용으로 중계한다.
 //  - /stats   : 국내 금융 통계(한국은행 ECOS). 키는 이 서버의 비밀값(ECOS_API_KEY)으로만 존재한다.
+//  - /fisis   : 금융통계정보시스템(FISIS) Open API 중계(금융회사 검색·경영정보 조회). 인증키는 이 서버의 비밀값(FISIS_API_KEY)으로만 존재한다.
 //  - /library/upload : 자료 올리기. 내 계정으로 실행되는 Apps Script 웹앱이 비공개 "업로드 대기" 폴더에만 올린다(관리자가 확인해 자료실로 옮김).
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
@@ -35,6 +36,13 @@ export default {
         return await stats(url, env, ctx);
       } catch (e) {
         return fail(502, `통계 서버 오류: ${e.message}`);
+      }
+    }
+    if (url.pathname.startsWith("/fisis/") && request.method === "GET") {
+      try {
+        return await fisis(url, env, ctx);
+      } catch (e) {
+        return fail(502, e.message || "FISIS 서버 오류");
       }
     }
     if (url.pathname === "/library/upload" && request.method === "POST") {
@@ -405,4 +413,105 @@ async function stats(url, env, ctx) {
   });
   if (items.length) ctx.waitUntil(cache.put(cacheKey, response.clone()));
   return response;
+}
+
+// ---- FISIS (금융통계정보시스템) ----
+const FISIS_API = "https://fisis.fss.or.kr/openapi";
+// 금융권역코드(partDiv). 통계표 번호(listNo)가 S+권역코드로 시작하는 것과 같다(SA…=은행, SF…=금융투자, SH…=생명보험, SI…=손해보험).
+const FISIS_SECTORS = new Set(["A", "F", "H", "I"]);
+const FISIS_TERMS = ["Q", "H", "Y"];
+
+const rowsOf = (v) => (Array.isArray(v) ? v : v && Array.isArray(v.row) ? v.row : v && typeof v === "object" ? [v] : []);
+const num = (x) => {
+  if (x === null || x === undefined || String(x).trim() === "" || String(x).trim() === "-") return null;
+  const n = Number(String(x).replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+};
+
+async function fisisCall(env, name, params) {
+  if (!env.FISIS_API_KEY) throw Object.assign(new Error("FISIS 인증키(FISIS_API_KEY)가 아직 설정되지 않았습니다."), { status: 501 });
+  const q = new URLSearchParams({ lang: "kr", auth: env.FISIS_API_KEY, ...params });
+  const res = await fetch(`${FISIS_API}/${name}.json?${q}`);
+  if (res.status === 429) throw new Error("FISIS 일일 호출 한도를 넘었습니다. 내일 다시 시도해 주세요.");
+  const text = await res.text();
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error(`FISIS 응답을 읽지 못했습니다 (HTTP ${res.status})`);
+  }
+  const result = body.result || body;
+  const code = String(result.err_cd ?? "000");
+  if (code === "020") throw new Error("FISIS 일일 호출 한도를 넘었습니다. 내일 다시 시도해 주세요.");
+  if (code !== "000" && code !== "100") {
+    // 100은 조회 결과 없음. 그 밖의 오류 코드는 사유와 함께 알린다(키는 응답에 넣지 않는다).
+    throw new Error(`FISIS 오류 ${code}: ${result.err_msg || ""}`.trim());
+  }
+  return result;
+}
+
+async function fisisCached(ctx, key, ttl, build) {
+  const cacheKey = new Request(`https://fisis.cache/v1/${key}`);
+  const cache = caches.default;
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+  const data = await build();
+  const response = new Response(JSON.stringify(data), {
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${ttl}` },
+  });
+  ctx.waitUntil(cache.put(cacheKey, response.clone()));
+  return response;
+}
+
+async function fisis(url, env, ctx) {
+  const action = url.pathname.slice("/fisis/".length);
+  if (action === "companies") {
+    const sector = url.searchParams.get("sector") || "";
+    if (!FISIS_SECTORS.has(sector)) return fail(400, "지원하지 않는 권역입니다.");
+    return fisisCached(ctx, `companies/${sector}`, 86400, async () => {
+      const r = await fisisCall(env, "companySearch", { partDiv: sector });
+      const items = rowsOf(r.list)
+        .map((c) => ({ code: String(c.finance_cd || ""), name: String(c.finance_nm || "") }))
+        .filter((c) => c.code && c.name);
+      return { items };
+    });
+  }
+  if (action === "data") {
+    const finance = url.searchParams.get("finance") || "";
+    const list = url.searchParams.get("list") || "";
+    if (!/^[0-9A-Za-z]{4,12}$/.test(finance) || !/^S[A-Z]\d{3}$/.test(list)) return fail(400, "회사 또는 통계표 코드가 올바르지 않습니다.");
+    const first = FISIS_TERMS.indexOf(url.searchParams.get("term") || "Q");
+    return fisisCached(ctx, `data/${finance}/${list}/${first}`, 43200, () => fisisData(env, finance, list, Math.max(0, first)));
+  }
+  return new Response("Not found", { status: 404 });
+}
+
+/** 한 회사·한 통계표의 모든 계정과목 시계열. 요청한 주기에 자료가 없으면 반기·연 순으로 다시 시도한다. */
+async function fisisData(env, finance, list, firstTerm) {
+  const now = new Date();
+  const endYear = now.getUTCFullYear();
+  const end = `${endYear}${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const span = { Q: 3, H: 5, Y: 8 };
+  for (const term of FISIS_TERMS.slice(firstTerm)) {
+    const start = `${endYear - span[term]}${end.slice(4)}`;
+    const r = await fisisCall(env, "statisticsInfoSearch", { financeCd: finance, listNo: list, term, startBaseMm: start, endBaseMm: end });
+    const rows = rowsOf(r.list);
+    if (!rows.length) continue;
+    const cols = rowsOf(r.description && r.description.column ? r.description.column : r.description)
+      .map((c) => ({ id: String(c.column_id || c.id || ""), name: String(c.column_nm || c.name || "") }))
+      .filter((c) => c.id);
+    const columns = cols.length ? cols : [{ id: "a", name: "" }];
+    const byAccount = new Map();
+    for (const row of rows) {
+      const key = String(row.account_cd ?? row.account_nm ?? "");
+      if (!byAccount.has(key)) byAccount.set(key, { code: key, name: String(row.account_nm || ""), points: [] });
+      const values = {};
+      for (const c of columns) values[c.id] = num(row[c.id]);
+      byAccount.get(key).points.push({ month: String(row.base_month || row.base_mm || ""), v: values });
+    }
+    const accounts = [...byAccount.values()].map((a) => ({ ...a, points: a.points.sort((x, y) => x.month.localeCompare(y.month)) }));
+    const name = String((rows[0] && rows[0].finance_nm) || "");
+    return { term, name, columns, accounts };
+  }
+  return { term: "", name: "", columns: [], accounts: [] };
 }

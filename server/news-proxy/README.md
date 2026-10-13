@@ -63,3 +63,11 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 통계표·항목 코드는 ECOS 통계표/항목 목록에서 확인한 값을 `STAT_SPECS`에 적어 두었습니다(기준금리·외환보유액만 이름 키워드로 찾음). 앱은 `/stats?ids=ktb-3y,corp-aa,…`처럼 사용자가 고른 통계만 요청하고, `ids`가 없으면 기본 묶음(`DEFAULT_STAT_IDS`)을 돌려줍니다. 못 찾은 항목은 화면에서 빠지며, 응답의 `missing`에 id가 남습니다. 결과는 조합별로 1시간 캐시됩니다.
 
 통계를 추가하려면 `STAT_SPECS`에 한 줄을 더하고(앱의 `STAT_CATALOG`에도 같은 id를 추가), **Deploy news proxy**를 다시 실행하세요. 앱만 새로 설치하고 서버를 다시 배포하지 않으면 새로 늘린 통계는 표시되지 않습니다.
+
+## 금융회사 경영정보(FISIS)
+앱의 **금융회사 경영정보** 화면은 금융통계정보시스템(FISIS) Open API를 서버(`/fisis/companies`, `/fisis/data`)로 중계합니다. 인증키는 서버 비밀값으로만 보관합니다.
+
+1. [FISIS Open API](https://fisis.fss.or.kr/openapi/main.jsp)에서 인증키를 신청합니다(무료).
+2. GitHub Secrets에 `FISIS_API_KEY`로 저장하고 Actions → **Deploy news proxy**를 다시 실행합니다.
+- 회사 목록은 24시간, 통계 조회는 12시간 서버에 캐시해 일일 호출 한도를 아낍니다.
+- 지원 권역: 금융투자(F), 은행(A), 생명보험(H), 손해보험(I). 통계표 목록은 `FisisApi.kt`의 `FISIS_SECTORS`에서 고칩니다.
