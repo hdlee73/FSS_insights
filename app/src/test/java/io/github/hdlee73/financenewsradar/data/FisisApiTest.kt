@@ -13,13 +13,14 @@ class FisisApiTest {
 
     @Test
     fun parsesProfile() {
-        val body = """{"name":"국민은행","term":"Q","basisOptions":["별도"],"metrics":[
+        val body = """{"name":"국민은행","term":"Q","basisOptions":["별도"],"dart":"OpenDART: 국민은행","metrics":[
             {"key":"assets","label":"총자산","group":"fin","basis":"별도","unit":"백만원","term":"Q","column":"","source":"재무상태표 · 자산총계",
              "points":[{"month":"202506","value":500},{"month":"202509","value":520}]},
             {"key":"ceo","label":"대표이사","group":"info","basis":"","unit":"","term":"Q","column":"","source":"x",
              "points":[{"month":"202509","text":"홍길동"}]}]}"""
         val profile = parseFisisProfile(body)
         assertEquals(listOf("별도"), profile.basisOptions)
+        assertEquals("OpenDART: 국민은행", profile.dart)
         val assets = profile.metric("assets", "별도")!!
         assertEquals(520.0, assets.at(null)!!.value!!, 1e-9)
         assertEquals(500.0, assets.at("202506")!!.value!!, 1e-9)

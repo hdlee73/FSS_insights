@@ -325,13 +325,14 @@ private fun ColumnScope.CompanyDetail(company: FisisCompany, state: FisisUiState
                                     profile.basisOptions.forEach { b -> PillChip("$b 재무제표", onClick = { basisChoice = b; financeMonth = null }, selected = b == basis, onPanel = true) }
                                 }
                             } else {
-                                Note("연결 기준 자료는 FISIS에서 제공되지 않아 ${basis ?: "별도"}(개별) 기준으로 표시합니다.")
+                                Note("연결 기준 자료를 찾지 못해 ${basis ?: "별도"}(개별) 기준으로 표시합니다.")
                             }
                             FinanceTab(profile, basis, financeMonth, onMonth = { financeMonth = it })
                         }
                         else -> RatioTab(profile, ratioMonth, onMonth = { ratioMonth = it })
                     }
                     Note("자료: 금융감독원 금융통계정보시스템(FISIS). 금액은 원본 단위를 억원·조원으로 환산해 표시합니다.")
+                    if (profile.dart.isNotBlank()) Note("대표이사·최대주주·연결 재무: ${profile.dart} (공시 기준, 회사 이름으로 맞춘 결과이므로 다르면 알려 주세요)")
                 }
             }
         }

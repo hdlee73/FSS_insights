@@ -42,7 +42,14 @@ data class FisisMetric(
     fun at(month: String?): FisisPoint? = if (month == null) points.lastOrNull() else points.firstOrNull { it.month == month }
 }
 
-data class FisisProfile(val name: String, val term: String, val basisOptions: List<String>, val metrics: List<FisisMetric>) {
+data class FisisProfile(
+    val name: String,
+    val term: String,
+    val basisOptions: List<String>,
+    val metrics: List<FisisMetric>,
+    /** OpenDART 연동 결과 안내(연동 전이면 빈 글자). */
+    val dart: String = ""
+) {
     fun group(group: String, basis: String? = null): List<FisisMetric> =
         metrics.filter { it.group == group && (basis == null || it.basis == basis || it.basis.isEmpty()) }
 
@@ -82,7 +89,8 @@ internal fun parseFisisProfile(body: String): FisisProfile {
     return FisisProfile(
         root.optString("name"), root.optString("term"),
         (0 until (options?.length() ?: 0)).map { options!!.getString(it) },
-        metrics
+        metrics,
+        root.optString("dart")
     )
 }
 
