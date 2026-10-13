@@ -46,9 +46,7 @@ data class FisisProfile(
     val name: String,
     val term: String,
     val basisOptions: List<String>,
-    val metrics: List<FisisMetric>,
-    /** OpenDART 연동 결과 안내(연동 전이면 빈 글자). */
-    val dart: String = ""
+    val metrics: List<FisisMetric>
 ) {
     fun group(group: String, basis: String? = null): List<FisisMetric> =
         metrics.filter { it.group == group && (basis == null || it.basis == basis || it.basis.isEmpty()) }
@@ -89,8 +87,7 @@ internal fun parseFisisProfile(body: String): FisisProfile {
     return FisisProfile(
         root.optString("name"), root.optString("term"),
         (0 until (options?.length() ?: 0)).map { options!!.getString(it) },
-        metrics,
-        root.optString("dart")
+        metrics
     )
 }
 
@@ -114,35 +111,85 @@ internal fun fisisMonthLabel(month: String): String =
 internal fun fisisTermLabel(term: String): String = when (term) { "Q" -> "분기"; "H" -> "반기"; "Y" -> "연간"; else -> "" }
 
 /** 단위(백만원·억원 등)를 원으로 바꾸는 배수. 모르는 단위는 null. */
-private fun unitMultiplier(unit: String): Double? = when {
-    unit.contains("조") -> 1e12
-    unit.contains("억") -> 1e8
-    unit.contains("백만") -> 1e6
-    unit.contains("천원") || unit == "천" -> 1e3
-    unit.trim() == "원" -> 1.0
-    else -> null
+private fun unitMultiplier(unit: String): Double? {
+    val u = unit.replace(" ", "")
+    return when {
+        u.contains("조") -> 1e12
+        u.contains("억") -> 1e8
+        u.contains("백만") -> 1e6
+        u.contains("천만") -> 1e7
+        u.contains("만원") || u == "만" -> 1e4
+        u.contains("천원") || u == "천" -> 1e3
+        u.contains("원") -> 1.0
+        else -> null
+    }
 }
 
 /** 순위 정렬용: 값을 원 단위로 환산(단위를 모르면 원래 값). */
 internal fun fisisWon(value: Double, unit: String): Double = value * (unitMultiplier(unit) ?: 1.0)
 
-/** 금액은 "12조 3,456억원"처럼, 비율(%)은 소수 둘째 자리까지. 단위를 모르면 원래 값과 단위를 그대로 보여 준다. */
+/** 금액은 항상 "603,926억원"처럼 억원으로, 비율은 %(배율은 배)로 보여 준다. 단위를 모르면 원래 값과 단위를 그대로 보여 준다. */
 internal fun fisisValueText(value: Double, unit: String): String {
-    if (unit.contains("%")) return String.format(java.util.Locale.US, "%,.2f", value) + "%"
-    val mult = unitMultiplier(unit) ?: return String.format(java.util.Locale.US, "%,.2f", value).trimEnd('0').trimEnd('.') + unit
-    val won = value * mult
-    val eok = Math.round(abs(won) / 1e8)
-    val sign = if (won < 0) "-" else ""
+    val us = java.util.Locale.US
+    if (unit.contains("%")) return String.format(us, "%,.2f", value) + "%"
+    if (unit.trim() == "배") return String.format(us, "%,.2f", value) + "배"
+    val mult = unitMultiplier(unit) ?: return String.format(us, "%,.2f", value).trimEnd('0').trimEnd('.') + unit
+    val eok = value * mult / 1e8
     return when {
-        eok >= 10000 -> {
-            val jo = eok / 10000
-            val rest = eok % 10000
-            sign + (if (rest == 0L) "${jo}조원" else String.format(java.util.Locale.US, "%d조 %,d억원", jo, rest))
-        }
-        eok > 0 -> sign + String.format(java.util.Locale.US, "%,d억원", eok)
-        won == 0.0 -> "0원"
-        else -> sign + String.format(java.util.Locale.US, "%,d만원", Math.round(abs(won) / 1e4))
+        eok == 0.0 -> "0억원"
+        abs(eok) >= 100 -> String.format(us, "%,d억원", Math.round(eok))
+        else -> String.format(us, "%,.2f", eok).trimEnd('0').trimEnd('.') + "억원"
     }
+}
+
+private fun homepageKey(name: String) = name.replace(Regex("\\s|\\(주\\)|주식회사|㈜"), "")
+
+/** 알려진 금융회사의 공식 홈페이지(회사 이름에 키가 들어 있으면 그 주소). 먼저 나온 항목이 우선한다. */
+private val FISIS_HOMEPAGES: List<Pair<String, String>> = listOf(
+    // 은행
+    "국민은행" to "https://www.kbstar.com", "신한은행" to "https://www.shinhan.com", "하나은행" to "https://www.kebhana.com",
+    "우리은행" to "https://www.wooribank.com", "중소기업은행" to "https://www.ibk.co.kr", "농협은행" to "https://www.nhbank.com",
+    "산업은행" to "https://www.kdb.co.kr", "씨티은행" to "https://www.citibank.co.kr", "SC제일은행" to "https://www.standardchartered.co.kr",
+    "카카오뱅크" to "https://www.kakaobank.com", "케이뱅크" to "https://www.kbank.com", "토스뱅크" to "https://www.tossbank.com",
+    "수협은행" to "https://www.suhyup-bank.com", "부산은행" to "https://www.busanbank.co.kr", "아이엠뱅크" to "https://www.imbank.co.kr",
+    "iM뱅크" to "https://www.imbank.co.kr", "대구은행" to "https://www.imbank.co.kr", "경남은행" to "https://www.knbank.co.kr",
+    "광주은행" to "https://www.kjbank.com", "전북은행" to "https://www.jbbank.co.kr", "제주은행" to "https://www.jejubank.co.kr",
+    // 증권
+    "미래에셋증권" to "https://securities.miraeasset.com", "삼성증권" to "https://www.samsungpop.com", "한국투자증권" to "https://www.koreainvestment.com",
+    "NH투자증권" to "https://www.nhqv.com", "KB증권" to "https://www.kbsec.com", "신한투자증권" to "https://www.shinhansec.com",
+    "하나증권" to "https://www.hanaw.com", "메리츠증권" to "https://www.imeritz.com", "키움증권" to "https://www.kiwoom.com",
+    "대신증권" to "https://www.daishin.com", "유안타증권" to "https://www.yuantasecurities.co.kr", "한화투자증권" to "https://www.hanwhawm.com",
+    "교보증권" to "https://www.iprovest.com", "현대차증권" to "https://www.hmsec.com", "SK증권" to "https://www.sks.co.kr",
+    "유진투자증권" to "https://www.eugenefn.com", "부국증권" to "https://www.bookook.co.kr", "IBK투자증권" to "https://www.ibks.com",
+    "BNK투자증권" to "https://www.bnkfn.co.kr", "카카오페이증권" to "https://www.kakaopaysec.com", "토스증권" to "https://www.tossinvest.com",
+    "다올투자증권" to "https://www.daolsecurities.com",
+    // 자산운용
+    "삼성자산운용" to "https://www.samsungfund.com", "미래에셋자산운용" to "https://investments.miraeasset.com", "KB자산운용" to "https://www.kbam.co.kr",
+    "한국투자신탁운용" to "https://www.kim.co.kr", "신한자산운용" to "https://www.shinhanfund.com", "한화자산운용" to "https://www.hanwhafund.com",
+    "키움투자자산운용" to "https://www.kiwoomam.com",
+    // 보험
+    "삼성생명" to "https://www.samsunglife.com", "한화생명" to "https://www.hanwhalife.com", "교보생명" to "https://www.kyobo.com",
+    "신한라이프" to "https://www.shinhanlife.co.kr", "NH농협생명" to "https://www.nhlife.co.kr", "농협생명" to "https://www.nhlife.co.kr",
+    "흥국생명" to "https://www.heungkuklife.co.kr", "동양생명" to "https://www.myangel.co.kr", "ABL생명" to "https://www.abllife.co.kr",
+    "미래에셋생명" to "https://life.miraeasset.com", "삼성화재" to "https://www.samsungfire.com", "현대해상" to "https://www.hi.co.kr",
+    "DB손해보험" to "https://www.idbins.com", "KB손해보험" to "https://www.kbinsure.co.kr", "메리츠화재" to "https://www.meritzfire.com",
+    "한화손해보험" to "https://www.hwgeneralins.com", "롯데손해보험" to "https://www.lotteins.co.kr", "흥국화재" to "https://www.heungkukfire.co.kr",
+    "농협손해보험" to "https://www.nhfire.co.kr",
+    // 카드
+    "신한카드" to "https://www.shinhancard.com", "삼성카드" to "https://www.samsungcard.com", "현대카드" to "https://www.hyundaicard.com",
+    "국민카드" to "https://www.kbcard.com", "롯데카드" to "https://www.lottecard.co.kr", "우리카드" to "https://pc.wooricard.com",
+    "하나카드" to "https://www.hanacard.co.kr", "비씨카드" to "https://www.bccard.com",
+    // 저축은행
+    "SBI저축은행" to "https://www.sbisb.co.kr", "OK저축은행" to "https://www.oksavingsbank.com", "웰컴저축은행" to "https://www.welcomebank.co.kr"
+)
+
+/** 회사 홈페이지 주소와, 목록에 있는 주소(true)인지 검색 주소(false)인지. */
+data class FisisHomepage(val url: String, val known: Boolean)
+
+fun fisisHomepage(name: String): FisisHomepage {
+    val key = homepageKey(name)
+    FISIS_HOMEPAGES.firstOrNull { key.contains(it.first, ignoreCase = true) }?.let { return FisisHomepage(it.second, true) }
+    return FisisHomepage("https://www.google.com/search?q=" + URLEncoder.encode("$name 공식 홈페이지", "UTF-8"), false)
 }
 
 /** 서버(/fisis)로 FISIS Open API를 조회한다. 인증키는 서버에만 있다. */
@@ -179,20 +226,3 @@ class FisisApi {
         parseFisisProfile(get("/fisis/profile?sector=${enc(sector)}&finance=${enc(companyCode)}"))
     }
 }
-
-/** 재무비율 지표 키별 간단한 산정방법(감독 규정 기준의 개략 설명). */
-val FISIS_RATIO_METHODS: Map<String, String> = mapOf(
-    "ncr" to "(영업용순자본 − 총위험액) ÷ 필요유지자기자본 × 100. 100% 이상 유지해야 합니다(회사 유형별로 세부 정의가 다릅니다).",
-    "lev" to "총자산(고객 예탁분 등 일부 조정) ÷ 자기자본. 증권사는 1,100% 이내가 감독 기준입니다.",
-    "liq" to "유동자산 ÷ 유동부채 × 100. 단기 지급 능력을 보는 지표입니다.",
-    "eqr" to "자기자본 ÷ 총자산 × 100.",
-    "bis" to "자기자본(총자본) ÷ 위험가중자산 × 100. 은행은 최소 8% 이상(총자본 기준) 유지해야 합니다.",
-    "npl" to "고정이하여신(3개월 이상 연체 등) ÷ 총여신 × 100.",
-    "delinq" to "연체 채권(1개월 이상) ÷ 총 채권(대출) × 100.",
-    "lcr" to "고유동성자산 ÷ 향후 30일간 순현금유출 × 100. 100% 이상 유지해야 합니다.",
-    "adj" to "조정자기자본 ÷ 조정총자산 × 100. 카드사는 8% 이상 유지해야 합니다.",
-    "solv" to "가용자본 ÷ 요구자본 × 100(K-ICS). 100% 이상이 기준이고 150% 이상을 권고합니다.",
-    "per13" to "보험계약이 13회차(1년 뒤)에도 유지되는 비율.",
-    "loss" to "발생손해액 ÷ 경과보험료 × 100.",
-    "opex" to "사업비 ÷ 보험료 × 100."
-)

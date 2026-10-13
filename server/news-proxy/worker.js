@@ -3,10 +3,7 @@
 //  - /library : 자료실. 구글 드라이브의 공유 폴더 목록·파일을 읽기 전용으로 중계한다.
 //  - /stats   : 국내 금융 통계(한국은행 ECOS). 키는 이 서버의 비밀값(ECOS_API_KEY)으로만 존재한다.
 //  - /fisis   : 금융통계정보시스템(FISIS) Open API 중계(금융회사 목록·총자산 순위·주요 경영정보). 인증키는 이 서버의 비밀값(FISIS_API_KEY)으로만 존재한다.
-//  - FISIS 회사 상세에는 OpenDART(DART_API_KEY)로 대표이사·최대주주·연결 재무를 덧붙인다.
 //  - /library/upload : 자료 올리기. 내 계정으로 실행되는 Apps Script 웹앱이 비공개 "업로드 대기" 폴더에만 올린다(관리자가 확인해 자료실로 옮김).
-// 배포할 때 DART 고유번호 목록(금융회사 이름 → corp_code)을 만들어 넣는다. 만들지 않았으면 빈 목록이다.
-import dartCorps from "./dart-corps.json";
 import fisisData from "./fisis-data.json";
 import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos } from "./fisis-lib.js";
 
@@ -424,7 +421,7 @@ async function stats(url, env, ctx) {
 // ---- FISIS (금융통계정보시스템) ----
 // Worker는 한 번의 호출에 하위 요청(외부 호출·캐시 포함)을 50건까지만 보낼 수 있다. 그래서 많은 호출이 필요한 작업
 // (권역별 회사 목록, 총자산 순위, 통계표·계정 찾기)은 배포할 때 build-fisis-data.mjs가 미리 해서 fisis-data.json에 넣어 둔다.
-// 서버는 그 자료로 순위·목록을 바로 돌려주고, 회사 상세만 실시간으로 받는다(통계표 몇 개 + DART).
+// 서버는 그 자료로 순위·목록을 바로 돌려주고, 회사 상세만 실시간으로 받는다(통계표 몇 개).
 const FISIS_SET = new Set(FISIS_SECTORS);
 const bundled = (sector) => (fisisData && fisisData.sectors && fisisData.sectors[sector]) || null;
 
@@ -469,125 +466,22 @@ async function fisis(url, env) {
   return new Response("Not found", { status: 404 });
 }
 
-/** 한 회사의 경영정보: 미리 찾아 둔 통계표·계정에 맞춰 통계표 몇 개만 받고, DART 자료를 덧붙인다. */
+/** 한 회사의 경영정보: 미리 찾아 둔 통계표·계정에 맞춰 통계표 몇 개만 받는다. */
 async function fisisProfile(env, data, finance) {
   const spec = data.spec;
   const listNos = specListNos(spec).slice(0, 12);
   const companyName = ((data.companies.find(([code]) => code === finance) || [])[1]) || "";
   const errors = [];
-  const [tableList, dart] = await Promise.all([
-    Promise.all(
-      listNos.map((listNo) =>
-        fetchTable((p) => fisisCall(env, "statisticsInfoSearch", p), finance, listNo, (spec.terms && spec.terms[listNo]) || "Q").catch((e) => {
-          errors.push(e);
-          return null;
-        })
-      )
-    ),
-    dartProfile(env, companyName).catch((e) => ({ note: `DART 조회 실패: ${e.message}`, metrics: [] })),
-  ]);
+  const tableList = await Promise.all(
+    listNos.map((listNo) =>
+      fetchTable((p) => fisisCall(env, "statisticsInfoSearch", p), finance, listNo, (spec.terms && spec.terms[listNo]) || "Q").catch((e) => {
+        errors.push(e);
+        return null;
+      })
+    )
+  );
   const tables = Object.fromEntries(listNos.map((l, i) => [l, tableList[i]]));
   const result = buildMetrics(spec, tables);
   if (!result.metrics.length && errors.length) throw errors[0]; // 자료가 없는 것과 조회가 실패한 것을 구분한다
-  const basisOptions = [...result.basisOptions];
-  for (const m of dart.metrics) {
-    if (m.group === "info" && result.metrics.some((x) => x.key === m.key)) continue; // FISIS 값이 있으면 그대로 둔다
-    result.metrics.push(m);
-    if (m.basis && !basisOptions.includes(m.basis)) basisOptions.push(m.basis);
-  }
-  return { name: result.name || companyName, term: result.term, basisOptions, metrics: result.metrics, dart: dart.note };
-}
-
-// ---- OpenDART: 대표이사·최대주주(지분율)·연결 재무 ----
-// FISIS 회사 이름으로 DART 회사를 찾는다(corp_code 목록은 배포할 때 만든다).
-const normName = (n) => String(n || "").replace(/\(주\)|㈜|주식회사|\(유\)|유한회사/g, "").replace(/[^0-9A-Za-z가-힣]/g, "").toLowerCase();
-let dartIndex = null;
-function matchDartCorp(name) {
-  const target = normName(name);
-  if (target.length < 2 || !Array.isArray(dartCorps) || !dartCorps.length) return null;
-  dartIndex ||= dartCorps.map(([n, code, stock]) => ({ n, norm: normName(n), code, listed: Boolean(stock) }));
-  const exact = dartIndex.filter((e) => e.norm === target);
-  if (exact.length) return exact.find((e) => e.listed) || exact[0];
-  let best = null;
-  let bestScore = 99;
-  for (const e of dartIndex) {
-    if (!(e.norm.includes(target) || (e.norm.length >= 4 && target.includes(e.norm)))) continue;
-    const score = Math.abs(e.norm.length - target.length) - (e.listed ? 0.5 : 0);
-    if (score < bestScore) { best = e; bestScore = score; }
-  }
-  return bestScore <= 6 ? best : null;
-}
-
-async function dartCall(env, name, params) {
-  const q = new URLSearchParams({ crtfc_key: env.DART_API_KEY, ...params });
-  const res = await fetch(`https://opendart.fss.or.kr/api/${name}.json?${q}`);
-  const body = await res.json().catch(() => null);
-  if (!body) return null;
-  if (body.status === "020") throw new Error("DART 일일 호출 한도를 넘었습니다.");
-  return body.status === "000" ? body : null; // 013: 조회 결과 없음
-}
-
-const DART_MONTH = { 11013: "03", 11012: "06", 11014: "09", 11011: "12" };
-const DART_FIN = [
-  { key: "assets", label: "총자산", re: /^자산총계$/ },
-  { key: "liab", label: "총부채", re: /^부채총계$/ },
-  { key: "equity", label: "자기자본", re: /^자본총계$/ },
-  { key: "capital", label: "자본금", re: /^자본금$/ },
-  { key: "revenue", label: "영업수익", re: /^(영업수익|매출액|수익\(매출액\))$/ },
-  { key: "netincome", label: "당기순이익", re: /^당기순이익(\(손실\))?$/ },
-];
-
-/** 대표이사·최대주주·지분율(공시 기준)과 연결 재무(주요계정)를 FISIS 지표와 같은 모양으로 돌려준다. */
-async function dartProfile(env, name) {
-  if (!env.DART_API_KEY) return { note: "", metrics: [] };
-  const corp = matchDartCorp(name);
-  if (!corp) return { note: "DART에서 같은 이름의 회사를 찾지 못했습니다", metrics: [] };
-  const y = new Date().getUTCFullYear();
-  const periods = [[y, 11014], [y, 11012], [y, 11013], [y - 1, 11011], [y - 1, 11014], [y - 2, 11011]].map(([year, r]) => ({ year, r, month: `${year}${DART_MONTH[r]}` }));
-  const base = { corp_code: corp.code };
-  const [company, holder, fins] = await Promise.all([
-    dartCall(env, "company", base).catch(() => null),
-    (async () => {
-      for (const p of periods) {
-        const b = await dartCall(env, "hyslrSttus", { ...base, bsns_year: String(p.year), reprt_code: String(p.r) }).catch(() => null);
-        if (b && rowsOf(b.list).length) return { p, rows: rowsOf(b.list) };
-      }
-      return null;
-    })(),
-    Promise.all(periods.slice(0, 4).map((p) => dartCall(env, "fnlttSinglAcnt", { ...base, bsns_year: String(p.year), reprt_code: String(p.r) }).then((b) => ({ p, b })).catch(() => ({ p, b: null })))),
-  ]);
-  const metrics = [];
-  const info = (key, label, text, month, source) => metrics.push({ key, label, group: "info", basis: "", unit: "", term: "", column: "", source, points: [{ month, value: null, text }] });
-  const thisMonth = `${y}${String(new Date().getUTCMonth() + 1).padStart(2, "0")}`;
-  if (company && company.ceo_nm) info("ceo", "대표이사", String(company.ceo_nm).trim(), thisMonth, "OpenDART 기업개요");
-  if (holder) {
-    const top = holder.rows.find((r) => /본인/.test(r.relate || "")) || holder.rows[0];
-    const pct = top && (num(top.trmend_posesn_stock_qota_rt) ?? num(top.bsis_posesn_stock_qota_rt));
-    if (top && top.nm) info("holder", "최대주주", String(top.nm).trim(), holder.p.month, "OpenDART 최대주주 현황");
-    if (pct !== null && pct !== undefined) info("holderPct", "최대주주 지분율", `${pct.toFixed(2)}%`, holder.p.month, "OpenDART 최대주주 현황");
-  }
-  // 연결 재무: 각 보고서의 당기·전기 금액을 시점별로 모은다(단위: 원).
-  const series = new Map();
-  for (const { p, b } of fins) {
-    for (const row of b ? rowsOf(b.list) : []) {
-      if (row.fs_div !== "CFS") continue;
-      const spec = DART_FIN.find((d) => d.re.test(String(row.account_nm || "").trim()));
-      if (!spec) continue;
-      const points = series.get(spec.key) || new Map();
-      const cur = num(row.thstrm_amount);
-      const prev = num(row.frmtrm_amount);
-      if (cur !== null) points.set(p.month, cur);
-      if (prev !== null && !points.has(`${p.year - 1}${p.month.slice(4)}`)) points.set(`${p.year - 1}${p.month.slice(4)}`, prev);
-      series.set(spec.key, points);
-    }
-  }
-  for (const spec of DART_FIN) {
-    const pts = series.get(spec.key);
-    if (!pts || !pts.size) continue;
-    metrics.push({
-      key: spec.key, label: spec.label, group: "fin", basis: "연결", unit: "원", term: "Q", column: "", source: "OpenDART 주요계정(연결)",
-      points: [...pts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, value })),
-    });
-  }
-  return { note: `OpenDART: ${corp.n}`, metrics };
+  return { name: result.name || companyName, term: result.term, basisOptions: result.basisOptions, metrics: result.metrics };
 }

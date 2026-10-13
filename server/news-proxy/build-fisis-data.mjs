@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CLOSED, FISIS_SECTORS, fetchTable, fisisFetch, resolveSpec, rowsOf, specListNos, pickColumn, FISIS_TERMS } from "./fisis-lib.js";
+import { CLOSED, FISIS_SECTORS, FISIS_TERMS, fetchTable, fisisFetch, metricFromTable, resolveSpec, rowsOf, specListNos, validateSpec } from "./fisis-lib.js";
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "fisis-data.json");
 const key = (process.env.FISIS_API_KEY || "").trim();
@@ -42,6 +42,16 @@ async function buildSector(sector) {
     },
     sector
   );
+  // 표본 회사(고르게 6곳)로 실제 자료가 나오는 계정만 확정한다(후보가 여럿이면 값이 나오는 첫 후보).
+  const step = Math.max(1, Math.floor(companies.length / 6));
+  const samples = companies.filter((_, i) => i % step === 0).slice(0, 6).map(([code]) => code);
+  const cache = new Map();
+  const probe = (code, listNo, accountCd) => {
+    const k = `${code}/${listNo}/${accountCd}`;
+    if (!cache.has(k)) cache.set(k, fetchTable((p) => call("statisticsInfoSearch", p), code, listNo, "Q", accountCd));
+    return cache.get(k);
+  };
+  await validateSpec(spec, samples, probe, (line) => console.log(`  [${sector}] ${line}`));
   const ref = (spec.basis["별도"] || Object.values(spec.basis)[0] || []).find((m) => m.key === "assets");
   const assets = {};
   if (ref) {
@@ -50,10 +60,9 @@ async function buildSector(sector) {
         companies.slice(i, i + 4).map(async ([code]) => {
           try {
             const t = await fetchTable((p) => call("statisticsInfoSearch", p), code, ref.listNo, "Q", ref.accountCd);
-            const a = t && t.accounts[ref.accountCd];
-            const col = t && pickColumn(t, "");
-            const last = a && col && [...a.points].reverse().find((p) => p.v[col.id] !== null);
-            if (last) assets[code] = [last.v[col.id], last.month, t.unit];
+            const metric = t && metricFromTable({ ...ref, group: "fin", basis: "" }, t);
+            const last = metric && metric.points[metric.points.length - 1];
+            if (last) assets[code] = [last.value, last.month, metric.unit];
           } catch {
             /* 이 회사는 순위에서 뺀다 */
           }
