@@ -67,8 +67,14 @@ private val FINANCE_KEYS = listOf("assets", "liab", "equity", "revenue", "expens
 
 private val FINANCE_LABELS = mapOf(
     "assets" to "자산총계", "liab" to "부채총계", "equity" to "자기자본",
-    "revenue" to "영업수익", "expense" to "영업비용", "opinc" to "영업이익", "netincome" to "당기(분반기)순이익"
+    "revenue" to "영업수익", "expense" to "영업비용", "opinc" to "영업이익", "netincome" to "당기순이익"
 )
+
+/** 당분기·누계를 함께 보여 주는 손익 항목. */
+private val PL_KEYS = setOf("revenue", "expense", "opinc", "netincome")
+
+/** 증권사 목록에서 외국계(외국 증권사 서울지점·한국법인)를 가려내는 이름 조각. */
+private val FOREIGN_BROKER = Regex("지점|골드만|모간스탠리|모건스탠리|메릴린치|비엔피|BNP|씨엘에스에이|CLSA|크레디|노무라|맥쿼리|유비에스|UBS|제이피모간|JP모간|도이치|소시에테|나틱시스|다이와|미즈호|HSBC|에이치에스비씨|바클레이|스탠다드차타드|씨티|ING|아이엔지|SMBC|라자드|이스트스프링")
 
 /** 비교표에 넣는 재무 지표. */
 private val COMPARE_KEYS = listOf("assets", "liab", "equity", "revenue", "opinc", "netincome")
@@ -211,8 +217,13 @@ private fun CompanyList(state: FisisUiState, viewModel: FisisViewModel) {
     val all = state.companies[sector.code].orEmpty()
     val assets = state.assets[sector.code].orEmpty()
     // 총자산이 큰 순서. 총자산을 아직 못 받은 회사는 이름순으로 뒤에 둔다.
-    val sorted = remember(all, assets) {
-        all.sortedWith(compareByDescending<FisisCompany> { assets[it.code]?.let { a -> fisisWon(a.value, a.unit) } ?: Double.NEGATIVE_INFINITY }.thenBy { it.name })
+    // 증권사는 국내 증권사를 먼저, 그다음 외국계를 각각 총자산 큰 순으로 둔다.
+    val sorted = remember(all, assets, sector.code) {
+        all.sortedWith(
+            compareBy<FisisCompany> { if (sector.code == "F" && FOREIGN_BROKER.containsMatchIn(it.name)) 1 else 0 }
+                .thenByDescending { assets[it.code]?.let { a -> fisisWon(a.value, a.unit) } ?: Double.NEGATIVE_INFINITY }
+                .thenBy { it.name }
+        )
     }
     val shown = remember(sorted, query) { sorted.filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) } }
     Column(Modifier.fillMaxSize()) {
@@ -228,7 +239,7 @@ private fun CompanyList(state: FisisUiState, viewModel: FisisViewModel) {
                 when {
                     state.picks.isNotEmpty() -> "비교 선택 ${state.picks.size}/$MAX_COMPARE: " + state.picks.joinToString(", ") { it.name }
                     state.ranking -> "자산총계 순위를 불러오는 중… 회사를 누르면 상세, 체크하면 비교"
-                    else -> "자산총계 큰 순 · 회사를 누르면 상세, 체크하면 비교(최대 $MAX_COMPARE 곳)"
+                    else -> "자산총계 큰 순(증권사는 국내 → 외국계) · 회사를 누르면 상세, 체크하면 비교(최대 $MAX_COMPARE 곳)"
                 },
                 Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis
             )
@@ -346,7 +357,17 @@ private fun FinanceTab(profile: FisisProfile, basis: String, month: String?, onM
     PeriodPicker(months, selected, profile.term, onMonth)
     if (fin.isEmpty()) Note("$basis 재무제표 자료가 없습니다.")
     SubTitle("재무현황 ($basis)")
-    FINANCE_KEYS.forEach { k -> MetricRow(FINANCE_LABELS.getValue(k), fin.firstOrNull { it.key == k }, selected) }
+    val current = when (profile.term) { "H" -> "당반기"; "Y" -> "당기"; else -> "당분기" }
+    FINANCE_KEYS.forEach { k ->
+        val label = FINANCE_LABELS.getValue(k)
+        if (k in PL_KEYS) {
+            // 손익 항목은 당분기(해당 기간)와 누계(연초부터)를 함께 보여 준다.
+            MetricRow("$label ($current)", fin.firstOrNull { it.key == k }, selected)
+            MetricRow("$label (누계)", fin.firstOrNull { it.key == "${k}_cum" }, selected)
+        } else {
+            MetricRow(label, fin.firstOrNull { it.key == k }, selected)
+        }
+    }
     if (funds.isNotEmpty()) {
         SubTitle("펀드 설정원본 · 순자산")
         funds.forEach { MetricRow(it.label, it, selected) }

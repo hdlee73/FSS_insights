@@ -254,8 +254,12 @@ export function parseTable(result, term) {
     }
     a.points.push({ month: String(row.base_month || ""), v, raw });
   }
-  for (const a of Object.values(accounts)) a.points.sort((x, y) => x.month.localeCompare(y.month));
-  return { term, unit: String(desc.unit || ""), name: String((rows[0] && rows[0].finance_nm) || ""), columns, accounts };
+  let max = 0; // 표 안 가장 큰 값(단위 판단용)
+  for (const a of Object.values(accounts)) {
+    a.points.sort((x, y) => x.month.localeCompare(y.month));
+    for (const p of a.points) for (const c of columns) if (p.v[c.id] !== null && Math.abs(p.v[c.id]) > max) max = Math.abs(p.v[c.id]);
+  }
+  return { term, unit: String(desc.unit || ""), name: String((rows[0] && rows[0].finance_nm) || ""), columns, accounts, max };
 }
 
 /** 한 회사·한 통계표를 [firstTerm부터] 분기→반기→연 순으로 받는다. call(params) → statisticsInfoSearch 결과. */
@@ -271,14 +275,21 @@ export async function fetchTable(call, finance, listNo, firstTerm = "Q", account
   return null;
 }
 
+// 손익 항목은 당분기 열과 누계 열이 따로 있다.
+const PL_KEYS = /^(revenue|expense|opinc|netincome)$/;
+const CUM_COL = /누계|누적|연초/;
 const AMOUNT_COL = /금액|잔액|채권|여신|대출|원본|자산|부채|규모|액$/;
 
 /** 열 고르기: 열 이름 패턴이 있으면 그 열. 비율은 "…율" 열을, 손익은 누적 열을, 그 밖은 첫 열을 쓴다. */
-export function pickColumn(table, colSource, group = "", key = "") {
+export function pickColumn(table, colSource, group = "", key = "", cum = false) {
+  if (cum) return table.columns.find((c) => CUM_COL.test(c.name)) || null;
   if (colSource) return table.columns.find((c) => new RegExp(colSource).test(c.name.replace(/\s/g, ""))) || null;
   const cols = table.columns;
   if (!cols.length) return null;
-  if (/^(revenue|expense|netincome)$/.test(key) && cols.length > 1) return cols.find((c) => /누적/.test(c.name)) || cols[0];
+  if (PL_KEYS.test(key) && cols.length > 1) {
+    const cum = cols.find((c) => CUM_COL.test(c.name));
+    return cum ? cols.find((c) => c !== cum && !CUM_COL.test(c.name)) || cols[0] : cols[0];
+  }
   if (group === "ratio" && cols.length > 1) return cols.find((c) => /비율|율|%/.test(c.name)) || cols.find((c) => !AMOUNT_COL.test(c.name)) || cols[0];
   return cols[0];
 }
@@ -299,7 +310,7 @@ export function unitMult(unit) {
 /** 한 항목(m)과 받아 온 표(t)로 화면용 지표 하나를 만든다. 자료가 없거나 값이 말이 안 되면 null. */
 export function metricFromTable(m, t) {
   const account = t.accounts[m.accountCd];
-  const column = pickColumn(t, m.col, m.group, m.key);
+  const column = pickColumn(t, m.col, m.group, m.key, m.cum);
   if (!account || !column) return null;
   let points = account.points.map((p) => ({ month: p.month, value: p.v[column.id] })).filter((p) => p.value !== null);
   if (!points.length) return null;
@@ -308,9 +319,9 @@ export function metricFromTable(m, t) {
     if (points.some((p) => Math.abs(p.value) > 100000)) return null; // 금액이 비율로 잡힌 것
     unit = "%";
   } else {
-    // 금액은 모두 억원으로 바꿔 보낸다. 단위 글자를 못 읽으면 값 크기로 짐작한다(아주 크면 원, 아니면 백만원).
-    const biggest = Math.max(...points.map((p) => Math.abs(p.value)));
-    const mult = unitMult(t.unit) ?? (biggest >= 1e11 ? 1 : 1e6);
+    // 금액은 모두 억원으로 바꿔 보낸다. FISIS Open API는 통계표 단위 글자(백만원 등)와 달리 값을 원 단위로 돌려주는 경우가
+    // 있어(외국계 증권사 지점 등), 표 안의 값이 아주 크면 단위 글자와 상관없이 원으로 본다.
+    const mult = t.max >= 1e7 ? 1 : (unitMult(t.unit) ?? 1e6);
     points = points.map((p) => ({ month: p.month, value: Math.round((p.value * mult) / 1e8) }));
     unit = "억원";
   }
@@ -338,6 +349,10 @@ export function buildMetrics(spec, tables) {
     if (!metric) continue;
     if (m.group === "fin" && !term) term = t.term;
     metrics.push(metric);
+    if (m.group === "fin" && PL_KEYS.test(m.key)) {
+      const cum = metricFromTable({ ...m, cum: true, key: `${m.key}_cum` }, t);
+      if (cum) metrics.push(cum);
+    }
   }
   deriveMissing(metrics);
   return { name, term, basisOptions: Object.keys(spec.basis), metrics };
@@ -355,17 +370,20 @@ const IDENTITIES = [
 const IDENTITY_SIGN = { opinc: -1, revenue: 1, expense: -1, liab: -1, equity: -1, assets: 1 };
 export function deriveMissing(metrics) {
   for (const basis of ["별도", "연결"]) {
-    const find = (key) => metrics.find((m) => m.group === "fin" && m.basis === basis && m.key === key);
-    for (const [target, a, b, label] of IDENTITIES) {
-      if (find(target)) continue;
-      const x = find(a);
-      const y = find(b);
-      if (!x || !y) continue;
-      const sign = IDENTITY_SIGN[target];
-      const byMonth = new Map(y.points.map((p) => [p.month, p.value]));
-      const points = x.points.filter((p) => byMonth.has(p.month)).map((p) => ({ month: p.month, value: p.value + sign * byMonth.get(p.month) }));
-      if (!points.length) continue;
-      metrics.push({ key: target, label, group: "fin", basis, unit: x.unit, term: x.term, column: "", source: "계산", points });
+    for (const suffix of ["", "_cum"]) {
+      const find = (key) => metrics.find((m) => m.group === "fin" && m.basis === basis && m.key === key + suffix);
+      for (const [target, a, b, label] of IDENTITIES) {
+        if (suffix && !PL_KEYS.test(target)) continue; // 누계는 손익 항목만
+        if (find(target)) continue;
+        const x = find(a);
+        const y = find(b);
+        if (!x || !y) continue;
+        const sign = IDENTITY_SIGN[target];
+        const byMonth = new Map(y.points.map((p) => [p.month, p.value]));
+        const points = x.points.filter((p) => byMonth.has(p.month)).map((p) => ({ month: p.month, value: p.value + sign * byMonth.get(p.month) }));
+        if (!points.length) continue;
+        metrics.push({ key: target + suffix, label, group: "fin", basis, unit: x.unit, term: x.term, column: "", source: "계산", points });
+      }
     }
   }
 }
