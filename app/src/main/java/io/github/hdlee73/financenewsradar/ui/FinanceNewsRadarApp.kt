@@ -246,4 +246,7 @@ fun FinanceNewsRadarApp(
 
     // 새 버전이 있으면 앱을 열 때마다(설치 전까지) 팝업으로 알린다.
     UpdatePrompt(onOpenAppInfo = { screen = SCREEN_INFO })
+
+    // 최초 실행 1회: 비공식 앱 안내(확인해야 닫힘).
+    DisclaimerDialog()
 }
