@@ -72,3 +72,12 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 - 권역: 증권사(F), 자산운용사(G), 은행(A), 생명보험(H), 손해보험(I), 저축은행(E), 카드사(C). 이름 끝에 `[폐]`가 붙은 폐업 회사는 제외합니다.
 - 통계표 번호를 코드에 박지 않고, FISIS 통계목록·계정항목에서 통계표·계정 **이름**으로 총자산·총부채·BIS비율 등을 찾습니다(30일 보관). 어떤 통계표·계정을 쓰는지는 `GET /fisis/spec?sector=A`(앱 토큰 필요)로 확인할 수 있고, 앱 화면에도 항목마다 출처가 작게 표시됩니다.
 - 총자산 순위(`/fisis/ranking`)는 회사 30곳씩 나눠 받고 7일 보관합니다. 회사 상세(`/fisis/profile`)는 12시간 보관합니다. FISIS 일일 호출 한도를 아끼기 위한 것입니다.
+
+### OpenDART 연동(대표이사·최대주주·연결 재무)
+FISIS에 없는 대표이사, 최대주주·지분율, 연결 재무제표는 [OpenDART](https://opendart.fss.or.kr)에서 가져옵니다.
+
+1. OpenDART에서 인증키를 발급받습니다(무료).
+2. GitHub Secrets에 `DART_API_KEY`로 저장하고 Actions → **Deploy news proxy**를 실행합니다.
+- 배포할 때 `build-dart-corps.py`가 DART 고유번호 목록에서 금융회사만 골라 서버에 함께 올립니다. FISIS 회사 이름과 DART 회사 이름을 맞춰 보며, 앱 화면 아래에 어느 DART 회사와 맞췄는지 표시합니다.
+- DART에 공시하지 않는 회사(최대주주 현황 등이 없는 회사)는 해당 항목이 "FISIS 미제공"으로 보입니다. 연결 재무는 DART 주요계정(연결) 기준입니다.
+- Secrets에 `FISIS_API_KEY`와 `DART_API_KEY`가 모두 있어야 배포가 끝까지 진행됩니다.
