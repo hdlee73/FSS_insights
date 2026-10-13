@@ -138,6 +138,8 @@ data class MarketUiState(
     val kofia: List<KofiaGroup> = emptyList(),
     val kofiaLoading: Boolean = false,
     val kofiaFailed: Boolean = false,
+    /** 자본시장 통계에서 사용자가 숨긴 항목 키. */
+    val kofiaHidden: Set<String> = emptySet(),
     /** 사용자가 고른 국내 금융 통계(시장동향 탭 / 오늘의 브리핑). */
     val statSelection: StatSelection = StatSelection(DEFAULT_MARKET_STATS.toSet(), DEFAULT_BRIEFING_STATS.toSet())
 )
@@ -151,7 +153,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     private var statsLoadedAt = 0L
     /** 통계 요청 번호. 선택을 바꾼 뒤 늦게 도착한 이전 요청의 응답이 새 결과를 덮어쓰지 않게 한다. */
     private var statsRequest = 0
-    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection(), watchIntraday = store.loadWatchIntraday(), indexIntraday = store.loadIndexIntraday()))
+    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection(), kofiaHidden = store.loadKofiaHidden(), watchIntraday = store.loadWatchIntraday(), indexIntraday = store.loadIndexIntraday()))
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
     private var refreshJob: Job? = null
     private val chartFailedAt = HashMap<String, Long>()
@@ -239,6 +241,12 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
         runCatching { kofiaApi.load() }
             .onSuccess { groups -> _state.update { it.copy(kofia = groups, kofiaLoading = false, kofiaFailed = false) } }
             .onFailure { kofiaLoadedAt = 0L; _state.update { it.copy(kofiaLoading = false, kofiaFailed = true) } }
+    }
+
+    /** 자본시장 통계에서 보지 않을 항목을 저장한다. */
+    fun setKofiaHidden(hidden: Set<String>) {
+        store.saveKofiaHidden(hidden)
+        _state.update { it.copy(kofiaHidden = hidden) }
     }
 
     /** 통계 선택을 저장하고, 새로 고른 통계를 바로 다시 받아 온다. */
@@ -400,6 +408,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
     var removing by remember { mutableStateOf<Instrument?>(null) }
     var indexPicking by remember { mutableStateOf(false) }
     var statPicking by remember { mutableStateOf(false) }
+    var kofiaPicking by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     // 화면이 보이는 동안만 갱신한다(탭을 벗어나면 중단): 지수 10초, 전체 20초.
@@ -446,7 +455,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
             )
         }
         item { StatsPanel(state, state.statSelection.market) { statPicking = true } }
-        item { CapitalMarketPanel(state.kofia, state.kofiaLoading, state.kofiaFailed) }
+        item { CapitalMarketPanel(state.kofia, state.kofiaHidden, state.kofiaLoading, state.kofiaFailed) { kofiaPicking = true } }
         item {
             Text(
                 if (state.failed) "일부 시세를 불러오지 못했습니다. 새로고침으로 다시 시도해 주세요."
@@ -473,6 +482,9 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
     if (statPicking) {
         StatPickerDialog(state.statSelection, onDismiss = { statPicking = false }) { viewModel.setStatSelection(it); statPicking = false }
     }
+    if (kofiaPicking) {
+        KofiaPickerDialog(state.kofia, state.kofiaHidden, onDismiss = { kofiaPicking = false }) { viewModel.setKofiaHidden(it); kofiaPicking = false }
+    }
     if (indexPicking) {
         IndexPickerDialog(state.indexes, onDismiss = { indexPicking = false }) { viewModel.setIndexSelection(it); indexPicking = false }
     }
@@ -497,7 +509,7 @@ internal fun SubHeading(title: String, trailing: @Composable () -> Unit = {}) {
 }
 
 @Composable
-private fun SoftButton(onClick: () -> Unit, enabled: Boolean = true, content: @Composable () -> Unit) {
+internal fun SoftButton(onClick: () -> Unit, enabled: Boolean = true, content: @Composable () -> Unit) {
     Surface(
         onClick = onClick,
         enabled = enabled,

@@ -25,4 +25,11 @@ class KofiaApiTest {
         assertEquals("투자자예탁금", deposit.name)
         assertEquals("백만원", groups[1].sections[0].unit)
     }
+
+    @Test
+    fun itemKeysAreUnique() {
+        val keys = groups.flatMap { g -> g.sections.flatMap { s -> s.items.map { it.key } } }
+        assertEquals(keys.size, keys.toSet().size)
+        assertEquals("펀드>펀드시장규모>공모펀드 순자산총액", groups[0].sections[0].items[0].key)
+    }
 }

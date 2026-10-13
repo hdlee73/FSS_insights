@@ -101,6 +101,13 @@ class WatchlistStore(context: Context) {
         preferences.edit().putStringSet(STAT_MARKET, selection.market).putStringSet(STAT_BRIEFING, selection.briefing).apply()
     }
 
+    /** 자본시장 통계에서 숨긴 항목 키. 저장된 값이 없으면 전부 보이고, 새로 생긴 항목도 기본으로 보인다. */
+    fun loadKofiaHidden(): Set<String> = preferences.getStringSet(KOFIA_HIDDEN, null) ?: emptySet()
+
+    fun saveKofiaHidden(hidden: Set<String>) {
+        preferences.edit().putStringSet(KOFIA_HIDDEN, hidden).apply()
+    }
+
     /**
      * 증시동향 지표 선택. 저장된 값이 없으면 예전의 6칸 구성(저장돼 있으면 그대로)을 이어받고,
      * 브리핑은 예전처럼 일부 지표(S&P 500·WTI·US 10Y·필라델피아 반도체)를 뺀 값으로 시작한다.
@@ -138,6 +145,7 @@ class WatchlistStore(context: Context) {
         const val HIDDEN_STATS = "hidden_stats"
         const val STAT_MARKET = "stat_market_v1"
         const val STAT_BRIEFING = "stat_briefing_v1"
+        const val KOFIA_HIDDEN = "kofia_hidden_v1"
         const val ITEMS = "items"
         const val PANEL = "panel_slots"
         const val SOX_REMOVED = "sox_removed_v17"
