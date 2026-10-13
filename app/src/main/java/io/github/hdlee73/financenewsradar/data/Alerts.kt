@@ -81,8 +81,8 @@ object NewMaterialAlerts {
         for (group in AgencyGroup.entries) {
             val fresh = mutableListOf<AlertHit>()
             for (agency in enabled.filter { it.group == group }) {
-                if (agency == AgencyId.CUSTOM) {
-                    for (institute in store.loadInstitutes()) {
+                if (agency == AgencyId.CUSTOM || agency == AgencyId.CUSTOM_PRESS) {
+                    for (institute in store.loadInstitutes().filter { it.group == group }) {
                         val hits = runCatching { agencies.latestCustom(institute, 20) }.getOrNull()
                             ?.map { AlertHit(it.title, it.link, institute.name) }
                         fresh += diffAndRecord(store, "material_custom_${institute.url}", hits)
