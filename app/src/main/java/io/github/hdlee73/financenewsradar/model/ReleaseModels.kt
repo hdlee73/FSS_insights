@@ -4,17 +4,25 @@ import java.time.LocalDate
 
 enum class AgencyGroup(val label: String) {
     PRESS("금융당국 보도자료"),
-    RESEARCH("금융관련 연구원 자료")
+    RESEARCH("금융관련 리포트")
 }
 
 /** 보도자료·보고서를 가져오는 기관. [homeUrl]은 기관 목록 페이지(사이트에서 직접 보기용). */
 enum class AgencyId(val label: String, val shortLabel: String, val group: AgencyGroup, val homeUrl: String, val itemNoun: String) {
     FSS("금융감독원", "금융감독원", AgencyGroup.PRESS, "https://www.fss.or.kr/fss/bbs/B0000188/list.do?menuNo=200218", "보도자료"),
     FSC("금융위원회", "금융위원회", AgencyGroup.PRESS, "https://www.fsc.go.kr/no010101", "보도자료"),
+    MOEF("재정경제부", "재정경제부", AgencyGroup.PRESS, "https://www.mofe.go.kr/nw/nes/nesdta.do?bbsId=MOSFBBS_000000000028&menuNo=4010100", "보도자료"),
+    BOK_PRESS("한국은행", "한국은행", AgencyGroup.PRESS, "https://www.bok.or.kr/portal/singl/newsData/list.do?targetDepth=3&menuNo=201263&depth2=200038&depth3=201263", "보도자료"),
     SEC("미국 SEC", "SEC", AgencyGroup.PRESS, "https://www.sec.gov/newsroom", "보도자료"),
     KCMI("자본시장연구원", "자본시장연구원", AgencyGroup.RESEARCH, "https://www.kcmi.re.kr/report/report_list", "보고서"),
     KIF("한국금융연구원", "금융연구원", AgencyGroup.RESEARCH, "https://www.kif.re.kr/kif4/publication/pub_list?mid=10", "보고서"),
+    BOK_RESEARCH("한국은행", "한국은행", AgencyGroup.RESEARCH, "https://www.bok.or.kr/portal/singl/newsData/list.do?targetDepth=2&menuNo=201156&depth2=201156", "보고서"),
     IOSCO("IOSCO", "IOSCO", AgencyGroup.RESEARCH, "https://www.iosco.org/publications/?subsection=public_reports", "보고서"),
+    FSB("FSB", "FSB", AgencyGroup.RESEARCH, "https://www.fsb.org/publications/", "보고서"),
+    BCBS("BCBS", "BCBS", AgencyGroup.RESEARCH, "https://www.bis.org/committees/bcbs/publications", "보고서"),
+    ESMA("ESMA", "ESMA", AgencyGroup.RESEARCH, "https://www.esma.europa.eu/databases-library/esma-library", "보고서"),
+    FCA("FCA", "FCA", AgencyGroup.RESEARCH, "https://www.fca.org.uk/publications/search-results?category=research&sort_by=dmetaZ", "보고서"),
+    MAS("MAS", "MAS", AgencyGroup.RESEARCH, "https://www.mas.gov.sg/publications", "보고서"),
     /** 사용자가 직접 추가한 연구소(이름·주소는 [CustomInstitute]). */
     CUSTOM("추가한 연구소", "추가", AgencyGroup.RESEARCH, "", "자료");
 

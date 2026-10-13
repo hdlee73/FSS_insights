@@ -20,6 +20,8 @@ object HtmlListParser {
     private val href = Regex("href\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')", RegexOption.IGNORE_CASE)
     private val tag = Regex("<[^>]+>")
     private val numericDate = Regex("(20\\d{2})\\s*[-./]\\s*(\\d{1,2})\\s*[-./]\\s*(\\d{1,2})")
+    // "10/09/2026" 일/월/년(유럽 사이트).
+    private val dmySlashDate = Regex("(?<![\\d/])(\\d{1,2})/(\\d{1,2})/(20\\d{2})(?![\\d/])")
     // "08 Sep 2026" 형식. 마감일 문구의 "1 December 2026"(월 전체 이름)은 일부러 제외한다.
     private val englishDate = Regex(
         "\\b(\\d{1,2})\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?![A-Za-z])\\.?,?\\s+(20\\d{2})",
@@ -40,6 +42,13 @@ object HtmlListParser {
 
     private class Hit(val start: Int, val end: Int, val url: String, val title: String)
     private class DateHit(val date: LocalDate, val start: Int, val end: Int)
+
+    private val fullMonthDate = Regex(
+        "\\b(\\d{1,2})\\s+(January|February|March|April|May|June|July|August|September|October|November|December)\\s+(20\\d{2})"
+    )
+
+    /** "12 October 2026"을 "12 Oct 2026"으로 바꿔 날짜 인식이 되게 한다(월 이름 전체를 쓰는 사이트용). */
+    fun abbreviateMonths(html: String): String = fullMonthDate.replace(html) { "${it.groupValues[1]} ${it.groupValues[2].take(3)} ${it.groupValues[3]}" }
 
     fun anchorCount(html: String): Int = anchor.findAll(html).count()
 
@@ -275,6 +284,10 @@ object HtmlListParser {
         for (m in englishDate.findAll(text)) {
             val month = months.indexOf(m.groupValues[2].lowercase(Locale.ROOT)) + 1
             runCatching { LocalDate.of(m.groupValues[3].toInt(), month, m.groupValues[1].toInt()) }
+                .getOrNull()?.let { found += DateHit(it, m.range.first, m.range.last + 1) }
+        }
+        for (m in dmySlashDate.findAll(text)) {
+            runCatching { LocalDate.of(m.groupValues[3].toInt(), m.groupValues[2].toInt(), m.groupValues[1].toInt()) }
                 .getOrNull()?.let { found += DateHit(it, m.range.first, m.range.last + 1) }
         }
         if (found.isEmpty()) {

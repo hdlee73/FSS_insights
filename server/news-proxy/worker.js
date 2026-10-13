@@ -2,7 +2,6 @@
 //  - /news    : 네이버 뉴스 검색 프록시. 네이버 키는 이 서버의 비밀값으로만 존재한다.
 //  - /library : 자료실. 구글 드라이브의 공유 폴더 목록·파일을 읽기 전용으로 중계한다.
 //  - /stats   : 국내 금융 통계(한국은행 ECOS). 키는 이 서버의 비밀값(ECOS_API_KEY)으로만 존재한다.
-//  - /library/upload : 자료 올리기. 내 계정으로 실행되는 Apps Script 웹앱이 비공개 "업로드 대기" 폴더에만 올린다(관리자가 확인해 자료실로 옮김).
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -35,13 +34,6 @@ export default {
         return await stats(url, env, ctx);
       } catch (e) {
         return fail(502, `통계 서버 오류: ${e.message}`);
-      }
-    }
-    if (url.pathname === "/library/upload" && request.method === "POST") {
-      try {
-        return await upload(request, url, env);
-      } catch (e) {
-        return fail(502, `업로드 서버 오류: ${e.message}`);
       }
     }
     if (url.pathname.startsWith("/library") && request.method === "GET") {
@@ -219,46 +211,6 @@ async function library(url, env) {
     return new Response(upstream.body, { headers });
   }
   return fail(404, "Not found");
-}
-
-// ---- 자료 올리기(관리자 승인형) ----
-// 서비스 계정은 저장 용량이 없어 개인 드라이브에 올릴 수 없으므로, 내 계정으로 실행되는 Apps Script 웹앱이 대신 저장한다.
-const UPLOAD_MAX = 20 * 1024 * 1024;
-const UPLOAD_ALLOWED = new Set(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "hwp", "hwpx", "txt", "csv", "png", "jpg", "jpeg"]);
-
-function toBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(out);
-}
-
-async function upload(request, url, env) {
-  if (!env.APPS_SCRIPT_URL || !env.APPS_SCRIPT_SECRET) return fail(501, "자료 올리기가 아직 연결되지 않았습니다.");
-  const name = (url.searchParams.get("name") || "").replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").trim().slice(0, 120);
-  const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
-  if (!name || !UPLOAD_ALLOWED.has(ext)) return fail(400, "올릴 수 없는 파일 형식입니다. (PDF·문서·엑셀·파워포인트·한글·텍스트·이미지)");
-  const length = Number(request.headers.get("Content-Length") || 0);
-  if (!length) return fail(411, "파일 크기를 알 수 없습니다.");
-  if (length > UPLOAD_MAX) return fail(413, "파일은 20MB까지 올릴 수 있습니다.");
-  const body = await request.arrayBuffer();
-  if (body.byteLength > UPLOAD_MAX) return fail(413, "파일은 20MB까지 올릴 수 있습니다.");
-  const who = (url.searchParams.get("uploader") || "").trim().slice(0, 40);
-  const note = (url.searchParams.get("description") || "").trim().slice(0, 300);
-  const description = [note, who && `올린 사람: ${who}`].filter(Boolean).join(" / ");
-  const res = await fetch(env.APPS_SCRIPT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({
-      secret: env.APPS_SCRIPT_SECRET, name, description,
-      mimeType: request.headers.get("Content-Type") || "application/octet-stream", data: toBase64(body),
-    }),
-    redirect: "follow",
-  });
-  let result = null;
-  try { result = await res.json(); } catch { /* 본문이 JSON이 아님 */ }
-  if (!res.ok || !result?.ok) return fail(502, `드라이브에 올리지 못했습니다(${res.status}${result?.error ? `, ${result.error}` : ""}). Apps Script 웹앱 배포와 접근 권한 설정을 확인해 주세요.`);
-  return json({ ok: true });
 }
 
 // ---- 국내 금융 통계(한국은행 ECOS) ----

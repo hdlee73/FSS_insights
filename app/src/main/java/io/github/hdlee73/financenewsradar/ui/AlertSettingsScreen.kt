@@ -133,11 +133,11 @@ fun AlertSettingsScreen(keywords: List<String>, modifier: Modifier = Modifier) {
             }
             SectionBand(6.dp)
 
-            // 3) 새 참고자료 알림
-            Section("새 참고자료 알림") {
+            // 3) 새 참고 자료실 알림
+            Section("새 참고 자료실 알림") {
                 SwitchRow(
-                    "참고자료에 새 파일이 올라오면 알림",
-                    "참고자료(자료실) 폴더를 1시간 안팎 간격으로 확인해 새 파일을 알려 드립니다. 앱만으로는 안드로이드 제한 때문에 최소 약 15분 간격이며, 즉시 알림은 지원하지 않습니다. 켜기 전에 이미 있던 파일은 알리지 않습니다.",
+                    "참고 자료실에 새 파일이 올라오면 알림",
+                    "참고 자료실 폴더를 1시간 안팎 간격으로 확인해 새 파일을 알려 드립니다. 앱만으로는 안드로이드 제한 때문에 최소 약 15분 간격이며, 즉시 알림은 지원하지 않습니다. 켜기 전에 이미 있던 파일은 알리지 않습니다.",
                     libraryOn
                 ) { on -> if (on) enabling { applyLibrary(true) } else applyLibrary(false) }
             }
@@ -145,7 +145,7 @@ fun AlertSettingsScreen(keywords: List<String>, modifier: Modifier = Modifier) {
 
             // 4) 새 보도자료·연구자료 알림
             for (group in AgencyGroup.entries) {
-                Section(if (group == AgencyGroup.PRESS) "새 보도자료 알림" else "새 연구보고서 알림") {
+                Section(if (group == AgencyGroup.PRESS) "새 보도자료 알림" else "새 금융리포트 알림") {
                     if (group == AgencyGroup.PRESS) Note("자료가 새로 올라오면 1시간 안팎 간격으로 확인해 알려 드립니다. 켜기 전에 이미 올라온 자료는 알리지 않습니다.")
                     NewMaterialAlerts.sources.filter { it.group == group }.forEach { agency ->
                         SwitchRow(
