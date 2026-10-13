@@ -21,6 +21,7 @@ jobs:
             NAVER_CLIENT_SECRET
             GOOGLE_API_KEY
             GDRIVE_FOLDER_ID
+            FISIS_API_KEY
             ECOS_API_KEY
         env:
           APP_TOKEN: ${{ secrets.NEWS_PROXY_TOKEN }}
@@ -28,6 +29,7 @@ jobs:
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          FISIS_API_KEY: ${{ secrets.FISIS_API_KEY }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
       - name: Show URL
         run: echo "NEWS_PROXY_URL = ${{ steps.deploy.outputs.deployment-url }}" >> "$GITHUB_STEP_SUMMARY"
