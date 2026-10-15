@@ -274,4 +274,21 @@ class HtmlListParserTest {
         val result = HtmlListParser.extractGeneric(html, "https://www.mas.gov.sg/publications")
         assertEquals(1, result.size)
     }
+
+    @Test
+    fun rdfFeedReadsDcDate() {
+        val xml = """<rdf:RDF><item rdf:about="https://www.bis.org/bcbs/publ/d600.htm"><title>Basel Framework update</title>
+            <link>https://www.bis.org/bcbs/publ/d600.htm</link><dc:date>2026-10-12T08:00:00+02:00</dc:date></item></rdf:RDF>"""
+        val result = HtmlListParser.parseRss(xml, "https://www.bis.org/doclist/bcbspubls.rss")
+        assertEquals(1, result.size)
+        assertEquals(java.time.LocalDate.of(2026, 10, 12), result[0].date)
+    }
+
+    @Test
+    fun genericFallbackFindsNearbyCardDate() {
+        val html = """<main><div class="card"><a href="/publications/consultations/2026/climate-risk-disclosure-paper">Climate risk disclosure consultation paper</a>
+            <span>12 Oct 2026</span></div></main>"""
+        val result = HtmlListParser.extractGeneric(html, "https://www.mas.gov.sg/publications")
+        assertEquals(java.time.LocalDate.of(2026, 10, 12), result[0].date)
+    }
 }

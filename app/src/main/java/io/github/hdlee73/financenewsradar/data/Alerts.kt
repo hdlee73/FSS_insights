@@ -149,7 +149,7 @@ object LibraryAlerts {
     }
 }
 
-/** 매일 정한 시각에 오늘의 브리핑(시장·주요 기사·최근 보도자료)을 요약해 알린다. */
+/** 매일 정한 시각에 오늘의 브리핑(시장·최근 기사·최근 보도자료)을 요약해 알린다. */
 object BriefingAlert {
     private const val WORK_NAME = "briefing_alert"
     private const val CHANNEL_ID = "briefing_alert"
@@ -217,7 +217,7 @@ object BriefingAlert {
         runCatching {
             val settings = store.loadSettings().copy(timeRange = TimeRange.DAY)
             val articles = NewsRepository().home(settings, store.loadCredentials()).articles
-                .filter { it.matchedKeywords.isNotEmpty() }
+                .filter { PublisherCatalog.isMajor(it.source, it.link) }
                 .sortedByDescending { it.publishedAt }
                 .take(3)
             articles.forEach { lines += "[기사] ${it.title}" }
