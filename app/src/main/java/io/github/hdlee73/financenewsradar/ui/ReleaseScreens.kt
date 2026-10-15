@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -176,7 +176,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
             if (saved.isEmpty()) {
                 item(key = "saved-empty") { CenterMessage("저장한 자료가 없습니다.\n목록의 북마크 버튼을 눌러 담아 두세요.") }
             }
-            items(saved, key = { "saved-${it.link}" }) { item ->
+            itemsIndexed(saved, key = { i, it -> "saved-$i-${it.link}" }) { _, item ->
                 ReleaseRow(
                     item = item, isNew = false, isSaved = true, showAgency = true,
                     onOpen = { openItem(context, item) },
@@ -330,7 +330,8 @@ private fun LazyListScope.agencyItems(
                 )
             }
             else -> {
-                items(state.latest, key = { "latest-${it.link}" }) { item ->
+                // 목록 주소가 모두 같은 사이트(주소를 못 읽어 목록 페이지로 대신한 경우)도 앱이 종료되지 않도록 순번을 키에 넣는다.
+                itemsIndexed(state.latest, key = { i, it -> "latest-$i-${it.link}" }) { _, item ->
                     ReleaseRow(
                         item = item, isNew = item.link in state.newLinks, isSaved = item.link in savedLinks, showAgency = false,
                         onOpen = { openItem(context, item) },
@@ -349,7 +350,7 @@ private fun LazyListScope.agencyItems(
                 TextButton(onClick = onClear) { Text("지우기") }
             }
         }
-        items(state.results, key = { "result-${it.link}" }) { item ->
+        itemsIndexed(state.results, key = { i, it -> "result-$i-${it.link}" }) { _, item ->
             ReleaseRow(
                 item = item, isNew = false, isSaved = item.link in savedLinks, showAgency = false,
                 onOpen = { openItem(context, item) },

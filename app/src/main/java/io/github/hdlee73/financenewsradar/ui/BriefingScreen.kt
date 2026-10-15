@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hdlee73.financenewsradar.ArticleReaderActivity
 import io.github.hdlee73.financenewsradar.data.KOREA_INDEXES
+import io.github.hdlee73.financenewsradar.data.PublisherCatalog
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.model.AgencyId
 import io.github.hdlee73.financenewsradar.model.NewsArticle
@@ -68,12 +69,16 @@ private const val TAB_MARKET = 2
 private const val TAB_RESEARCH = 4
 private const val TAB_PRESS = 3   // 자료 탭(보도자료 구분 탭)
 private val BRIEFING_PRESS = listOf(AgencyId.FSS, AgencyId.FSC)
-private val BRIEFING_RESEARCH = listOf(AgencyId.KCMI, AgencyId.KIF, AgencyId.IOSCO)
+/** 연구자료 탭에 기본으로 들어 있는 기관 전부. */
+private val BRIEFING_RESEARCH = AgencyId.entries.filter { it.group == AgencyGroup.RESEARCH && it != AgencyId.CUSTOM }
+private const val BRIEFING_PRESS_COUNT = 5
+private const val BRIEFING_ARTICLE_COUNT = 5
+private const val BRIEFING_RESEARCH_PER_AGENCY = 3
 private val SEOUL = ZoneId.of("Asia/Seoul")
 private val dateFormat = DateTimeFormatter.ofPattern("M월 d일 EEEE", Locale.KOREAN)
 private val briefingTime = DateTimeFormatter.ofPattern("M월 d일 HH:mm", Locale.KOREAN).withZone(ZoneId.of("Asia/Seoul"))
 
-/** 앱을 열면 보이는 첫 화면: 날짜·날씨·인사, 시장 지표, 주요 기사, 최근 금융당국 보도자료, 최근 1주일 금융리포트. */
+/** 앱을 열면 보이는 첫 화면: 날짜·날씨·인사, 시장 지표, 주요 기사, 최근 기사(30대 언론), 최근 금융당국 보도자료 5건, 최근 1주일 금융리포트. */
 @Composable
 fun BriefingScreen(
     newsViewModel: NewsViewModel,
@@ -98,20 +103,20 @@ fun BriefingScreen(
 
     val pressItems = (BRIEFING_PRESS.flatMap { releases.of(it).latest } + releases.institutesOf(AgencyGroup.PRESS).flatMap { releases.ofCustom(it.url).latest })
         .sortedByDescending { it.date }
-        .take(5)
+        .take(BRIEFING_PRESS_COUNT)
     val newLinks = (BRIEFING_PRESS.flatMap { releases.of(it).newLinks } + releases.institutesOf(AgencyGroup.PRESS).flatMap { releases.ofCustom(it.url).newLinks }).toSet()
     val pressLoading = BRIEFING_PRESS.any { releases.of(it).isLoading } && pressItems.isEmpty()
+    // 키워드와 무관하게 30대 언론 기사만, 가장 최근 순으로.
     val articles = news.articles
-        .filter { it.matchedKeywords.isNotEmpty() }
-        .ifEmpty { news.articles }
+        .filter { PublisherCatalog.isMajor(it.source, it.link) }
         .sortedByDescending { it.publishedAt }
-        .take(5)
+        .take(BRIEFING_ARTICLE_COUNT)
     val weekAgo = LocalDate.now(SEOUL).minusDays(7)
-    val researchItems = (BRIEFING_RESEARCH.flatMap { releases.of(it).latest } + releases.institutesOf(AgencyGroup.RESEARCH).flatMap { releases.ofCustom(it.url).latest })
-        .filter { item -> item.date?.let { !it.isBefore(weekAgo) } == true }
+    // 기본 기관마다 최근 7일 자료를 최대 [BRIEFING_RESEARCH_PER_AGENCY]건씩 담아 어느 기관도 빠지지 않게 한다.
+    val researchItems = (BRIEFING_RESEARCH.flatMap { agency -> releases.of(agency).latest.recentWeek(weekAgo) } +
+        releases.institutesOf(AgencyGroup.RESEARCH).flatMap { releases.ofCustom(it.url).latest.recentWeek(weekAgo) })
         .distinctBy { it.link }
         .sortedByDescending { it.date }
-        .take(5)
 
     Column(modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
@@ -154,7 +159,7 @@ fun BriefingScreen(
                 }
             }
 
-            SectionTitle("주요 기사", "내 키워드의 새 소식") { onOpenTab(TAB_NEWS) }
+            SectionTitle("최근 기사", "30대 언론 · 최신순") { onOpenTab(TAB_NEWS) }
             when {
                 !news.isHome -> {
                     Hint("뉴스 탭에서 검색 중이라 맞춤 뉴스를 대신 불러와야 합니다.")
@@ -167,10 +172,10 @@ fun BriefingScreen(
                     }
                 }
                 news.isLoading -> Hint("불러오는 중…")
-                else -> Hint("저장한 키워드의 새 기사가 없습니다.")
+                else -> Hint("30대 언론의 최근 기사가 없습니다.")
             }
 
-            SectionTitle("최근 금융당국 보도자료", if (newLinks.isEmpty()) "금융감독원 · 금융위원회" else "새 자료 ${newLinks.size}건", accent = newLinks.isNotEmpty()) { onOpenTab(TAB_PRESS) }
+            SectionTitle("최근 금융당국 보도자료", if (newLinks.isEmpty()) "금융감독원 · 금융위원회 · 최근 ${BRIEFING_PRESS_COUNT}건" else "최근 ${BRIEFING_PRESS_COUNT}건 · 새 자료 ${newLinks.size}건", accent = newLinks.isNotEmpty()) { onOpenTab(TAB_PRESS) }
             when {
                 pressItems.isNotEmpty() -> BriefingCard {
                     pressItems.forEachIndexed { i, item ->
@@ -183,7 +188,7 @@ fun BriefingScreen(
             }
 
             if (researchItems.isNotEmpty()) {
-                SectionTitle("이번 주 금융리포트", "최근 7일 내 업데이트") { onOpenTab(TAB_RESEARCH) }
+                SectionTitle("이번 주 금융리포트", "기본 연구기관 · 최근 7일 내 업데이트") { onOpenTab(TAB_RESEARCH) }
                 BriefingCard {
                     researchItems.forEachIndexed { i, item ->
                         if (i > 0) RowDivider(inset = 14.dp)
@@ -325,3 +330,8 @@ private fun ArticleLine(article: NewsArticle, onOpen: () -> Unit) {
         }
     }
 }
+
+private fun List<ReleaseItem>.recentWeek(weekAgo: LocalDate): List<ReleaseItem> =
+    filter { item -> item.date?.let { !it.isBefore(weekAgo) } == true }
+        .sortedByDescending { it.date }
+        .take(BRIEFING_RESEARCH_PER_AGENCY)

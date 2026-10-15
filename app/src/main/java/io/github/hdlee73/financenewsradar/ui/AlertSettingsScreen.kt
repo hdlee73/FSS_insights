@@ -95,7 +95,7 @@ fun AlertSettingsScreen(keywords: List<String>, modifier: Modifier = Modifier) {
             Section("오늘의 브리핑") {
                 SwitchRow(
                     "매일 브리핑 알림",
-                    if (briefingOn) "매일 ${BriefingAlert.formatTime(briefingMinutes)} 무렵 코스피·코스닥, 내 키워드 주요 기사, 새 보도자료를 요약해 알려 드립니다."
+                    if (briefingOn) "매일 ${BriefingAlert.formatTime(briefingMinutes)} 무렵 코스피·코스닥, 30대 언론 최근 기사, 새 보도자료를 요약해 알려 드립니다."
                     else "켜면 정한 시각에 오늘의 브리핑을 요약해 알려 드립니다.",
                     briefingOn
                 ) { on -> if (on) enabling { applyBriefing(true, briefingMinutes) } else applyBriefing(false, briefingMinutes) }
