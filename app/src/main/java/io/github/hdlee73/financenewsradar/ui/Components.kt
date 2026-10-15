@@ -66,10 +66,10 @@ fun LargeTitle(title: String, modifier: Modifier = Modifier, trailing: @Composab
             title,
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.titleLarge,
-            color = Color.White,
+            color = AppColors.onHeader,
             maxLines = 1
         )
-        CompositionLocalProvider(LocalContentColor provides Color.White) { trailing() }
+        CompositionLocalProvider(LocalContentColor provides AppColors.onHeader) { trailing() }
     }
 }
 
@@ -80,9 +80,9 @@ internal fun BackHeader(title: String, onBack: () -> Unit, trailing: @Composable
         Modifier.fillMaxWidth().background(AppColors.header).height(56.dp).padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로", tint = Color.White) }
-        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = Color.White, maxLines = 1)
-        CompositionLocalProvider(LocalContentColor provides Color.White) { trailing() }
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로", tint = AppColors.onHeader) }
+        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = AppColors.onHeader, maxLines = 1)
+        CompositionLocalProvider(LocalContentColor provides AppColors.onHeader) { trailing() }
     }
 }
 
@@ -162,7 +162,7 @@ fun UnderlineTabs(labels: List<String>, selectedIndex: Int, onSelect: (Int) -> U
     }
 }
 
-/** 둥근 회색 검색창. */
+/** 둥근 흰색 검색창. */
 @Composable
 fun SearchPill(
     value: String,
@@ -171,8 +171,8 @@ fun SearchPill(
     onSearch: () -> Unit,
     modifier: Modifier = Modifier,
     description: String = "검색어",
-    containerColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.surfaceVariant,
-    outlined: Boolean = false
+    containerColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.surfaceContainer,
+    outlined: Boolean = true
 ) {
     Surface(
         modifier = modifier,
@@ -223,9 +223,9 @@ fun PillChip(
         modifier = modifier,
         shape = RoundedCornerShape(50),
         color = if (selected) MaterialTheme.colorScheme.primaryContainer
-        else if (onPanel) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant,
+        else MaterialTheme.colorScheme.surfaceContainer,
         border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-        else if (onPanel) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
+        else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Text(
             label,

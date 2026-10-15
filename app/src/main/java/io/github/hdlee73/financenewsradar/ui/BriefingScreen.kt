@@ -207,23 +207,23 @@ private fun BriefingHeader(weather: Weather?, onRefresh: () -> Unit) {
     val now = remember { ZonedDateTime.now(SEOUL) }
     val greeting = remember(weather) { Greeting.pick(now, weather) }
     Box(
-        Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(AppColors.header, Color(0xFF3B5A8C))))
+        Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(AppColors.headerEnd, AppColors.header, MaterialTheme.colorScheme.background)))
             .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 22.dp)
     ) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("TODAY'S BRIEFING", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f), letterSpacing = 2.sp)
-                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침", tint = Color.White) }
+                Text("TODAY'S BRIEFING", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = AppColors.onHeader.copy(alpha = 0.7f), letterSpacing = 2.sp)
+                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침", tint = AppColors.onHeader) }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(dateFormat.format(now), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("오늘의 브리핑", Modifier.padding(top = 2.dp), style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.85f))
+                    Text(dateFormat.format(now), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = AppColors.onHeader)
+                    Text("오늘의 브리핑", Modifier.padding(top = 2.dp), style = MaterialTheme.typography.titleMedium, color = AppColors.onHeader.copy(alpha = 0.8f))
                 }
                 if (weather != null) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(weather.emoji, fontSize = 38.sp)
-                        Text("${weather.temp}°", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("${weather.temp}°", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = AppColors.onHeader)
                     }
                 }
             }
@@ -231,11 +231,11 @@ private fun BriefingHeader(weather: Weather?, onRefresh: () -> Unit) {
                 val rain = weather.rainChance?.let { " · 강수 $it%" }.orEmpty()
                 Text(
                     "서울 ${weather.summary} · ${weather.min}° / ${weather.max}°$rain",
-                    Modifier.padding(top = 10.dp).background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelLarge, color = Color.White
+                    Modifier.padding(top = 10.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelLarge, color = AppColors.onHeader
                 )
             }
-            Text(greeting, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodyLarge, color = Color.White.copy(alpha = 0.92f))
+            Text(greeting, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodyLarge, color = AppColors.onHeader.copy(alpha = 0.85f))
         }
     }
 }
@@ -257,8 +257,10 @@ private fun SectionTitle(title: String, subtitle: String, accent: Boolean = fals
 private fun BriefingCard(content: @Composable () -> Unit) {
     Surface(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shadowElevation = 1.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) { Column(Modifier.padding(vertical = 4.dp)) { content() } }
 }
 
