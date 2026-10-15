@@ -184,7 +184,6 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                     onToggleSaved = { viewModel.toggleSaved(item) },
                     onShare = { shareItem(context, item) }
                 )
-                RowDivider()
             }
         } else if (agency != null) {
             agencyItems(
@@ -339,7 +338,6 @@ private fun LazyListScope.agencyItems(
                         onToggleSaved = { onToggleSaved(item) },
                         onShare = { shareItem(context, item) }
                     )
-                    RowDivider()
                 }
                 // 첫 쪽을 먼저 보여 주고 나머지는 백그라운드에서 읽어 이어 붙이는 중.
                 if (state.isLoadingMore) item(key = "latest-more") { LoadingBlock() }
@@ -358,7 +356,6 @@ private fun LazyListScope.agencyItems(
                 onToggleSaved = { onToggleSaved(item) },
                 onShare = { shareItem(context, item) }
             )
-            RowDivider()
         }
         if (state.isSearching) item(key = "result-loading") { LoadingBlock() }
         state.searchError?.let { message -> item(key = "result-error") { CenterMessage(message, isError = true) } }
@@ -418,10 +415,8 @@ private fun ReleaseRow(
     onShare: () -> Unit
 ) {
     val meta = listOfNotNull(item.label.takeIf { showAgency }, item.author, item.dateText()).joinToString(" · ")
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 20.dp, top = 10.dp, bottom = 10.dp, end = 6.dp),
-        verticalAlignment = Alignment.Top
-    ) {
+    ListCard(stripe = AppColors.heroEnd, onClick = onOpen) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f).padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -442,6 +437,7 @@ private fun ReleaseRow(
         IconButton(onClick = onShare, modifier = Modifier.size(40.dp)) {
             Icon(Icons.Default.Share, contentDescription = "제목과 링크 공유", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
     }
 }
 

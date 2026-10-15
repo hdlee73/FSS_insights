@@ -178,7 +178,6 @@ private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpe
                         Column {
                             if (section != previousSection) SectionLabel(section, modifier = Modifier.padding(top = if (index == 0) 0.dp else 10.dp))
                             ArticleRow(article = article, onBookmark = { viewModel.toggleBookmark(article) })
-                            RowDivider()
                         }
                     }
                     if (state.isLoadingMore || (state.canLoadMore && !state.bookmarksOnly)) {
@@ -359,13 +358,7 @@ private fun LoadingView() {
 @Composable
 private fun ArticleRow(article: NewsArticle, onBookmark: () -> Unit) {
     val context = LocalContext.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { ArticleReaderActivity.open(context, article.link, article.title) }
-            .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
+    ListCard(onClick = { ArticleReaderActivity.open(context, article.link, article.title) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TagLabel(article.source.take(12), accent = article.isPriority)
             Text(
@@ -389,7 +382,7 @@ private fun ArticleRow(article: NewsArticle, onBookmark: () -> Unit) {
         }
         Text(
             article.title,
-            modifier = Modifier.padding(end = 12.dp),
+            modifier = Modifier,
             style = MaterialTheme.typography.titleMedium,
             maxLines = 3,
             overflow = TextOverflow.Ellipsis

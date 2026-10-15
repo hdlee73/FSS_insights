@@ -119,6 +119,23 @@ fun ListCard(modifier: Modifier = Modifier, stripe: Color? = null, onClick: (() 
     }
 }
 
+/** 회사명 첫 글자를 담은 둥근 아바타. [tint] 색의 옅은 바탕에 같은 색 글자. */
+@Composable
+fun InitialAvatar(name: String, tint: Color, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(40.dp).background(tint.copy(alpha = 0.16f), androidx.compose.foundation.shape.CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(name.trim().firstOrNull()?.toString().orEmpty(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = tint)
+    }
+}
+
+/** 아이콘을 담은 둥근 사각 타일. */
+@Composable
+fun IconTile(tint: Color, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Box(modifier.size(44.dp).background(tint.copy(alpha = 0.14f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { content() }
+}
+
 /** 회색 띠(구역 사이 간격). 클리앙처럼 블록을 띠로 나눈다. */
 @Composable
 fun SectionBand(height: Dp = 10.dp) {

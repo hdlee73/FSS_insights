@@ -22,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -213,11 +214,22 @@ private fun RegulatoryRow(item: RegItem, query: String, onOpen: () -> Unit) {
         else -> listOfNotNull(item.dept, date)
     }
     val stripe = when {
-        item.source == RegSource.FSS_SANCTION -> MaterialTheme.colorScheme.tertiary
+        item.source == RegSource.FSS_SANCTION -> AppColors.heroEnd
         item.inForce == false -> MaterialTheme.colorScheme.outline
-        else -> MaterialTheme.colorScheme.primary
+        else -> AppColors.heroEnd
     }
-    ListCard(stripe = stripe, onClick = onOpen) {
+    ListCard(stripe = if (item.source == RegSource.FSS_SANCTION) null else stripe, onClick = onOpen) {
+    if (item.source == RegSource.FSS_SANCTION) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            InitialAvatar(item.title, stripe)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (meta.isNotEmpty()) Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (snippet != null) Text(snippet, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        return@ListCard
+    }
         Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (item.source.isGuidance) {

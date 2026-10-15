@@ -28,6 +28,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -255,16 +256,13 @@ private fun CompanyList(state: FisisUiState, viewModel: FisisViewModel) {
                 shown.isEmpty() -> CenterMessage("검색 결과가 없습니다.")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(shown, key = { it.code }) { company ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { viewModel.open(FisisView.Detail(company)) }.padding(start = 20.dp, end = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f).padding(vertical = 12.dp)) {
-                                Text(company.name, style = MaterialTheme.typography.bodyLarge)
+                        ListCard(onClick = { viewModel.open(FisisView.Detail(company)) }) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                InitialAvatar(company.name, AppColors.heroEnd)
+                                Text(company.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                                Checkbox(checked = company in state.picks, onCheckedChange = { viewModel.togglePick(company) })
                             }
-                            Checkbox(checked = company in state.picks, onCheckedChange = { viewModel.togglePick(company) })
                         }
-                        RowDivider()
                     }
                 }
             }
