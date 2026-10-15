@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -26,6 +28,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -78,7 +81,6 @@ private val FINANCE_LABELS = mapOf(
 private val FOREIGN_BROKER = Regex("지점|골드만|모간스탠리|모건스탠리|메릴린치|비엔피|BNP|씨엘에스에이|CLSA|크레디|노무라|맥쿼리|유비에스|UBS|제이피모간|JP모간|도이치|소시에테|나틱시스|다이와|미즈호|HSBC|에이치에스비씨|바클레이|스탠다드차타드|씨티|ING|아이엔지|SMBC|라자드|이스트스프링|아이씨엠|ICM|CMS|씨엠에스|에스지|SG|CGS|CIMB|씨아이엠비|글로벌마켓|알비에스|RBS|스미토모|미쓰비시|도쿄|SBI증권")
 
 /** 비교표에 넣는 재무 지표. */
-private val COMPARE_KEYS = listOf("assets", "liab", "equity", "revenue", "opinc", "netincome")
 
 /** 권역별 주요경영지표(키 → 이름). 자료가 없으면 "-"로 보여 준다. 자산운용사는 제공하지 않는다. */
 private val RATIO_ROWS: Map<String, List<Pair<String, String>>> = mapOf(
@@ -200,7 +202,7 @@ fun FisisScreen(viewModel: FisisViewModel, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize()) {
         when (val view = state.view) {
             FisisView.Companies -> {
-                LargeTitle("금융회사 주요 현황")
+                LargeTitle("금융회사 주요 현황", subtitle = "회사명으로 검색해 경영지표를 비교")
                 Text(FISIS_SOURCE, Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!viewModel.isConfigured) CenterMessage("서버가 연결되지 않아 경영정보를 불러올 수 없습니다.")
                 else CompanyList(state, viewModel)
@@ -254,16 +256,13 @@ private fun CompanyList(state: FisisUiState, viewModel: FisisViewModel) {
                 shown.isEmpty() -> CenterMessage("검색 결과가 없습니다.")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(shown, key = { it.code }) { company ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { viewModel.open(FisisView.Detail(company)) }.padding(start = 20.dp, end = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f).padding(vertical = 12.dp)) {
-                                Text(company.name, style = MaterialTheme.typography.bodyLarge)
+                        ListCard(onClick = { viewModel.open(FisisView.Detail(company)) }) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                InitialAvatar(company.name, AppColors.heroEnd)
+                                Text(company.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                                Checkbox(checked = company in state.picks, onCheckedChange = { viewModel.togglePick(company) })
                             }
-                            Checkbox(checked = company in state.picks, onCheckedChange = { viewModel.togglePick(company) })
                         }
-                        RowDivider()
                     }
                 }
             }
@@ -367,8 +366,8 @@ private fun SectionHeader(title: String, unit: String? = "단위: 억원") {
 /** 재무상태 카드: 이름은 왼쪽, 숫자는 오른쪽 정렬. */
 @Composable
 private fun BalanceCard(label: String, value: String, highlight: Boolean, modifier: Modifier) {
-    val bg = if (highlight) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-    Column(modifier.clip(RoundedCornerShape(12.dp)).background(bg).padding(horizontal = 10.dp, vertical = 10.dp)) {
+    val bg = if (highlight) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
+    Column(modifier.clip(RoundedCornerShape(16.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)).background(bg).padding(horizontal = 10.dp, vertical = 10.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         Text(
             value, Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
@@ -429,7 +428,7 @@ private fun FinanceTab(profile: FisisProfile, basis: String, month: String?, onM
 
     SectionHeader("손익현황 ($basis)")
     val current = when (profile.term) { "H" -> "당반기"; "Y" -> "당기"; else -> "당분기" }
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))) {
+    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))) {
         Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(horizontal = 12.dp, vertical = 8.dp)) {
             Text("항목", Modifier.weight(1.2f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(current, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
@@ -457,8 +456,52 @@ private fun RatioTab(sector: String, profile: FisisProfile, month: String?, onMo
     val months = monthsOf(ratios)
     val selected = month?.takeIf { it in months } ?: months.firstOrNull()
     PeriodPicker(months, selected, ratios.firstOrNull()?.term ?: profile.term, onMonth)
-    SubTitle("주요경영지표")
-    rows.forEach { (k, label) -> MetricRow(label, ratios.firstOrNull { it.key == k }, selected) }
+    var span by rememberSaveable { mutableIntStateOf(4) }
+    Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(4, 8).forEach { n -> PillChip("최근 ${n}${fisisTermLabel(profile.term).ifBlank { "개 시점" }}", onClick = { span = n }, selected = span == n, onPanel = true) }
+    }
+    SectionHeader("주요경영지표", unit = "단위: %")
+    // 선택한 시점(기본은 최근 시점)을 맨 왼쪽 열로 두고, 이전 시점을 오른쪽에 최신순으로 놓는다.
+    val start = months.indexOf(selected).coerceAtLeast(0)
+    val shown = months.drop(start).take(span)
+    RatioTable(rows, ratios, shown, selected)
+}
+
+@Composable
+private fun RatioTable(rows: List<Pair<String, String>>, ratios: List<FisisMetric>, months: List<String>, selected: String?) {
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    val labelW = 116.dp
+    val cellW = 76.dp
+    val hl = MaterialTheme.colorScheme.primaryContainer
+    @Composable
+    fun Cell(text: String, m: String?, bold: Boolean, header: Boolean) {
+        val on = m != null && m == selected
+        Text(
+            text, Modifier.width(cellW).background(if (on) hl else androidx.compose.ui.graphics.Color.Transparent).padding(horizontal = 6.dp, vertical = if (header) 8.dp else 12.dp),
+            style = if (header) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
+            fontWeight = if (on) FontWeight.Bold else if (bold) FontWeight.Bold else FontWeight.Normal,
+            color = if (on) MaterialTheme.colorScheme.onPrimaryContainer else if (header) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.End, maxLines = 1
+        )
+    }
+    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, outline, RoundedCornerShape(12.dp)).horizontalScroll(rememberScrollState())) {
+        Row(Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh), verticalAlignment = Alignment.CenterVertically) {
+            Text("지표", Modifier.width(labelW).padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            months.forEach { Cell(fisisMonthLabel(it), it, bold = false, header = true) }
+        }
+        rows.forEach { (k, label) ->
+            HorizontalDivider(color = outline)
+            val metric = ratios.firstOrNull { it.key == k }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, Modifier.width(labelW).padding(horizontal = 12.dp, vertical = 12.dp), style = MaterialTheme.typography.bodyMedium)
+                months.forEach { m ->
+                    val v = metric?.at(m)?.value
+                    Cell(if (v != null && metric != null) fisisValueText(v, metric.unit).removeSuffix("%") else "-", m, bold = false, header = false)
+                }
+            }
+        }
+    }
+    Note("가로로 밀어 다른 시점을 볼 수 있습니다. 선택한 시점 열은 강조됩니다.")
 }
 
 @Composable
@@ -487,32 +530,51 @@ private fun ColumnScope.CompareView(state: FisisUiState, viewModel: FisisViewMod
             failed != null -> CenterMessage(state.errors[failed].orEmpty(), isError = true, actionLabel = "다시 시도", onAction = { picks.forEach { viewModel.retry(sectorCode, it) } })
             pending -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 6.dp)) {
-                    Text("", Modifier.weight(1.1f))
-                    picks.forEach { Text(it.name, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.End, maxLines = 2) }
+                val outline = MaterialTheme.colorScheme.outlineVariant
+                // 회사 이름 머리글
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.weight(1.1f))
+                    picks.forEach {
+                        Text(
+                            it.name, Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 6.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
                 }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp)) {
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("기준 시점", Modifier.weight(1.1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     profiles.forEach { p ->
                         val m = p?.group("fin", "별도")?.let(::monthsOf)?.firstOrNull()
-                        Text(m?.let { fisisMonthLabel(it) } ?: "-", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(m?.let { fisisMonthLabel(it) } ?: "-", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                HorizontalDivider(Modifier.padding(top = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                val ratioKeys = RATIO_ROWS[sectorCode].orEmpty()
-                val rows = COMPARE_KEYS.map { it to FINANCE_LABELS.getValue(it) } + ratioKeys
-                rows.forEach { (k, label) ->
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(label, Modifier.weight(1.1f), style = MaterialTheme.typography.bodyMedium)
-                        profiles.forEach { p ->
-                            val m = p?.metric(k, "별도")
-                            val v = m?.at(null)?.value
-                            val text = if (m != null && v != null) fisisValueText(v, m.unit) else "-"
-                            Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
+                @Composable
+                fun Section(title: String, unit: String?, rows: List<Triple<String, String, Boolean>>) {
+                    SectionHeader(title, unit)
+                    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer).border(1.dp, outline, RoundedCornerShape(16.dp))) {
+                        rows.forEachIndexed { i, (k, label, pct) ->
+                            if (i > 0) HorizontalDivider(color = outline)
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(label, Modifier.weight(1.1f), style = MaterialTheme.typography.bodyMedium)
+                                profiles.forEach { p ->
+                                    val m = p?.metric(k, "별도")
+                                    val v = m?.at(null)?.value
+                                    val text = if (m != null && v != null) fisisValueText(v, m.unit).removeSuffix(if (pct) "%" else "억원") else "-"
+                                    Text(
+                                        text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End,
+                                        color = if (v != null && v < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
                         }
                     }
-                    RowDivider()
                 }
+                Section("재무상태", "단위: 억원", listOf("assets", "liab", "equity").map { Triple(it, FINANCE_LABELS.getValue(it), false) })
+                // 손익 항목은 누적 값으로 비교한다.
+                Section("손익현황 (누적)", "단위: 억원", listOf("revenue", "opinc", "netincome").map { Triple("${it}_cum", FINANCE_LABELS.getValue(it) + " (누적)", false) })
+                val ratioKeys = RATIO_ROWS[sectorCode].orEmpty()
+                if (ratioKeys.isNotEmpty()) Section("주요경영지표", "단위: %", ratioKeys.map { (k, label) -> Triple(k, label, true) })
                 Note("각 회사의 FISIS 최근 시점 기준입니다. 시점이 다르면 위의 기준 시점을 확인하세요.")
             }
         }

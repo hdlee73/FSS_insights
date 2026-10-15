@@ -1,19 +1,26 @@
-<!-- 원본 디자인: 돋보기(살펴보다) 안에 오르는 막대(시장·지표). 어느 기관의 로고도 사용하지 않았다. -->
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 앱 아이콘 시안 C: 파란 입체 돋보기 안에 오르는 막대(마지막 막대는 노랑). 원본 디자인이며 어느 기관의 로고도 쓰지 않았다. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="6"
-        android:pathData="M70,48a20,20 0 1,1 -40,0a20,20 0 1,1 40,0z" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:pathData="M65,63L78,76" />
-    <path
-        android:fillColor="#F2A93B"
-        android:pathData="M41,58h4v-8h-4zM49,58h4v-14h-4zM57,58h4v-20h-4z" />
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.88" android:scaleY="0.88">
+        <path
+            android:strokeColor="#1D4ED8"
+            android:strokeWidth="9"
+            android:strokeLineCap="round"
+            android:pathData="M69,67L84,82" />
+        <path android:pathData="M50,21a27,27 0 1,1 0,54a27,27 0 1,1 0,-54z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:startX="30" android:startY="25" android:endX="72" android:endY="72"
+                    android:startColor="#4C9BFF" android:endColor="#1D4ED8" />
+            </aapt:attr>
+        </path>
+        <path
+            android:fillColor="#00000000" android:strokeColor="#80FFFFFF" android:strokeWidth="2"
+            android:pathData="M50,21a27,27 0 1,1 0,54a27,27 0 1,1 0,-54z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M40.2,50h4.6a2.2,2.2 0 0 1 2.2,2.2v5.6a2.2,2.2 0 0 1 -2.2,2.2h-4.6a2.2,2.2 0 0 1 -2.2,-2.2v-5.6a2.2,2.2 0 0 1 2.2,-2.2z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M49.2,42h4.6a2.2,2.2 0 0 1 2.2,2.2v13.6a2.2,2.2 0 0 1 -2.2,2.2h-4.6a2.2,2.2 0 0 1 -2.2,-2.2v-13.6a2.2,2.2 0 0 1 2.2,-2.2z" />
+        <path android:fillColor="#FFC857" android:pathData="M58.2,34h4.6a2.2,2.2 0 0 1 2.2,2.2v21.6a2.2,2.2 0 0 1 -2.2,2.2h-4.6a2.2,2.2 0 0 1 -2.2,-2.2v-21.6a2.2,2.2 0 0 1 2.2,-2.2z" />
+    </group>
 </vector>

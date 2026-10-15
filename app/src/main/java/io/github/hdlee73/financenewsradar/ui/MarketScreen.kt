@@ -58,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -356,8 +357,8 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
 private val UpColor = Color(0xFFDC5C60)
 private val DownColor = Color(0xFF4B7BC8)
 private val ChartColor = Color(0xFF62A893)
-private val SoftFill = Color(0xFFF2F5F4)
-private val SoftLine = Color(0xFFE6EBE8)
+private val SoftFill = Color(0xFFEAF2FB)
+private val SoftLine = Color(0xFFE3ECF6)
 
 @Composable
 internal fun changeColor(change: Double?): Color = when {
@@ -425,12 +426,19 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
     }
 
     Box(modifier.fillMaxSize()) {
-    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 16.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 16.dp)) {
         item {
-            Row(Modifier.fillMaxWidth().padding(start = 2.dp, top = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("금융시장 동향", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium.copy(fontSize = 22.sp))
-                SoftButton(onClick = viewModel::refresh, enabled = !state.isRefreshing) {
-                    Icon(Icons.Default.Refresh, contentDescription = "시세 새로고침", Modifier.size(18.dp))
+            // 목록의 좌우 여백(12dp)을 넘어 화면 전체 폭으로 그린다.
+            LargeTitle(
+                "금융시장 동향", subtitle = "지수·환율·금리·원자재를 한눈에",
+                modifier = Modifier.layout { measurable, constraints ->
+                    val extra = 24.dp.roundToPx()
+                    val placeable = measurable.measure(constraints.copy(minWidth = constraints.maxWidth + extra, maxWidth = constraints.maxWidth + extra))
+                    layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
+                }
+            ) {
+                IconButton(onClick = viewModel::refresh, enabled = !state.isRefreshing) {
+                    Icon(Icons.Default.Refresh, contentDescription = "시세 새로고침")
                 }
             }
         }

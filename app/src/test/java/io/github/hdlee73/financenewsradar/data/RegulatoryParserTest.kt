@@ -58,4 +58,61 @@ class RegulatoryParserTest {
         assertEquals(LocalDate.of(2026, 3, 1), date)
         assertEquals("시행중", status)
     }
+
+    @Test
+    fun parsesSanctionColumns() {
+        val page = """
+            <ul class="menu"><li><a href="/fss/main.do">입법/규정변경 예고 등</a></li></ul>
+            <table><thead><tr><th>번호</th><th>제재대상기관</th><th>제재조치요구일</th><th>관련부서</th></tr></thead>
+            <tbody><tr><td>3</td><td><a href="/fss/job/openInfo/view.do?seq=3&amp;menuNo=200476">가나다증권</a></td><td>2026-09-30</td><td>증권검사국</td></tr></tbody></table>
+        """.trimIndent()
+        val rows = RegulatoryParser.parseList(page, "https://www.fss.or.kr/fss/job/openInfo/list.do?menuNo=200476", RegulatoryParser.ListKind.SANCTION)
+        assertEquals(1, rows.size)
+        assertEquals("가나다증권", rows[0].title)
+        assertEquals(LocalDate.of(2026, 9, 30), rows[0].date)
+        assertEquals("증권검사국", rows[0].dept)
+        assertEquals("https://www.fss.or.kr/fss/job/openInfo/view.do?seq=3&menuNo=200476", rows[0].link)
+    }
+
+    @Test
+    fun parsesSerialAndGuidanceDept() {
+        val opinion = "<table><tr><th>일련번호</th><th>제목</th></tr><tr><td>250123</td><td><a href=\"/v.do?id=1\">제목입니다 회신</a></td></tr></table>"
+        val r = RegulatoryParser.parseList(opinion, "https://better.fsc.go.kr/l.do", RegulatoryParser.ListKind.OPINION).single()
+        assertEquals("250123", r.serial)
+        assertEquals("제목입니다 회신", r.title)
+        val guide = "<table><tr><th>번호</th><th>제목</th><th>소관부서</th><th>시행일</th><th>시행여부</th></tr>" +
+            "<tr><td>1</td><td><a onclick=\"go('/a/view.do?x=1')\" href=\"javascript:;\">가이드라인 안내</a></td><td>은행감독국</td><td>2025-01-02</td><td>시행중</td></tr></table>"
+        val g = RegulatoryParser.parseList(guide, "https://www.fss.or.kr/a/list.do", RegulatoryParser.ListKind.GUIDANCE).single()
+        assertEquals("은행감독국", g.dept)
+        assertEquals("https://www.fss.or.kr/a/view.do?x=1", g.link)
+        assertEquals(true, RegulatoryParser.statusOf(g.statusText))
+    }
+
+    @Test
+    fun menuLinksAloneAreNotRows() {
+        val menu = "<ul><li><a href=\"/a.do\">입법/규정변경 예고 등</a></li><li><a href=\"/b.do\">과거회신사례(2014이전)</a></li></ul>"
+        assertTrue(RegulatoryParser.parseList(menu, "https://x.kr/l.do", RegulatoryParser.ListKind.OPINION).isEmpty())
+    }
+
+    @Test
+    fun readsScriptBuiltDetailLinks() {
+        val page = "<script>function fnView(idx){ location.href='/fsc_new/replyCase/LawreqDetail.do?lawreqIdx='+idx+'&stNo=11'; }</script>" +
+            "<table><tr><th>일련번호</th><th>제목</th></tr>" +
+            "<tr><td>2501</td><td><a href=\"javascript:fnView('1155');\">자본시장법상 금융투자업인가 관련 법령해석 요청</a></td></tr></table>"
+        val url = "https://better.fsc.go.kr/fsc_new/replyCase/LawreqList.do?stNo=11&muNo=85&muGpNo=75"
+        val r = RegulatoryParser.parseList(page, url, RegulatoryParser.ListKind.OPINION, "LawreqDetail.do", "lawreqIdx").single()
+        assertEquals("https://better.fsc.go.kr/fsc_new/replyCase/LawreqDetail.do?lawreqIdx=1155&stNo=11&muNo=85&muGpNo=75", r.link)
+        // 스크립트 정의가 없어도 기본 경로로 만든다.
+        val bare = "<table><tr><th>제목</th></tr><tr><td><a href=\"#\" onclick=\"goDetail('77')\">제목입니다 회신</a></td></tr></table>"
+        val b = RegulatoryParser.parseList(bare, url, RegulatoryParser.ListKind.OPINION, "OpinionDetail.do", "opinionIdx").single()
+        assertEquals("https://better.fsc.go.kr/fsc_new/replyCase/OpinionDetail.do?opinionIdx=77&stNo=11&muNo=85&muGpNo=75", b.link)
+    }
+
+    @Test
+    fun readsVariousDateFormats() {
+        assertEquals(LocalDate.of(2026, 9, 30), RegulatoryParser.parseDate("2026. 9. 30."))
+        assertEquals(LocalDate.of(2026, 9, 30), RegulatoryParser.parseDate("20260930"))
+        assertEquals(LocalDate.of(2026, 9, 30), RegulatoryParser.parseDate("26.09.30"))
+        assertEquals(LocalDate.of(2026, 9, 30), RegulatoryParser.parseDate("2026년 9월 30일"))
+    }
 }

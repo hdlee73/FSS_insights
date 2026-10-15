@@ -62,4 +62,12 @@ class FisisApiTest {
         assertEquals("2025.09", fisisMonthLabel("202509"))
         assertEquals("분기", fisisTermLabel("Q"))
     }
+
+    @Test
+    fun `회사명에서 주식회사와 (주)를 빼고 공백을 정리한다`() {
+        assertEquals("미래에셋증권", cleanCompanyName("미래에셋증권 주식회사"))
+        assertEquals("삼성증권", cleanCompanyName("(주)삼성증권"))
+        assertEquals("한국 증권", cleanCompanyName("㈜한국  (주) 증권"))
+        assertEquals("케이뱅크", cleanCompanyName("주식회사 케이뱅크"))
+    }
 }

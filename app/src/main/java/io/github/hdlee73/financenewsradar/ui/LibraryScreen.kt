@@ -159,7 +159,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     Box(modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
-        LargeTitle("참고 자료실") {
+        LargeTitle("참고 자료실", subtitle = "법령·감독 자료 모음") {
             IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
         }
         if (!viewModel.isConfigured) {
@@ -204,20 +204,22 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
             state.items.isEmpty() -> CenterMessage(if (state.query.isNotBlank()) "검색 결과가 없습니다." else "이 폴더에는 자료가 없습니다.", actionLabel = "새로고침", onAction = viewModel::refresh)
             else -> LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
                 items(state.items, key = { it.id }) { entry ->
+                    ListCard(onClick = {
+                        if (entry.isFolder) viewModel.enter(entry)
+                        else scope.launch { viewModel.fetch(entry)?.let { openFile(context, it, entry) } }
+                    }) {
                     Row(
-                        Modifier.fillMaxWidth().clickable {
-                            if (entry.isFolder) viewModel.enter(entry)
-                            else scope.launch { viewModel.fetch(entry)?.let { openFile(context, it, entry) } }
-                        }.padding(start = 18.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
+                        Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            if (entry.isFolder) Icons.Default.Folder else Icons.Default.InsertDriveFile,
-                            contentDescription = null,
-                            tint = if (entry.isFolder) AppColors.accent else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
-                        )
+                        val tint = if (entry.isFolder) AppColors.heroEnd else MaterialTheme.colorScheme.primary
+                        IconTile(tint) {
+                            Icon(
+                                if (entry.isFolder) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+                                contentDescription = null, tint = tint, modifier = Modifier.size(26.dp)
+                            )
+                        }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(entry.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             if (entry.description.isNotBlank()) Text(
@@ -241,7 +243,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
                             }
                         }
                     }
-                    HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    }
                 }
             }
         }

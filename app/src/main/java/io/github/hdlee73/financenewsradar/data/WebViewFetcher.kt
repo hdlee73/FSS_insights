@@ -22,7 +22,8 @@ internal object WebViewFetcher {
     private const val POLL_MS = 1_000L
     private const val MAX_POLLS = 15
 
-    suspend fun get(context: Context, url: String, isReady: (String) -> Boolean = { true }): String = withTimeout(TOTAL_TIMEOUT_MS) {
+    /** [moreLabel]이 있으면 준비될 때까지 그 글자가 든 '더보기' 버튼을 매번 눌러 목록을 늘린다. */
+    suspend fun get(context: Context, url: String, moreLabel: String? = null, isReady: (String) -> Boolean = { true }): String = withTimeout(TOTAL_TIMEOUT_MS) {
         suspendCancellableCoroutine { cont ->
             val handler = Handler(Looper.getMainLooper())
             handler.post {
@@ -55,6 +56,7 @@ internal object WebViewFetcher {
                             if ((!blocked && parsed.second.length > 3_000 && isReady(parsed.second)) || polls >= MAX_POLLS) {
                                 finish(Result.success(parsed.second))
                             } else {
+                                if (moreLabel != null && !blocked) current.evaluateJavascript(clickMoreScript(moreLabel), null)
                                 handler.postDelayed(poll, POLL_MS)
                             }
                         }
@@ -90,6 +92,12 @@ internal object WebViewFetcher {
         settings.loadsImagesAutomatically = false
         settings.blockNetworkImage = true
     }
+
+    /** 글자에 [label]이 든 가장 안쪽 버튼·링크를 눌러 목록을 더 불러온다. */
+    private fun clickMoreScript(label: String): String =
+        "(function(){var l=" + org.json.JSONObject.quote(label) + ";var e=document.querySelectorAll('a,button,input[type=button],span,div');" +
+            "for(var i=0;i<e.length;i++){var n=e[i];var t=(n.innerText||n.value||'').replace(/\\s+/g,'');" +
+            "if(t.length<=l.length+4&&t.indexOf(l)>=0&&n.offsetParent!==null){n.click();return true;}}return false;})()"
 
     /** evaluateJavascript는 JSON 문자열을 한 번 더 따옴표로 감싸 돌려준다. */
     private fun decode(raw: String?): Pair<String, String> {

@@ -39,7 +39,20 @@ internal object AgencySources {
         /** HTTP 응답에서 읽은 항목이 이보다 적으면 WebView로도 읽어 더 많이 읽힌 쪽을 쓴다(서버가 목록 일부만 내려주는 사이트용). */
         val minItems: Int = 1,
         /** 링크 패턴으로 못 읽으면 날짜 붙은 링크 → 같은 사이트의 긴 제목 링크 순으로 한 번씩 더 시도한다. */
-        val genericFallback: Boolean = false
+        val genericFallback: Boolean = false,
+        /** 목록 아래 '더보기' 버튼을 눌러 이어 붙이는 사이트: 이 글자가 든 버튼을 눌러 [minItems]건 이상 읽는다(WebView). */
+        val loadMoreLabel: String? = null,
+        /** 이 주소로 읽지 못했을 때 대신 읽는 설정. */
+        val fallback: Source? = null
+    )
+
+    private fun bcbsHtml() = Source(
+        listUrl = { _, _ -> "https://www.bis.org/publications" },
+        linkPattern = Regex("""(?i)/(publ|bcbs/publ|fsi/publ|speeches|review|cpmi/publ|ifc/publ|iosco/publ)/(?!index\.)[A-Za-z0-9_.-]+\.(htm|html|pdf)"""),
+        pageable = false,
+        deepSearch = false,
+        jsRendered = true,
+        genericFallback = true
     )
 
     private fun enc(text: String) = URLEncoder.encode(text, StandardCharsets.UTF_8.toString())
@@ -71,8 +84,12 @@ internal object AgencySources {
                 val byLink = HtmlListParser.extractReportsByLink(body, url)
                 if (byLink.size > byText.size) byLink else byText
             },
+            // 목록은 '더보기'를 눌러야 나머지가 나오므로 WebView로 열어 버튼을 눌러 가며 읽는다.
+            pageable = false,
             pageSize = 30,
-            minItems = 10
+            minItems = 40,
+            jsRendered = true,
+            loadMoreLabel = "더보기"
         )
         AgencyId.KIF -> Source(
             listUrl = { _, _ -> "https://www.kif.re.kr/kif4/publication/pub_list?mid=10" },
@@ -119,12 +136,12 @@ internal object AgencySources {
         // 아래 세 곳은 목록을 자바스크립트로 그리거나 일반 요청을 막는 일이 있어 처음부터 WebView(쿠키 허용)로 읽는다.
         // 링크 패턴을 틀리게 짚어도 목록이 나오도록 genericFallback을 켜 둔다.
         AgencyId.BCBS -> Source(
-            listUrl = { _, _ -> "https://www.bis.org/publications" },
-            linkPattern = Regex("""(?i)/(publ|bcbs/publ|fsi/publ|speeches|review|cpmi/publ|ifc/publ|iosco/publ)/(?!index\.)[A-Za-z0-9_.-]+\.(htm|html|pdf)"""),
+            // BIS의 바젤위원회 발간물 RSS: 제목·발행일이 정확히 나온다. 읽지 못하면 아래 화면 읽기로 대신한다.
+            listUrl = { _, _ -> "https://www.bis.org/doclist/bcbspubls.rss" },
+            isRss = true,
             pageable = false,
             deepSearch = false,
-            jsRendered = true,
-            genericFallback = true
+            fallback = bcbsHtml()
         )
         AgencyId.FCA -> Source(
             listUrl = { _, _ -> "https://www.fca.org.uk/research" },
@@ -259,9 +276,16 @@ class AgencyRepository(private val context: android.content.Context) {
         return ReleasePage(sorted, hasMore = !done, nextPage = current)
     }
 
-    private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> =
-        fetchParsed(agency.label, url, source.jsRendered, source.minItems) { body -> parse(source, body, url) }
-            .map { ReleaseItem(agency, it.title, it.url, it.date, author = it.author) }
+    private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> {
+        val primary = runCatching { fetchParsed(agency.label, url, source.jsRendered, source.minItems, source.loadMoreLabel) { body -> parse(source, body, url) } }
+        val parsed = primary.getOrElse { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            val fallback = source.fallback ?: throw error
+            val fallbackUrl = fallback.listUrl(1, fallback.pageSize)
+            fetchParsed(agency.label, fallbackUrl, fallback.jsRendered, fallback.minItems, fallback.loadMoreLabel) { body -> parse(fallback, body, fallbackUrl) }
+        }
+        return parsed.map { ReleaseItem(agency, it.title, it.url, it.date, author = it.author) }
+    }
 
     /** 사용자가 추가한 연구소의 목록(최근 [count]건). 주소 패턴을 모르므로 범용 추출을 쓴다. */
     suspend fun latestCustom(institute: CustomInstitute, count: Int = 20): List<ReleaseItem> =
@@ -273,14 +297,14 @@ class AgencyRepository(private val context: android.content.Context) {
     suspend fun searchCustom(institute: CustomInstitute, query: String): List<ReleaseItem> =
         latestCustom(institute, 30).filter { AgencySources.matches(it.title, query) }
 
-    private suspend fun fetchParsed(label: String, url: String, webViewOnly: Boolean = false, minItems: Int = 1, parse: (String) -> List<ParsedLink>): List<ParsedLink> {
+    private suspend fun fetchParsed(label: String, url: String, webViewOnly: Boolean = false, minItems: Int = 1, moreLabel: String? = null, parse: (String) -> List<ParsedLink>): List<ParsedLink> {
         var parsed: List<ParsedLink> = emptyList()
         var lastBody = ""
         var failure: Throwable? = null
         // 1차: 가벼운 HTTP 요청. 2차: 막히거나 목록이 비면 숨은 WebView로 실제 화면의 HTML을 읽는다.
         for (useWebView in if (webViewOnly) listOf(true) else listOf(false, true)) {
             val body = try {
-                if (useWebView) WebViewFetcher.get(context, url) { html -> parse(html).isNotEmpty() } else HtmlFetcher.get(url)
+                if (useWebView) WebViewFetcher.get(context, url, moreLabel) { html -> parse(html).size >= if (moreLabel != null) minItems else 1 } else HtmlFetcher.get(url)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {

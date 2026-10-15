@@ -193,7 +193,7 @@ object HtmlListParser {
             val link = compact(unwrapCdata(field(body, "link")))
             if (title.isBlank() || link.isBlank()) return@mapNotNull null
             val absolute = resolve(runCatching { URI(baseUrl) }.getOrNull(), decodeEntities(link)) ?: return@mapNotNull null
-            ParsedLink(title, absolute, parseRssDate(field(body, "pubDate")))
+            ParsedLink(title, absolute, parseRssDate(field(body, "pubDate").ifBlank { field(body, "dc:date") }))
         }.toList()
     }
 
@@ -263,7 +263,7 @@ object HtmlListParser {
         if (dated.isNotEmpty()) return dated
         val clean = noise.replace(html, " ").replace(Regex("<(nav|header|footer|aside)\\b.*?</\\1>", options), " ")
         val base = runCatching { URI(baseUrl) }.getOrNull() ?: return emptyList()
-        val found = LinkedHashMap<String, ParsedLink>()
+        val found = LinkedHashMap<String, Hit>()
         for (match in anchor.findAll(clean)) {
             val text = compact(decodeEntities(tag.replace(match.groupValues[2], " ")))
             if (text.length < 10 || genericLabel.matches(text)) continue
@@ -272,10 +272,14 @@ object HtmlListParser {
             val host = runCatching { URI(url).host }.getOrNull()
             if (host == null || host.removePrefix("www.") != base.host?.removePrefix("www.")) continue
             if (url.substringBefore('#') == baseUrl.substringBefore('#')) continue
-            found.putIfAbsent(url, ParsedLink(text, url, null))
+            found.putIfAbsent(url, Hit(match.range.first, match.range.last + 1, url, text))
             if (found.size >= 30) break
         }
-        return found.values.toList()
+        // 날짜는 링크 앞뒤에서 이웃 링크 사이의 가장 가까운 날짜를 쓴다(카드형 목록용).
+        val hits = found.values.toList()
+        return hits.mapIndexed { i, hit ->
+            ParsedLink(hit.title, hit.url, dateFor(clean, hit, hits.getOrNull(i - 1)?.end ?: 0, hits.getOrNull(i + 1)?.start ?: clean.length))
+        }
     }
 
     /** 오류 안내에 붙일 진단용 샘플: 글자가 긴 링크 3개의 (글자→주소 앞부분). */

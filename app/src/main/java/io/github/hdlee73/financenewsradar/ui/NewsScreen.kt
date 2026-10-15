@@ -1,5 +1,6 @@
 package io.github.hdlee73.financenewsradar.ui
 
+import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -106,13 +107,13 @@ private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpe
     Box(modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "title") {
-                LargeTitle("뉴스검색") {
+                LargeTitle("뉴스검색", subtitle = "금융 뉴스를 키워드로 찾아보기") {
                     IconButton(onClick = onOpenMonitor) { Icon(Icons.Default.Insights, contentDescription = "키워드 모니터링") }
                     IconButton(onClick = viewModel::toggleBookmarksOnly) {
                         Icon(
                             if (state.bookmarksOnly) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                             contentDescription = "즐겨찾기만 보기",
-                            tint = if (state.bookmarksOnly) androidx.compose.ui.graphics.Color(0xFFFFB38F) else androidx.compose.ui.graphics.Color.White
+                            tint = if (state.bookmarksOnly) AppColors.accent else AppColors.onHero
                         )
                     }
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, contentDescription = "설정") }
@@ -177,7 +178,6 @@ private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpe
                         Column {
                             if (section != previousSection) SectionLabel(section, modifier = Modifier.padding(top = if (index == 0) 0.dp else 10.dp))
                             ArticleRow(article = article, onBookmark = { viewModel.toggleBookmark(article) })
-                            RowDivider()
                         }
                     }
                     if (state.isLoadingMore || (state.canLoadMore && !state.bookmarksOnly)) {
@@ -358,13 +358,7 @@ private fun LoadingView() {
 @Composable
 private fun ArticleRow(article: NewsArticle, onBookmark: () -> Unit) {
     val context = LocalContext.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { ArticleReaderActivity.open(context, article.link, article.title) }
-            .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
+    ListCard(onClick = { ArticleReaderActivity.open(context, article.link, article.title) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TagLabel(article.source.take(12), accent = article.isPriority)
             Text(
@@ -388,7 +382,7 @@ private fun ArticleRow(article: NewsArticle, onBookmark: () -> Unit) {
         }
         Text(
             article.title,
-            modifier = Modifier.padding(end = 12.dp),
+            modifier = Modifier,
             style = MaterialTheme.typography.titleMedium,
             maxLines = 3,
             overflow = TextOverflow.Ellipsis

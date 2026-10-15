@@ -1,5 +1,6 @@
 package io.github.hdlee73.financenewsradar.ui
 
+import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -16,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -158,7 +159,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                     Icon(
                         if (showSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                         contentDescription = if (showSaved) "저장함 닫기" else "저장함 열기",
-                        tint = if (showSaved) androidx.compose.ui.graphics.Color(0xFFFFB38F) else androidx.compose.ui.graphics.Color.White
+                        tint = if (showSaved) AppColors.accent else AppColors.onHero
                     )
                 }
             }
@@ -176,14 +177,13 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
             if (saved.isEmpty()) {
                 item(key = "saved-empty") { CenterMessage("저장한 자료가 없습니다.\n목록의 북마크 버튼을 눌러 담아 두세요.") }
             }
-            items(saved, key = { "saved-${it.link}" }) { item ->
+            itemsIndexed(saved, key = { i, it -> "saved-$i-${it.link}" }) { _, item ->
                 ReleaseRow(
                     item = item, isNew = false, isSaved = true, showAgency = true,
                     onOpen = { openItem(context, item) },
                     onToggleSaved = { viewModel.toggleSaved(item) },
                     onShare = { shareItem(context, item) }
                 )
-                RowDivider()
             }
         } else if (agency != null) {
             agencyItems(
@@ -330,14 +330,14 @@ private fun LazyListScope.agencyItems(
                 )
             }
             else -> {
-                items(state.latest, key = { "latest-${it.link}" }) { item ->
+                // 목록 주소가 모두 같은 사이트(주소를 못 읽어 목록 페이지로 대신한 경우)도 앱이 종료되지 않도록 순번을 키에 넣는다.
+                itemsIndexed(state.latest, key = { i, it -> "latest-$i-${it.link}" }) { _, item ->
                     ReleaseRow(
                         item = item, isNew = item.link in state.newLinks, isSaved = item.link in savedLinks, showAgency = false,
                         onOpen = { openItem(context, item) },
                         onToggleSaved = { onToggleSaved(item) },
                         onShare = { shareItem(context, item) }
                     )
-                    RowDivider()
                 }
                 // 첫 쪽을 먼저 보여 주고 나머지는 백그라운드에서 읽어 이어 붙이는 중.
                 if (state.isLoadingMore) item(key = "latest-more") { LoadingBlock() }
@@ -349,14 +349,13 @@ private fun LazyListScope.agencyItems(
                 TextButton(onClick = onClear) { Text("지우기") }
             }
         }
-        items(state.results, key = { "result-${it.link}" }) { item ->
+        itemsIndexed(state.results, key = { i, it -> "result-$i-${it.link}" }) { _, item ->
             ReleaseRow(
                 item = item, isNew = false, isSaved = item.link in savedLinks, showAgency = false,
                 onOpen = { openItem(context, item) },
                 onToggleSaved = { onToggleSaved(item) },
                 onShare = { shareItem(context, item) }
             )
-            RowDivider()
         }
         if (state.isSearching) item(key = "result-loading") { LoadingBlock() }
         state.searchError?.let { message -> item(key = "result-error") { CenterMessage(message, isError = true) } }
@@ -416,10 +415,8 @@ private fun ReleaseRow(
     onShare: () -> Unit
 ) {
     val meta = listOfNotNull(item.label.takeIf { showAgency }, item.author, item.dateText()).joinToString(" · ")
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 20.dp, top = 10.dp, bottom = 10.dp, end = 6.dp),
-        verticalAlignment = Alignment.Top
-    ) {
+    ListCard(stripe = AppColors.heroEnd, onClick = onOpen) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f).padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -440,6 +437,7 @@ private fun ReleaseRow(
         IconButton(onClick = onShare, modifier = Modifier.size(40.dp)) {
             Icon(Icons.Default.Share, contentDescription = "제목과 링크 공유", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
     }
 }
 

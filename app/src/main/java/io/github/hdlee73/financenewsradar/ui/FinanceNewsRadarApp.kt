@@ -1,5 +1,6 @@
 package io.github.hdlee73.financenewsradar.ui
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.size
@@ -50,6 +51,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.ui.platform.LocalView
 import io.github.hdlee73.financenewsradar.ui.theme.AppColors
+import io.github.hdlee73.financenewsradar.ui.theme.HeroPalettes
+import io.github.hdlee73.financenewsradar.ui.theme.LocalHeroPalette
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -111,7 +115,7 @@ private val appScreens = listOf(
     AppScreen("알림", Icons.Filled.Notifications),
     AppScreen("앱 정보", Icons.Filled.Info),
     AppScreen("금융회사 주요 현황", Icons.Filled.Business),
-    AppScreen("유권해석·비조치·행정지도", Icons.Filled.Gavel),
+    AppScreen("유권해석·비조치의견서·행정지도", Icons.Filled.Gavel),
     AppScreen("금융회사 제재공시", Icons.Filled.Gavel)
 )
 
@@ -140,9 +144,9 @@ fun FinanceNewsRadarApp(
     val focusManager = LocalFocusManager.current
     val stateHolder = rememberSaveableStateHolder()
     val view = LocalView.current
-    val darkIcons = false
+    val darkIcons = !isSystemInDarkTheme()
     SideEffect {
-        // 네이비 헤더 위에서 상태 표시줄 아이콘이 보이도록 밝은 아이콘으로.
+        // 밝은 테마는 연한 헤더 위에서 어두운 아이콘, 어두운 테마는 밝은 아이콘으로.
         (view.context as? android.app.Activity)?.window?.let {
             androidx.core.view.WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars = darkIcons
         }
@@ -219,14 +223,29 @@ fun FinanceNewsRadarApp(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHost) }
     ) { padding ->
+        val palette = when (screen) {
+            SCREEN_BRIEFING -> HeroPalettes.Sky
+            SCREEN_NEWS -> HeroPalettes.Indigo
+            SCREEN_MARKET -> HeroPalettes.Teal
+            SCREEN_PRESS -> HeroPalettes.Ocean
+            SCREEN_RESEARCH -> HeroPalettes.Violet
+            SCREEN_LIBRARY -> HeroPalettes.Amber
+            SCREEN_SITES -> HeroPalettes.Slate
+            SCREEN_ALERTS -> HeroPalettes.Rose
+            SCREEN_FISIS -> HeroPalettes.Green
+            SCREEN_REGULATORY -> HeroPalettes.Indigo
+            SCREEN_SANCTION -> HeroPalettes.Coral
+            else -> HeroPalettes.Slate
+        }
+        CompositionLocalProvider(LocalHeroPalette provides palette) {
         Column(Modifier.fillMaxSize().padding(padding).navigationBarsPadding()) {
         // 상태 표시줄 영역과 상단 메뉴 바를 같은 네이비로 칠한다.
-        Spacer(Modifier.fillMaxWidth().background(AppColors.header).windowInsetsTopHeight(WindowInsets.statusBars))
-        Row(Modifier.fillMaxWidth().background(AppColors.header).height(44.dp), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.fillMaxWidth().background(AppColors.heroStart).windowInsetsTopHeight(WindowInsets.statusBars))
+        Row(Modifier.fillMaxWidth().background(AppColors.heroStart).height(44.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = ::openMenu) {
-                Icon(Icons.Filled.Menu, contentDescription = "메뉴 열기", tint = Color.White)
+                Icon(Icons.Filled.Menu, contentDescription = "메뉴 열기", tint = AppColors.onHero)
             }
-            Text("FSS Insights", color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+            Text("FSS Insights", color = AppColors.onHero, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             // 화면을 오가도 각 화면의 검색어·스크롤 위치가 유지되도록 화면별로 상태를 보관한다.
@@ -250,6 +269,7 @@ fun FinanceNewsRadarApp(
                     else -> AppInfoScreen()
                 }
             }
+        }
         }
         }
     }

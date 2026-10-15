@@ -12,13 +12,13 @@ data class FisisSector(val code: String, val label: String)
 
 /** 화면에 보여 주는 권역 순서. */
 val FISIS_SECTORS: List<FisisSector> = listOf(
-    FisisSector("F", "증권사"),
-    FisisSector("G", "자산운용사"),
+    FisisSector("F", "증권"),
+    FisisSector("G", "운용"),
     FisisSector("A", "은행"),
-    FisisSector("H", "생명보험"),
-    FisisSector("I", "손해보험"),
-    FisisSector("E", "저축은행"),
-    FisisSector("C", "카드")
+    FisisSector("H", "생보"),
+    FisisSector("I", "손보"),
+    FisisSector("C", "카드"),
+    FisisSector("E", "저축은행")
 )
 
 data class FisisCompany(val code: String, val name: String)
@@ -57,10 +57,15 @@ data class FisisProfile(
 data class FisisAsset(val value: Double, val month: String, val unit: String)
 data class FisisRankingPage(val assets: Map<String, FisisAsset>, val next: Int?, val ranked: Boolean)
 
+private val CORP_FORM = Regex("\\(\\s*주\\s*\\)|㈜|주식회사")
+
+/** 회사명에서 "주식회사", "(주)", "㈜"를 빼고, 빠진 자리의 공백도 정리한다. */
+internal fun cleanCompanyName(name: String): String = name.replace(CORP_FORM, " ").replace(Regex("\\s+"), " ").trim()
+
 internal fun parseFisisCompanies(body: String): List<FisisCompany> {
     val array = JSONObject(body).optJSONArray("items") ?: return emptyList()
     return (0 until array.length()).map { array.getJSONObject(it) }
-        .map { FisisCompany(it.optString("code"), it.optString("name")) }
+        .map { FisisCompany(it.optString("code"), cleanCompanyName(it.optString("name"))) }
         .filter { it.code.isNotBlank() && it.name.isNotBlank() }
         .sortedBy { it.name }
 }
@@ -84,7 +89,7 @@ internal fun parseFisisProfile(body: String): FisisProfile {
         )
     }
     return FisisProfile(
-        root.optString("name"), root.optString("term"),
+        cleanCompanyName(root.optString("name")), root.optString("term"),
         (0 until (options?.length() ?: 0)).map { options!!.getString(it) },
         metrics
     )
