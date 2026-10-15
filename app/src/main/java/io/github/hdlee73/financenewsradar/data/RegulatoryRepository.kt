@@ -33,7 +33,7 @@ class RegulatoryRepository(private val context: Context) {
      */
     suspend fun load(source: RegSource, onList: (List<RegItem>) -> Unit = {}): List<RegItem> {
         val rows = fetchRows(source)
-        var items = rows.map { RegItem(source, it.title, it.link ?: source.listUrl, it.date, "", it.statusText, RegulatoryParser.statusOf(it.statusText), it.serial, it.dept) }
+        var items = rows.map { RegItem(source, if (source == RegSource.FSS_SANCTION) cleanCompanyName(it.title) else it.title, it.link ?: source.listUrl, it.date, "", it.statusText, RegulatoryParser.statusOf(it.statusText), it.serial, it.dept) }
         onList(items)
         val bodies = Semaphore(DETAIL_PARALLEL)
         items = coroutineScope {
@@ -55,8 +55,8 @@ class RegulatoryRepository(private val context: Context) {
         for (page in 1..MAX_LIST_PAGES) {
             val url = pageUrl(source.listUrl, page)
             val parsed = try {
-                fetchHtml(url) { RegulatoryParser.parseList(it, url, source.kind).isNotEmpty() }
-                    .let { RegulatoryParser.parseList(it, url, source.kind) }
+                fetchHtml(url) { RegulatoryParser.parseList(it, url, source.kind, source.detailPath, source.detailParam).isNotEmpty() }
+                    .let { RegulatoryParser.parseList(it, url, source.kind, source.detailPath, source.detailParam) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -109,7 +109,7 @@ class RegulatoryRepository(private val context: Context) {
         }
     }
 
-    private fun cacheFile(source: RegSource) = File(context.cacheDir, "regulatory2-${source.name.lowercase()}.json")
+    private fun cacheFile(source: RegSource) = File(context.cacheDir, "regulatory3-${source.name.lowercase()}.json")
 
     private fun writeCache(source: RegSource, items: List<RegItem>) {
         val array = JSONArray()

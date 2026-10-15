@@ -207,17 +207,11 @@ fun RegulatoryScreen(
 private fun RegulatoryRow(item: RegItem, query: String, onOpen: () -> Unit) {
     val date = item.date?.format(regDateFormat)
     val snippet = if (query.isBlank()) null else RegulatoryParser.snippet(item, query)
-    val meta = mutableListOf<String>()
-    when (item.source) {
-        RegSource.FSS_SANCTION -> {
-            meta += "제재조치요구일 ${date ?: "-"}"
-            meta += "관련부서 ${item.dept ?: "-"}"
-        }
-        RegSource.LAW_INTERPRETATION, RegSource.NO_ACTION -> meta += "일련번호 ${item.serial ?: "-"}"
-        else -> {
-            meta += "소관부서 ${item.dept ?: "-"}"
-            meta += "시행일 ${date ?: "-"}"
-        }
+    // 라벨 없이 값만 보여 준다(제재공시: 요구일 · 관련부서, 행정지도: 소관부서 · 시행일, 유권해석·비조치의견서: 일련번호).
+    val meta = when (item.source) {
+        RegSource.FSS_SANCTION -> listOfNotNull(date, item.dept)
+        RegSource.LAW_INTERPRETATION, RegSource.NO_ACTION -> listOfNotNull(item.serial?.let { "일련번호 $it" })
+        else -> listOfNotNull(item.dept, date)
     }
     Column(
         Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 20.dp, vertical = 12.dp),
@@ -232,7 +226,7 @@ private fun RegulatoryRow(item: RegItem, query: String, onOpen: () -> Unit) {
                     null -> TagLabel(item.statusText?.takeIf { it.isNotBlank() } ?: "시행여부 -", accent = true)
                 }
             }
-            Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (meta.isNotEmpty()) Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (snippet != null) {
             Text(snippet, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)

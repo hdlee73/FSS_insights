@@ -18,7 +18,7 @@ object RegulatoryParser {
 
     private val opts = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
     private val noise = Regex("<!--.*?-->|<(script|style|noscript)\\b.*?</\\1>", opts)
-    private val rowRe = Regex("<tr\\b[^>]*>(.*?)</tr>", opts)
+    private val rowRe = Regex("<tr\\b([^>]*)>(.*?)</tr>", opts)
     private val cellRe = Regex("<(td|th)\\b[^>]*>(.*?)</\\1>", opts)
     private val anchorRe = Regex("<a\\b([^>]*)>(.*?)</a>", opts)
     private val hrefRe = Regex("href\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')", RegexOption.IGNORE_CASE)
@@ -32,9 +32,17 @@ object RegulatoryParser {
     private val endedRe = Regex("폐지|종료|해제|효력\\s*상실|실효|종결|종료됨|만료")
     private val footerRe = Regex("개인정보\\s*처리방침|저작권\\s*정책|Copyright|COPYRIGHT|찾아오시는\\s*길")
 
+    private val shortDateRe = Regex("(?<!\\d)(\\d{2})\\s*[-./]\\s*(\\d{1,2})\\s*[-./]\\s*(\\d{1,2})(?!\\d)")
+    private val compactDateRe = Regex("(?<!\\d)(20\\d{2})(\\d{2})(\\d{2})(?!\\d)")
+
+    private fun ymd(y: Int, m: Int, d: Int): LocalDate? = runCatching { LocalDate.of(y, m, d) }.getOrNull()
+
+    /** 2026-09-30, 2026.9.30, 2026년 9월 30일, 26.09.30, 20260930 모두 읽는다. */
     fun parseDate(text: String): LocalDate? {
-        val m = dateRe.find(text) ?: return null
-        return runCatching { LocalDate.of(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt()) }.getOrNull()
+        dateRe.find(text)?.let { m -> ymd(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt())?.let { return it } }
+        compactDateRe.find(text)?.let { m -> ymd(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt())?.let { return it } }
+        shortDateRe.find(text)?.let { m -> ymd(2000 + m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt())?.let { return it } }
+        return null
     }
 
     /** 시행 상태 글자에서 시행중 여부를 읽는다. 종료 표현이 우선하며, 알 수 없으면 null. */
@@ -65,6 +73,53 @@ object RegulatoryParser {
     private val detailHrefHint = Regex("view|detail|read|seq|idx|no=|id=|\\.do\\?", RegexOption.IGNORE_CASE)
     private val scriptPathRe = Regex("['\"](/[^'\"\\s]*\\.do[^'\"\\s]*)['\"]")
 
+    /** href/onclick 안의 `함수(인자, …)` 호출. 상세 주소를 스크립트로 만드는 게시판용. */
+    data class JsCall(val fn: String, val args: List<String>)
+
+    private val jsCallRe = Regex("(?:href|onclick)\\s*=\\s*[\"'](?:\\s*javascript:)?\\s*(?:return\\s+)?([A-Za-z_$][\\w$.]*)\\s*\\(([^)]*)\\)", RegexOption.IGNORE_CASE)
+    private val dataIdRe = Regex("data-(?:idx|seq|id|no|key)[\\w-]*\\s*=\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
+
+    private fun jsCallOf(vararg fragments: String): JsCall? {
+        for (f in fragments) {
+            for (m in jsCallRe.findAll(f)) {
+                val fn = m.groupValues[1]
+                if (fn.equals("void", true) || fn.equals("alert", true) || fn.contains("download", true) || fn.contains("print", true)) continue
+                val args = m.groupValues[2].split(',').map { it.trim().trim('\'', '"') }.filter { it.isNotBlank() }
+                if (args.isNotEmpty()) return JsCall(fn, args)
+            }
+            dataIdRe.find(f)?.let { return JsCall("", listOf(it.groupValues[1])) }
+        }
+        return null
+    }
+
+    /**
+     * 페이지의 스크립트에서 [call.fn] 정의를 찾아 상세 주소(.do 경로와 첫 인자 이름)를 알아내고,
+     * 못 찾으면 출처별 기본 경로([defaultPath], [defaultParam])를 쓴다. 목록 주소의 stNo/muNo/muGpNo는 그대로 붙인다.
+     */
+    internal fun detailLink(rawHtml: String, base: URI?, listUrl: String, call: JsCall, defaultPath: String?, defaultParam: String?): String? {
+        var path: String? = null
+        var param: String? = null
+        if (call.fn.isNotEmpty()) {
+            val name = Regex.escape(call.fn.substringAfterLast('.'))
+            val def = Regex("function\\s+$name\\s*\\(|$name\\s*[:=]\\s*function\\s*\\(").find(rawHtml)
+            if (def != null) {
+                val body = rawHtml.substring(def.range.last, (def.range.last + 900).coerceAtMost(rawHtml.length))
+                Regex("[\"']([^\"'\\s]*\\.do)(\\?[^\"']*)?[\"']").find(body)?.let { m ->
+                    path = m.groupValues[1]
+                    param = Regex("([A-Za-z_]\\w*)\\s*=").find(m.groupValues[2])?.groupValues?.get(1)
+                }
+            }
+        }
+        path = path ?: defaultPath
+        param = param ?: defaultParam
+        val finalPath = path ?: return null
+        val finalParam = param ?: return null
+        val extras = runCatching { URI(listUrl).rawQuery.orEmpty() }.getOrDefault("")
+            .split('&').filter { it.startsWith("stNo=") || it.startsWith("muNo=") || it.startsWith("muGpNo=") }
+        val query = (listOf(finalParam + "=" + java.net.URLEncoder.encode(call.args.first(), "UTF-8")) + extras).joinToString("&")
+        return resolve(base, "$finalPath?$query")
+    }
+
     private fun anchorsOf(row: String, base: URI?): List<Triple<String, String?, String>> =
         anchorRe.findAll(row).map { a ->
             val attrs = a.groupValues[1]
@@ -78,12 +133,14 @@ object RegulatoryParser {
      * 게시판 목록을 읽는다. 표(`tr/td`)를 우선하고 머리글 이름으로 열을 찾으며,
      * 표가 없으면 날짜와 상세 링크를 가진 `li` 항목을 읽는다. 사이트 메뉴 같은 링크 모음은 읽지 않는다(없으면 빈 목록).
      */
-    fun parseList(html: String, baseUrl: String, kind: ListKind = ListKind.GENERIC): List<Row> {
+    fun parseList(html: String, baseUrl: String, kind: ListKind = ListKind.GENERIC, detailPath: String? = null, detailParam: String? = null): List<Row> {
         val clean = noise.replace(html, " ")
         val base = runCatching { URI(baseUrl) }.getOrNull()
         val out = mutableListOf<Row>()
         var headers: List<String> = emptyList()
-        for (row in rowRe.findAll(clean).map { it.groupValues[1] }) {
+        for (rowMatch in rowRe.findAll(clean)) {
+            val trAttrs = rowMatch.groupValues[1]
+            val row = rowMatch.groupValues[2]
             val cells = cellRe.findAll(row).toList()
             if (cells.isEmpty()) continue
             val texts = cells.map { cellText(it.groupValues[2]) }
@@ -97,6 +154,7 @@ object RegulatoryParser {
             val anchors = anchorsOf(row, base)
             val dateIdx = if (kind == ListKind.SANCTION) idx(sanctionDateHeader).takeIf { it >= 0 } ?: idx(implHeader) else idx(implHeader)
             val date = texts.getOrNull(dateIdx)?.let { parseDate(it) } ?: texts.firstNotNullOfOrNull { parseDate(it) }
+                ?: parseDate(HtmlListParser.decodeEntities(row))
             val dept = cell(deptHeader)
             val statusIdx = idx(statusHeader)
             val statusText = texts.getOrNull(statusIdx)?.takeIf { it.isNotBlank() }
@@ -109,8 +167,9 @@ object RegulatoryParser {
             } ?: anchors.maxByOrNull { it.first.length }?.first?.takeIf { it.length >= 2 }
                 ?: texts.filter { it.length >= 4 && parseDate(it) == null && it != serial }.maxByOrNull { it.length }
             if (title == null) continue
-            val link = anchors.firstOrNull { title.startsWith(it.first.take(10)) || it.first.startsWith(title.take(10)) }?.second
-                ?: anchors.firstNotNullOfOrNull { it.second }
+            val titled = anchors.firstOrNull { title.startsWith(it.first.take(10)) || it.first.startsWith(title.take(10)) }
+            val link = titled?.second ?: anchors.firstNotNullOfOrNull { it.second }
+                ?: jsCallOf(titled?.third.orEmpty(), trAttrs, row)?.let { detailLink(html, base, baseUrl, it, detailPath, detailParam) }
             out += Row(title, link, date, statusText, serial, dept)
         }
         if (out.isNotEmpty()) return out
@@ -145,7 +204,7 @@ object RegulatoryParser {
         return joined.take(maxLength)
     }
 
-    private val implDetail = Regex("시행\\s*일(?:자)?\\s*[:：]?\\s*(20\\d{2}\\s*[-./년]\\s*\\d{1,2}\\s*[-./월]\\s*\\d{1,2})")
+    private val implDetail = Regex("(?:시행\\s*일|제재\\s*조치\\s*요구일)(?:자)?\\s*[:：]?\\s*(20\\d{2}\\s*[-./년]\\s*\\d{1,2}\\s*[-./월]\\s*\\d{1,2})")
     private val statusDetail = Regex("(?:시행\\s*여부|시행\\s*상태|상\\s*태|현\\s*황)\\s*[:：]?\\s*([가-힣]{2,8})")
 
     /** 상세 글에서 시행일과 시행 상태를 보충해서 읽는다. */

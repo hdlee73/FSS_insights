@@ -65,7 +65,7 @@ internal fun cleanCompanyName(name: String): String = name.replace(CORP_FORM, " 
 internal fun parseFisisCompanies(body: String): List<FisisCompany> {
     val array = JSONObject(body).optJSONArray("items") ?: return emptyList()
     return (0 until array.length()).map { array.getJSONObject(it) }
-        .map { FisisCompany(it.optString("code"), it.optString("name")) }
+        .map { FisisCompany(it.optString("code"), cleanCompanyName(it.optString("name"))) }
         .filter { it.code.isNotBlank() && it.name.isNotBlank() }
         .sortedBy { it.name }
 }

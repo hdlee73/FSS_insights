@@ -10,7 +10,7 @@ enum class RegSource(val label: String, val tabLabel: String, val listUrl: Strin
         "https://better.fsc.go.kr/fsc_new/replyCase/LawreqList.do?stNo=11&muNo=85&muGpNo=75", false
     ),
     NO_ACTION(
-        "금융위원회 비조치의견서", "비조치의견서",
+        "금융감독원 비조치의견서", "비조치의견서",
         "https://better.fsc.go.kr/fsc_new/replyCase/OpinionList.do?stNo=11&muNo=86&muGpNo=75", false
     ),
     FSS_GUIDANCE(
@@ -25,6 +25,12 @@ enum class RegSource(val label: String, val tabLabel: String, val listUrl: Strin
         "금융감독원 금융회사 제재공시", "제재공시",
         "https://www.fss.or.kr/fss/job/openInfo/list.do?menuNo=200476", false
     );
+
+    /** 상세 페이지 경로와 첫 인자 이름(목록이 자바스크립트로 상세 링크를 만들 때의 기본값). */
+    val detailPath: String?
+        get() = when (this) { LAW_INTERPRETATION -> "LawreqDetail.do"; NO_ACTION -> "OpinionDetail.do"; else -> null }
+    val detailParam: String?
+        get() = when (this) { LAW_INTERPRETATION -> "lawreqIdx"; NO_ACTION -> "opinionIdx"; else -> null }
 
     /** 목록 파서가 열을 읽는 방식. */
     val kind: RegulatoryParser.ListKind
