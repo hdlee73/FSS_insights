@@ -2,7 +2,7 @@ package io.github.hdlee73.financenewsradar.model
 
 import java.time.LocalDate
 
-/** 유권해석·비조치·행정지도 조회 화면의 출처. [listUrl]은 사용자가 지정한 목록 주소. */
+/** 유권해석·비조치·행정지도·제재공시 조회 화면의 출처. [listUrl]은 사용자가 지정한 목록 주소. */
 enum class RegSource(val label: String, val tabLabel: String, val listUrl: String, val isGuidance: Boolean) {
     LAW_INTERPRETATION(
         "금융위원회 법령해석", "유권해석",
@@ -19,9 +19,13 @@ enum class RegSource(val label: String, val tabLabel: String, val listUrl: Strin
     FSS_GUIDANCE(
         "금융감독원 행정지도", "금감원 행정지도",
         "https://www.fss.or.kr/fss/job/admnstgudc/list.do?menuNo=200492", true
+    ),
+    FSS_SANCTION(
+        "금융감독원 금융회사 제재공시", "제재공시",
+        "https://www.fss.or.kr/fss/job/openInfo/list.do?menuNo=200476", false
     );
 
-    /** 처음 가져오는 건수(행정지도는 금융위·금감원 각각). */
+    /** 처음 가져오는 건수(출처마다). */
     val count: Int get() = 20
 }
 

@@ -100,16 +100,26 @@ class RegulatoryViewModel(application: Application) : AndroidViewModel(applicati
     }
 }
 
+/** 서랍 메뉴별 출처 묶음. */
+object RegulatoryMenus {
+    val guidance = listOf(RegSource.LAW_INTERPRETATION, RegSource.NO_ACTION, RegSource.FSC_GUIDANCE, RegSource.FSS_GUIDANCE)
+    val sanction = listOf(RegSource.FSS_SANCTION)
+}
+
 private val regDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
 
 /** 금융회사 주요 현황 아래 메뉴: 유권해석·비조치·행정지도(금융위/금감원)를 최근 20건씩 읽고 제목+내용으로 검색한다. */
 @Composable
-fun RegulatoryScreen(viewModel: RegulatoryViewModel, modifier: Modifier = Modifier) {
+fun RegulatoryScreen(
+    viewModel: RegulatoryViewModel,
+    modifier: Modifier = Modifier,
+    title: String = "유권해석·비조치·행정지도",
+    sources: List<RegSource> = RegulatoryMenus.guidance
+) {
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val states by viewModel.state.collectAsStateWithLifecycle()
-    val sources = remember { RegSource.entries.toList() }
     var selected by rememberSaveable { mutableStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
     val source = sources[selected.coerceIn(0, sources.lastIndex)]
@@ -123,13 +133,13 @@ fun RegulatoryScreen(viewModel: RegulatoryViewModel, modifier: Modifier = Modifi
     Box(modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "title") {
-                LargeTitle("유권해석·비조치·행정지도") {
+                LargeTitle(title) {
                     IconButton(onClick = { viewModel.refresh(source) }, enabled = !state.loading) {
                         Icon(Icons.Default.Refresh, contentDescription = "새로고침")
                     }
                 }
             }
-            item(key = "tabs") {
+            if (sources.size > 1) item(key = "tabs") {
                 UnderlineTabs(sources.map { it.tabLabel }, selected, { selected = it })
             }
             item(key = "search") {
