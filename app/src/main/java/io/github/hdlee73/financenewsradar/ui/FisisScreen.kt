@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -457,8 +458,52 @@ private fun RatioTab(sector: String, profile: FisisProfile, month: String?, onMo
     val months = monthsOf(ratios)
     val selected = month?.takeIf { it in months } ?: months.firstOrNull()
     PeriodPicker(months, selected, ratios.firstOrNull()?.term ?: profile.term, onMonth)
-    SubTitle("주요경영지표")
-    rows.forEach { (k, label) -> MetricRow(label, ratios.firstOrNull { it.key == k }, selected) }
+    var span by rememberSaveable { mutableIntStateOf(4) }
+    Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(4, 8).forEach { n -> PillChip("최근 ${n}${fisisTermLabel(profile.term).ifBlank { "개 시점" }}", onClick = { span = n }, selected = span == n, onPanel = true) }
+    }
+    SectionHeader("주요경영지표", unit = "단위: %")
+    // 선택한 시점을 맨 오른쪽 열로 두고, 그 이전 시점을 왼쪽에 시간순으로 놓는다.
+    val start = months.indexOf(selected).coerceAtLeast(0)
+    val shown = months.drop(start).take(span).reversed()
+    RatioTable(rows, ratios, shown, selected)
+}
+
+@Composable
+private fun RatioTable(rows: List<Pair<String, String>>, ratios: List<FisisMetric>, months: List<String>, selected: String?) {
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    val labelW = 116.dp
+    val cellW = 76.dp
+    val hl = MaterialTheme.colorScheme.primaryContainer
+    @Composable
+    fun Cell(text: String, m: String?, bold: Boolean, header: Boolean) {
+        val on = m != null && m == selected
+        Text(
+            text, Modifier.width(cellW).background(if (on) hl else androidx.compose.ui.graphics.Color.Transparent).padding(horizontal = 6.dp, vertical = if (header) 8.dp else 12.dp),
+            style = if (header) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
+            fontWeight = if (on) FontWeight.Bold else if (bold) FontWeight.Bold else FontWeight.Normal,
+            color = if (on) MaterialTheme.colorScheme.onPrimaryContainer else if (header) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.End, maxLines = 1
+        )
+    }
+    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, outline, RoundedCornerShape(12.dp)).horizontalScroll(rememberScrollState())) {
+        Row(Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh), verticalAlignment = Alignment.CenterVertically) {
+            Text("지표", Modifier.width(labelW).padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            months.forEach { Cell(fisisMonthLabel(it), it, bold = false, header = true) }
+        }
+        rows.forEach { (k, label) ->
+            HorizontalDivider(color = outline)
+            val metric = ratios.firstOrNull { it.key == k }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, Modifier.width(labelW).padding(horizontal = 12.dp, vertical = 12.dp), style = MaterialTheme.typography.bodyMedium)
+                months.forEach { m ->
+                    val v = metric?.at(m)?.value
+                    Cell(if (v != null && metric != null) fisisValueText(v, metric.unit).removeSuffix("%") else "-", m, bold = false, header = false)
+                }
+            }
+        }
+    }
+    Note("가로로 밀어 다른 시점을 볼 수 있습니다. 선택한 시점 열은 강조됩니다.")
 }
 
 @Composable
