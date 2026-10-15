@@ -101,7 +101,7 @@ class RegulatoryRepository(private val context: Context) {
             failure = e
         }
         return try {
-            WebViewFetcher.get(context, url, ready)
+            WebViewFetcher.get(context, url, isReady = ready)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
