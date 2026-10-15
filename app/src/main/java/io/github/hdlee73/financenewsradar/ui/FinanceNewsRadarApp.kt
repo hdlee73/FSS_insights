@@ -112,7 +112,7 @@ private val appScreens = listOf(
     AppScreen("알림", Icons.Filled.Notifications),
     AppScreen("앱 정보", Icons.Filled.Info),
     AppScreen("금융회사 주요 현황", Icons.Filled.Business),
-    AppScreen("유권해석·비조치·행정지도", Icons.Filled.Gavel),
+    AppScreen("유권해석·비조치의견서·행정지도", Icons.Filled.Gavel),
     AppScreen("금융회사 제재공시", Icons.Filled.Gavel)
 )
 

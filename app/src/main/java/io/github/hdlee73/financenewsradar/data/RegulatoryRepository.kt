@@ -33,7 +33,7 @@ class RegulatoryRepository(private val context: Context) {
      */
     suspend fun load(source: RegSource, onList: (List<RegItem>) -> Unit = {}): List<RegItem> {
         val rows = fetchRows(source)
-        var items = rows.map { RegItem(source, it.title, it.link ?: source.listUrl, it.date, "", it.statusText, RegulatoryParser.statusOf(it.statusText)) }
+        var items = rows.map { RegItem(source, it.title, it.link ?: source.listUrl, it.date, "", it.statusText, RegulatoryParser.statusOf(it.statusText), it.serial, it.dept) }
         onList(items)
         val bodies = Semaphore(DETAIL_PARALLEL)
         items = coroutineScope {
@@ -55,8 +55,8 @@ class RegulatoryRepository(private val context: Context) {
         for (page in 1..MAX_LIST_PAGES) {
             val url = pageUrl(source.listUrl, page)
             val parsed = try {
-                fetchHtml(url) { RegulatoryParser.parseList(it, url).isNotEmpty() }
-                    .let { RegulatoryParser.parseList(it, url) }
+                fetchHtml(url) { RegulatoryParser.parseList(it, url, source.kind).isNotEmpty() }
+                    .let { RegulatoryParser.parseList(it, url, source.kind) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -64,7 +64,7 @@ class RegulatoryRepository(private val context: Context) {
                 emptyList()
             }
             val before = rows.size
-            parsed.forEach { rows.putIfAbsent(it.link?.takeIf { l -> l != source.listUrl } ?: it.title, it) }
+            parsed.forEach { rows.putIfAbsent(it.link?.takeIf { l -> l != source.listUrl } ?: (it.serial.orEmpty() + it.title + it.date), it) }
             if (rows.size >= source.count || rows.size == before) break
         }
         if (rows.isEmpty()) {
@@ -101,7 +101,7 @@ class RegulatoryRepository(private val context: Context) {
             failure = e
         }
         return try {
-            WebViewFetcher.get(context, url, ready)
+            WebViewFetcher.get(context, url) { ready(it) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -109,7 +109,7 @@ class RegulatoryRepository(private val context: Context) {
         }
     }
 
-    private fun cacheFile(source: RegSource) = File(context.cacheDir, "regulatory-${source.name.lowercase()}.json")
+    private fun cacheFile(source: RegSource) = File(context.cacheDir, "regulatory2-${source.name.lowercase()}.json")
 
     private fun writeCache(source: RegSource, items: List<RegItem>) {
         val array = JSONArray()
@@ -117,6 +117,7 @@ class RegulatoryRepository(private val context: Context) {
             array.put(JSONObject().apply {
                 put("title", it.title); put("link", it.link); put("date", it.date?.toString())
                 put("body", it.body); put("status", it.statusText); put("inForce", it.inForce)
+                put("serial", it.serial); put("dept", it.dept)
             })
         }
         cacheFile(source).writeText(array.toString())
@@ -133,14 +134,16 @@ class RegulatoryRepository(private val context: Context) {
                 o.optString("date").takeIf { it.isNotBlank() && it != "null" }?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
                 o.optString("body"),
                 o.optString("status").takeIf { it.isNotBlank() && it != "null" },
-                if (o.has("inForce") && !o.isNull("inForce")) o.getBoolean("inForce") else null
+                if (o.has("inForce") && !o.isNull("inForce")) o.getBoolean("inForce") else null,
+                o.optString("serial").takeIf { it.isNotBlank() && it != "null" },
+                o.optString("dept").takeIf { it.isNotBlank() && it != "null" }
             )
         }
     }
 
     companion object {
         private const val DETAIL_PARALLEL = 4
-        private const val MAX_LIST_PAGES = 3
+        private const val MAX_LIST_PAGES = 6
 
         /** 목록 주소에 쪽 번호와 쪽당 건수 인자를 붙인다(사이트가 쓰는 이름을 모르므로 흔한 이름을 함께 넣는다). */
         internal fun pageUrl(listUrl: String, page: Int): String =

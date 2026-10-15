@@ -8,7 +8,13 @@ import java.time.LocalDate
  * 사이트별 마크업에 묶이지 않도록 머리글(제목/시행일/시행여부) 이름으로 열을 찾고, 못 찾으면 행 안의 글에서 추정한다.
  */
 object RegulatoryParser {
-    data class Row(val title: String, val link: String?, val date: LocalDate?, val statusText: String?)
+    data class Row(
+        val title: String, val link: String?, val date: LocalDate?, val statusText: String?,
+        val serial: String? = null, val dept: String? = null
+    )
+
+    /** 목록 종류: 제재공시(기관·요구일·부서), 법령해석·비조치(제목·일련번호), 행정지도(제목·부서·시행일·시행여부). */
+    enum class ListKind { GENERIC, SANCTION, OPINION, GUIDANCE }
 
     private val opts = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
     private val noise = Regex("<!--.*?-->|<(script|style|noscript)\\b.*?</\\1>", opts)
@@ -51,50 +57,79 @@ object RegulatoryParser {
         }.getOrNull()
     }
 
-    fun parseList(html: String, baseUrl: String): List<Row> {
+    /** 열 이름 규칙. 머리글 이름으로 열을 찾는다. */
+    private val orgHeader = Regex("제재\\s*대상\\s*기관|대상\\s*기관|기관명|금융회사|회사명")
+    private val sanctionDateHeader = Regex("제재\\s*조치\\s*요구일|조치\\s*요구일|요구일")
+    private val deptHeader = Regex("관련\\s*부서|소관\\s*부서|담당\\s*부서|부서")
+    private val serialHeader = Regex("일련\\s*번호|연번|번호|No\\.?")
+    private val detailHrefHint = Regex("view|detail|read|seq|idx|no=|id=|\\.do\\?", RegexOption.IGNORE_CASE)
+    private val scriptPathRe = Regex("['\"](/[^'\"\\s]*\\.do[^'\"\\s]*)['\"]")
+
+    private fun anchorsOf(row: String, base: URI?): List<Triple<String, String?, String>> =
+        anchorRe.findAll(row).map { a ->
+            val attrs = a.groupValues[1]
+            val href = hrefRe.find(attrs)?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } }
+            // href가 javascript 호출이면 속성 안의 .do 경로 문자열을 대신 찾는다.
+            val link = href?.let { resolve(base, it) } ?: scriptPathRe.find(attrs)?.let { resolve(base, it.groupValues[1]) }
+            Triple(cellText(a.groupValues[2]), link, attrs)
+        }.filter { it.first.length >= 2 }.toList()
+
+    /**
+     * 게시판 목록을 읽는다. 표(`tr/td`)를 우선하고 머리글 이름으로 열을 찾으며,
+     * 표가 없으면 날짜와 상세 링크를 가진 `li` 항목을 읽는다. 사이트 메뉴 같은 링크 모음은 읽지 않는다(없으면 빈 목록).
+     */
+    fun parseList(html: String, baseUrl: String, kind: ListKind = ListKind.GENERIC): List<Row> {
         val clean = noise.replace(html, " ")
         val base = runCatching { URI(baseUrl) }.getOrNull()
-        val rows = rowRe.findAll(clean).map { it.groupValues[1] }.toList()
-        var headers: List<String> = emptyList()
         val out = mutableListOf<Row>()
-        for (row in rows) {
+        var headers: List<String> = emptyList()
+        for (row in rowRe.findAll(clean).map { it.groupValues[1] }) {
             val cells = cellRe.findAll(row).toList()
             if (cells.isEmpty()) continue
             val texts = cells.map { cellText(it.groupValues[2]) }
             if (cells.none { it.groupValues[1].equals("td", true) }) {
-                if (headers.isEmpty()) headers = texts
+                if (headers.isEmpty() || texts.size > headers.size) headers = texts
                 continue
             }
             val aligned = headers.size == texts.size
             fun idx(re: Regex) = if (aligned) headers.indexOfFirst { re.containsMatchIn(it) } else -1
-            val titleIdx = idx(titleHeader)
-            val implIdx = idx(implHeader)
+            fun cell(re: Regex) = idx(re).takeIf { it >= 0 }?.let { texts.getOrNull(it) }?.takeIf { it.isNotBlank() }
+            val anchors = anchorsOf(row, base)
+            val dateIdx = if (kind == ListKind.SANCTION) idx(sanctionDateHeader).takeIf { it >= 0 } ?: idx(implHeader) else idx(implHeader)
+            val date = texts.getOrNull(dateIdx)?.let { parseDate(it) } ?: texts.firstNotNullOfOrNull { parseDate(it) }
+            val dept = cell(deptHeader)
             val statusIdx = idx(statusHeader)
-
-            val anchors = anchorRe.findAll(row).map { a ->
-                val href = hrefRe.find(a.groupValues[1])?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } }
-                cellText(a.groupValues[2]) to href
-            }.filter { it.first.length >= 2 }.toList()
-
-            val title = texts.getOrNull(titleIdx)?.takeIf { it.length >= 4 }
-                ?: anchors.maxByOrNull { it.first.length }?.first?.takeIf { it.length >= 4 }
-                ?: texts.filter { it.length >= 6 && parseDate(it) == null }.maxByOrNull { it.length }
-                ?: continue
-            // 제목이 들어 있는 링크를 우선하고, 없으면 행의 첫 번째 쓸 수 있는 링크.
-            val link = anchors.firstOrNull { title.startsWith(it.first.take(10)) || it.first.startsWith(title.take(10)) }
-                ?.second?.let { resolve(base, it) }
-                ?: anchors.firstNotNullOfOrNull { a -> a.second?.let { resolve(base, it) } }
-
-            val dateText = if (implIdx >= 0) texts.getOrNull(implIdx).orEmpty() else ""
-            val date = parseDate(dateText) ?: texts.firstNotNullOfOrNull { parseDate(it) }
             val statusText = texts.getOrNull(statusIdx)?.takeIf { it.isNotBlank() }
-                ?: texts.firstOrNull { statusOf(it) != null && it.length <= 12 }
-            out += Row(title, link, date, statusText)
+                ?: if (kind == ListKind.GUIDANCE) texts.firstOrNull { statusOf(it) != null && it.length <= 12 } else null
+            val serial = cell(serialHeader) ?: texts.firstOrNull()?.takeIf { kind == ListKind.OPINION && it.length <= 12 && it.any(Char::isDigit) }
+
+            val title: String? = when (kind) {
+                ListKind.SANCTION -> cell(orgHeader)
+                else -> cell(titleHeader)
+            } ?: anchors.maxByOrNull { it.first.length }?.first?.takeIf { it.length >= 2 }
+                ?: texts.filter { it.length >= 4 && parseDate(it) == null && it != serial }.maxByOrNull { it.length }
+            if (title == null) continue
+            val link = anchors.firstOrNull { title.startsWith(it.first.take(10)) || it.first.startsWith(title.take(10)) }?.second
+                ?: anchors.firstNotNullOfOrNull { it.second }
+            out += Row(title, link, date, statusText, serial, dept)
         }
         if (out.isNotEmpty()) return out
-        // 표가 아닌 목록이면 범용 추출로 한 번 더 시도한다.
-        return HtmlListParser.extractGeneric(html, baseUrl).map { Row(it.title, it.url, it.date, null) }
+        return parseListItems(clean, base)
     }
+
+    private val liRe = Regex("<li\\b[^>]*>(.*?)</li>", opts)
+
+    /** 표가 아닌 `li` 목록: 날짜와 상세 링크가 함께 있는 항목만 게시글로 본다. */
+    private fun parseListItems(clean: String, base: URI?): List<Row> =
+        liRe.findAll(clean).mapNotNull { m ->
+            val body = m.groupValues[1]
+            val text = cellText(body)
+            val date = parseDate(text) ?: return@mapNotNull null
+            val anchor = anchorsOf(body, base).filter { it.second != null && detailHrefHint.containsMatchIn(it.second!!) }
+                .maxByOrNull { it.first.length } ?: return@mapNotNull null
+            if (anchor.first.length < 4) return@mapNotNull null
+            Row(anchor.first, anchor.second, date, null, null, null)
+        }.toList()
 
     /** 상세 페이지 HTML을 읽을 수 있는 글로 바꾼다. [title]이 나오는 지점부터 쓰고 하단 안내문은 자른다. */
     fun htmlToText(html: String, title: String = "", maxLength: Int = 12_000): String {

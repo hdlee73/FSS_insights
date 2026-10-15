@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
@@ -102,7 +102,7 @@ class RegulatoryViewModel(application: Application) : AndroidViewModel(applicati
 
 /** 서랍 메뉴별 출처 묶음. */
 object RegulatoryMenus {
-    val guidance = listOf(RegSource.LAW_INTERPRETATION, RegSource.NO_ACTION, RegSource.FSC_GUIDANCE, RegSource.FSS_GUIDANCE)
+    val guidance = listOf(RegSource.LAW_INTERPRETATION, RegSource.NO_ACTION, RegSource.FSS_GUIDANCE, RegSource.FSC_GUIDANCE)
     val sanction = listOf(RegSource.FSS_SANCTION)
 }
 
@@ -113,7 +113,7 @@ private val regDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy
 fun RegulatoryScreen(
     viewModel: RegulatoryViewModel,
     modifier: Modifier = Modifier,
-    title: String = "유권해석·비조치·행정지도",
+    title: String = "유권해석·비조치의견서·행정지도",
     sources: List<RegSource> = RegulatoryMenus.guidance
 ) {
     val context = LocalContext.current
@@ -141,6 +141,18 @@ fun RegulatoryScreen(
             }
             if (sources.size > 1) item(key = "tabs") {
                 UnderlineTabs(sources.map { it.tabLabel }, selected, { selected = it })
+            }
+            item(key = "site") {
+                Row(
+                    Modifier.fillMaxWidth().clickable { openExternal(context, source.listUrl) }.padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "${source.label} 사이트에서 전체 목록 보기", Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary
+                    )
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                }
             }
             item(key = "search") {
                 SearchPill(
@@ -181,21 +193,9 @@ fun RegulatoryScreen(
                 shown.isEmpty() -> item(key = "empty") {
                     CenterMessage(if (query.isBlank()) "표시할 항목이 없습니다." else "일치하는 항목이 없습니다.")
                 }
-                else -> items(shown, key = { "${it.source.name}-${it.link}-${it.title}" }) { item ->
+                else -> itemsIndexed(shown, key = { i, it -> "${it.source.name}-$i" }) { _, item ->
                     RegulatoryRow(item, query) { openExternal(context, item.link) }
                     RowDivider()
-                }
-            }
-            item(key = "site") {
-                Row(
-                    Modifier.fillMaxWidth().clickable { openExternal(context, source.listUrl) }.padding(horizontal = 20.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "${source.label} 사이트에서 전체 목록 보기", Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary
-                    )
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -205,28 +205,34 @@ fun RegulatoryScreen(
 
 @Composable
 private fun RegulatoryRow(item: RegItem, query: String, onOpen: () -> Unit) {
-    val guidance = item.source.isGuidance
     val date = item.date?.format(regDateFormat)
     val snippet = if (query.isBlank()) null else RegulatoryParser.snippet(item, query)
+    val meta = mutableListOf<String>()
+    when (item.source) {
+        RegSource.FSS_SANCTION -> {
+            meta += "제재조치요구일 ${date ?: "-"}"
+            meta += "관련부서 ${item.dept ?: "-"}"
+        }
+        RegSource.LAW_INTERPRETATION, RegSource.NO_ACTION -> meta += "일련번호 ${item.serial ?: "-"}"
+        else -> {
+            meta += "소관부서 ${item.dept ?: "-"}"
+            meta += "시행일 ${date ?: "-"}"
+        }
+    }
     Column(
         Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (guidance) {
+            if (item.source.isGuidance) {
                 when (item.inForce) {
                     true -> TagLabel("시행중")
                     false -> TagLabel(item.statusText?.takeIf { it.isNotBlank() } ?: "종료", accent = true)
-                    null -> TagLabel(item.statusText?.takeIf { it.isNotBlank() } ?: "시행여부 미확인", accent = true)
+                    null -> TagLabel(item.statusText?.takeIf { it.isNotBlank() } ?: "시행여부 -", accent = true)
                 }
             }
-            val meta = when {
-                date == null -> if (guidance) "시행일 미확인" else null
-                guidance -> "시행일 $date"
-                else -> date
-            }
-            if (meta != null) Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (snippet != null) {
             Text(snippet, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
