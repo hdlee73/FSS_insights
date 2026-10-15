@@ -134,7 +134,7 @@ fun RegulatoryScreen(
     Box(modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "title") {
-                LargeTitle(title, subtitle = if (source == RegSource.FSS_SANCTION) "금융회사별 제재 현황을 한눈에" else "금융감독원·금융위원회 공식 해석·지도") {
+                LargeTitle(title, subtitle = if (source == RegSource.FSS_SANCTION) "금융회사별 제재 현황을 한눈에" else "금융당국 유권해석, 비조치의견 및 행정지도") {
                     IconButton(onClick = { viewModel.refresh(source) }, enabled = !state.loading) {
                         Icon(Icons.Default.Refresh, contentDescription = "새로고침")
                     }
