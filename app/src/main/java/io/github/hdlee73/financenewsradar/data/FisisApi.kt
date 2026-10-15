@@ -12,13 +12,14 @@ data class FisisSector(val code: String, val label: String)
 
 /** 화면에 보여 주는 권역 순서. */
 val FISIS_SECTORS: List<FisisSector> = listOf(
-    FisisSector("F", "증권사"),
-    FisisSector("G", "자산운용사"),
+    FisisSector("F", "증권"),
+    FisisSector("G", "운용"),
     FisisSector("A", "은행"),
-    FisisSector("H", "생명보험"),
-    FisisSector("I", "손해보험"),
-    FisisSector("E", "저축은행"),
-    FisisSector("C", "카드")
+    FisisSector("H", "생보"),
+    FisisSector("I", "손보"),
+    FisisSector("C", "카드"),
+    FisisSector("E", "저축은행")
+)
 )
 
 data class FisisCompany(val code: String, val name: String)
