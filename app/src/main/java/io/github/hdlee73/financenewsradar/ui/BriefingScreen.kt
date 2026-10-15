@@ -21,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -207,23 +208,23 @@ private fun BriefingHeader(weather: Weather?, onRefresh: () -> Unit) {
     val now = remember { ZonedDateTime.now(SEOUL) }
     val greeting = remember(weather) { Greeting.pick(now, weather) }
     Box(
-        Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(AppColors.headerEnd, AppColors.header, MaterialTheme.colorScheme.background)))
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp)).background(Brush.verticalGradient(listOf(AppColors.heroStart, AppColors.heroEnd)))
             .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 22.dp)
     ) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("TODAY'S BRIEFING", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = AppColors.onHeader.copy(alpha = 0.7f), letterSpacing = 2.sp)
-                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침", tint = AppColors.onHeader) }
+                Text("TODAY'S BRIEFING", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = AppColors.onHero.copy(alpha = 0.7f), letterSpacing = 2.sp)
+                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침", tint = AppColors.onHero) }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(dateFormat.format(now), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = AppColors.onHeader)
-                    Text("오늘의 브리핑", Modifier.padding(top = 2.dp), style = MaterialTheme.typography.titleMedium, color = AppColors.onHeader.copy(alpha = 0.8f))
+                    Text(dateFormat.format(now), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = AppColors.onHero)
+                    Text("오늘의 브리핑", Modifier.padding(top = 2.dp), style = MaterialTheme.typography.titleMedium, color = AppColors.onHero.copy(alpha = 0.8f))
                 }
                 if (weather != null) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(weather.emoji, fontSize = 38.sp)
-                        Text("${weather.temp}°", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = AppColors.onHeader)
+                        Text("${weather.temp}°", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = AppColors.onHero)
                     }
                 }
             }
@@ -231,11 +232,11 @@ private fun BriefingHeader(weather: Weather?, onRefresh: () -> Unit) {
                 val rain = weather.rainChance?.let { " · 강수 $it%" }.orEmpty()
                 Text(
                     "서울 ${weather.summary} · ${weather.min}° / ${weather.max}°$rain",
-                    Modifier.padding(top = 10.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelLarge, color = AppColors.onHeader
+                    Modifier.padding(top = 10.dp).background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelLarge, color = AppColors.onHero
                 )
             }
-            Text(greeting, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodyLarge, color = AppColors.onHeader.copy(alpha = 0.85f))
+            Text(greeting, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodyLarge, color = AppColors.onHero.copy(alpha = 0.85f))
         }
     }
 }

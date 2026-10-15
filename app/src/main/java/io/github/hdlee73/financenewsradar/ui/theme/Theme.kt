@@ -90,6 +90,25 @@ private val AppShapes = Shapes(
     extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
 )
 
+/** 화면별 머리말 색(밝은 테마 시작·끝, 어두운 테마 시작·끝). 화면마다 다른 색을 줘 한눈에 구분되게 한다. */
+class HeroPalette(val start: Color, val end: Color, val darkStart: Color, val darkEnd: Color)
+
+object HeroPalettes {
+    val Sky = HeroPalette(Color(0xFF4FB4FB), Color(0xFF2563EB), Color(0xFF24457A), Color(0xFF1A2F63))
+    val Ocean = HeroPalette(Color(0xFF38BDF8), Color(0xFF0E7490), Color(0xFF1F4A66), Color(0xFF134A5A))
+    val Teal = HeroPalette(Color(0xFF3EDAC0), Color(0xFF2F7BEA), Color(0xFF1F5A55), Color(0xFF1D3F6E))
+    val Green = HeroPalette(Color(0xFF5FD38D), Color(0xFF0F8F6A), Color(0xFF28603F), Color(0xFF14513F))
+    val Indigo = HeroPalette(Color(0xFF7C9DFF), Color(0xFF4338CA), Color(0xFF34407A), Color(0xFF2B2B73))
+    val Violet = HeroPalette(Color(0xFFB08CFF), Color(0xFF6D3FD6), Color(0xFF47367A), Color(0xFF3A2670))
+    val Coral = HeroPalette(Color(0xFFFF9A6B), Color(0xFFE2503C), Color(0xFF7A4530), Color(0xFF6E2A22))
+    val Amber = HeroPalette(Color(0xFFFFC857), Color(0xFFE07B1F), Color(0xFF6E5420), Color(0xFF6A3E14))
+    val Slate = HeroPalette(Color(0xFF8FA6C4), Color(0xFF475A7A), Color(0xFF3A465A), Color(0xFF2B3446))
+    val Rose = HeroPalette(Color(0xFFFF8DB0), Color(0xFFC2336B), Color(0xFF7A3550), Color(0xFF6A2146))
+}
+
+/** 지금 보이는 화면의 머리말 색. 위 메뉴 바와 각 화면의 머리말이 함께 따른다. */
+val LocalHeroPalette = androidx.compose.runtime.compositionLocalOf { HeroPalettes.Sky }
+
 /** 상단 바·강조에 쓰는 색(연한 하늘색 헤더 + 파랑 포인트 + 주황 보조색). */
 object AppColors {
     val headerLight = Color(0xFFE8F2FD)
@@ -102,8 +121,8 @@ object AppColors {
     val accentLight = Color(0xFFE2622B)
     val accentDark = Color(0xFFFF9A72)
     /** 화면 머리말(히어로) 그라데이션: 하늘색 → 파랑. 위 메뉴 바는 시작색과 같다. */
-    val heroStart: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF24457A) else Color(0xFF4FB4FB)
-    val heroEnd: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF1A2F63) else Color(0xFF2563EB)
+    val heroStart: Color @Composable get() = LocalHeroPalette.current.let { if (isSystemInDarkTheme()) it.darkStart else it.start }
+    val heroEnd: Color @Composable get() = LocalHeroPalette.current.let { if (isSystemInDarkTheme()) it.darkEnd else it.end }
     val onHero: Color = Color.White
     val header: Color @Composable get() = if (isSystemInDarkTheme()) headerDark else headerLight
     val headerEnd: Color @Composable get() = if (isSystemInDarkTheme()) headerEndDark else headerEndLight

@@ -51,6 +51,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.ui.platform.LocalView
 import io.github.hdlee73.financenewsradar.ui.theme.AppColors
+import io.github.hdlee73.financenewsradar.ui.theme.HeroPalettes
+import io.github.hdlee73.financenewsradar.ui.theme.LocalHeroPalette
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -220,6 +223,21 @@ fun FinanceNewsRadarApp(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHost) }
     ) { padding ->
+        val palette = when (screen) {
+            SCREEN_BRIEFING -> HeroPalettes.Sky
+            SCREEN_NEWS -> HeroPalettes.Indigo
+            SCREEN_MARKET -> HeroPalettes.Teal
+            SCREEN_PRESS -> HeroPalettes.Ocean
+            SCREEN_RESEARCH -> HeroPalettes.Violet
+            SCREEN_LIBRARY -> HeroPalettes.Amber
+            SCREEN_SITES -> HeroPalettes.Slate
+            SCREEN_ALERTS -> HeroPalettes.Rose
+            SCREEN_FISIS -> HeroPalettes.Green
+            SCREEN_REGULATORY -> HeroPalettes.Indigo
+            SCREEN_SANCTION -> HeroPalettes.Coral
+            else -> HeroPalettes.Slate
+        }
+        CompositionLocalProvider(LocalHeroPalette provides palette) {
         Column(Modifier.fillMaxSize().padding(padding).navigationBarsPadding()) {
         // 상태 표시줄 영역과 상단 메뉴 바를 같은 네이비로 칠한다.
         Spacer(Modifier.fillMaxWidth().background(AppColors.heroStart).windowInsetsTopHeight(WindowInsets.statusBars))
@@ -251,6 +269,7 @@ fun FinanceNewsRadarApp(
                     else -> AppInfoScreen()
                 }
             }
+        }
         }
         }
     }
