@@ -20,7 +20,6 @@ val FISIS_SECTORS: List<FisisSector> = listOf(
     FisisSector("C", "카드"),
     FisisSector("E", "저축은행")
 )
-)
 
 data class FisisCompany(val code: String, val name: String)
 
