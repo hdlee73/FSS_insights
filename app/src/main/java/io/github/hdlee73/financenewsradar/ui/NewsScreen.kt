@@ -107,13 +107,13 @@ private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpe
     Box(modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "title") {
-                LargeTitle("뉴스검색") {
+                LargeTitle("뉴스검색", subtitle = "금융 뉴스를 키워드로 찾아보기") {
                     IconButton(onClick = onOpenMonitor) { Icon(Icons.Default.Insights, contentDescription = "키워드 모니터링") }
                     IconButton(onClick = viewModel::toggleBookmarksOnly) {
                         Icon(
                             if (state.bookmarksOnly) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                             contentDescription = "즐겨찾기만 보기",
-                            tint = if (state.bookmarksOnly) AppColors.accent else AppColors.onHeader
+                            tint = if (state.bookmarksOnly) AppColors.accent else AppColors.onHero
                         )
                     }
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, contentDescription = "설정") }

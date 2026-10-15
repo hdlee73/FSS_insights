@@ -215,7 +215,9 @@ object RegulatoryParser {
     fun matches(item: io.github.hdlee73.financenewsradar.model.RegItem, query: String): Boolean {
         val tokens = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
         if (tokens.isEmpty()) return true
-        val haystack = item.title + "\n" + item.body
+        // 제재공시는 제목이 금융회사명이므로 기관명(·부서)만 대조한다. 상세 본문 속 다른 회사명에 걸리지 않게 한다.
+        val haystack = if (item.source == io.github.hdlee73.financenewsradar.model.RegSource.FSS_SANCTION) item.title + "\n" + item.dept.orEmpty()
+        else item.title + "\n" + item.body
         return tokens.all { haystack.contains(it, ignoreCase = true) }
     }
 

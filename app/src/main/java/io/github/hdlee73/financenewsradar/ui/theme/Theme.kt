@@ -101,6 +101,10 @@ object AppColors {
     val onHeaderDark = Color.White
     val accentLight = Color(0xFFE2622B)
     val accentDark = Color(0xFFFF9A72)
+    /** 화면 머리말(히어로) 그라데이션: 하늘색 → 파랑. 위 메뉴 바는 시작색과 같다. */
+    val heroStart: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF24457A) else Color(0xFF4FB4FB)
+    val heroEnd: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF1A2F63) else Color(0xFF2563EB)
+    val onHero: Color = Color.White
     val header: Color @Composable get() = if (isSystemInDarkTheme()) headerDark else headerLight
     val headerEnd: Color @Composable get() = if (isSystemInDarkTheme()) headerEndDark else headerEndLight
     /** 머리말 위 글자·아이콘 색(밝은 테마는 짙은 남색, 어두운 테마는 흰색). */

@@ -159,7 +159,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                     Icon(
                         if (showSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                         contentDescription = if (showSaved) "저장함 닫기" else "저장함 열기",
-                        tint = if (showSaved) AppColors.accent else AppColors.onHeader
+                        tint = if (showSaved) AppColors.accent else AppColors.onHero
                     )
                 }
             }

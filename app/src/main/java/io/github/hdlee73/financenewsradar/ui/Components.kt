@@ -11,6 +11,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -55,34 +60,62 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** 화면 맨 위의 짙은 네이비 헤더 바(스크롤하면 목록과 함께 올라간다). 오른쪽에는 아이콘 동작을 둔다. */
+/**
+ * 화면 맨 위 히어로 머리말: 하늘색→파랑 그라데이션 위에 큰 제목과 한 줄 설명을 얹는다(스크롤하면 목록과 함께 올라간다).
+ * 위 메뉴 바와 같은 색에서 시작해 자연스럽게 이어진다. 오른쪽에는 아이콘 동작을 둔다.
+ */
 @Composable
-fun LargeTitle(title: String, modifier: Modifier = Modifier, trailing: @Composable RowScope.() -> Unit = {}) {
-    Row(
-        modifier = modifier.fillMaxWidth().background(AppColors.header).heightIn(min = 56.dp).padding(start = 18.dp, end = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+fun LargeTitle(title: String, modifier: Modifier = Modifier, subtitle: String? = null, trailing: @Composable RowScope.() -> Unit = {}) {
+    val shape = RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp)
+    Box(
+        modifier = modifier.fillMaxWidth().clip(shape)
+            .background(Brush.verticalGradient(listOf(AppColors.heroStart, AppColors.heroEnd)))
+            .drawBehind {
+                drawCircle(Color.White.copy(alpha = 0.16f), radius = size.height * 0.95f, center = Offset(size.width * 0.96f, -size.height * 0.15f))
+                drawCircle(Color.White.copy(alpha = 0.08f), radius = size.height * 0.5f, center = Offset(size.width * 0.72f, size.height * 1.05f))
+            }
     ) {
-        Text(
-            title,
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.titleLarge,
-            color = AppColors.onHeader,
-            maxLines = 1
-        )
-        CompositionLocalProvider(LocalContentColor provides AppColors.onHeader) { trailing() }
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 6.dp, top = 6.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.headlineMedium, color = AppColors.onHero, maxLines = 2)
+                if (subtitle != null) {
+                    Text(subtitle, Modifier.padding(top = 2.dp), style = MaterialTheme.typography.bodyMedium, color = AppColors.onHero.copy(alpha = 0.88f), maxLines = 2)
+                }
+            }
+            CompositionLocalProvider(LocalContentColor provides AppColors.onHero) { trailing() }
+        }
     }
 }
 
-/** 뒤로가기가 있는 네이비 헤더. */
+/** 뒤로가기가 있는 머리말(같은 그라데이션). */
 @Composable
 internal fun BackHeader(title: String, onBack: () -> Unit, trailing: @Composable RowScope.() -> Unit = {}) {
     Row(
-        Modifier.fillMaxWidth().background(AppColors.header).height(56.dp).padding(horizontal = 4.dp),
+        Modifier.fillMaxWidth().background(Brush.horizontalGradient(listOf(AppColors.heroStart, AppColors.heroEnd))).height(56.dp).padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로", tint = AppColors.onHeader) }
-        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = AppColors.onHeader, maxLines = 1)
-        CompositionLocalProvider(LocalContentColor provides AppColors.onHeader) { trailing() }
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로", tint = AppColors.onHero) }
+        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = AppColors.onHero, maxLines = 1)
+        CompositionLocalProvider(LocalContentColor provides AppColors.onHero) { trailing() }
+    }
+}
+
+/** 목록 한 건을 담는 둥근 카드. [stripe]를 주면 왼쪽에 색띠가 붙는다. */
+@Composable
+fun ListCard(modifier: Modifier = Modifier, stripe: Color? = null, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    Surface(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 5.dp),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shadowElevation = 1.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        val click = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+        Row(click.height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+            if (stripe != null) Box(Modifier.width(4.dp).fillMaxHeight().background(stripe))
+            Column(Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp), content = content)
+        }
     }
 }
 

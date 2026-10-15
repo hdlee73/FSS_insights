@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 테마 아이콘(단색)용: 돋보기 테두리 + 막대 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.88" android:scaleY="0.88">
+        <path android:fillColor="#00000000" android:strokeColor="#000000" android:strokeWidth="7"
+            android:pathData="M50,21a27,27 0 1,1 0,54a27,27 0 1,1 0,-54z" />
+        <path android:fillColor="#00000000" android:strokeColor="#000000" android:strokeWidth="9" android:strokeLineCap="round"
+            android:pathData="M69,67L84,82" />
+        <path android:fillColor="#000000" android:pathData="M38,50h9v10h-9zM47,42h9v18h-9zM56,34h9v26h-9z" />
+    </group>
+</vector>

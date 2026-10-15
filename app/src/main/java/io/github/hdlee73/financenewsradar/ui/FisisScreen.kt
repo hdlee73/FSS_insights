@@ -201,7 +201,7 @@ fun FisisScreen(viewModel: FisisViewModel, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize()) {
         when (val view = state.view) {
             FisisView.Companies -> {
-                LargeTitle("금융회사 주요 현황")
+                LargeTitle("금융회사 주요 현황", subtitle = "회사명으로 검색해 경영지표를 비교")
                 Text(FISIS_SOURCE, Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!viewModel.isConfigured) CenterMessage("서버가 연결되지 않아 경영정보를 불러올 수 없습니다.")
                 else CompanyList(state, viewModel)

@@ -159,7 +159,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, modifier: Modifier = Modifier) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     Box(modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
-        LargeTitle("참고 자료실") {
+        LargeTitle("참고 자료실", subtitle = "법령·감독 자료 모음") {
             IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
         }
         if (!viewModel.isConfigured) {

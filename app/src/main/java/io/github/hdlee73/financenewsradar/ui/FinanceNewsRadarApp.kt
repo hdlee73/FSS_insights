@@ -222,12 +222,12 @@ fun FinanceNewsRadarApp(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).navigationBarsPadding()) {
         // 상태 표시줄 영역과 상단 메뉴 바를 같은 네이비로 칠한다.
-        Spacer(Modifier.fillMaxWidth().background(AppColors.header).windowInsetsTopHeight(WindowInsets.statusBars))
-        Row(Modifier.fillMaxWidth().background(AppColors.header).height(44.dp), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.fillMaxWidth().background(AppColors.heroStart).windowInsetsTopHeight(WindowInsets.statusBars))
+        Row(Modifier.fillMaxWidth().background(AppColors.heroStart).height(44.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = ::openMenu) {
-                Icon(Icons.Filled.Menu, contentDescription = "메뉴 열기", tint = AppColors.onHeader)
+                Icon(Icons.Filled.Menu, contentDescription = "메뉴 열기", tint = AppColors.onHero)
             }
-            Text("FSS Insights", color = AppColors.onHeader, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+            Text("FSS Insights", color = AppColors.onHero, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             // 화면을 오가도 각 화면의 검색어·스크롤 위치가 유지되도록 화면별로 상태를 보관한다.

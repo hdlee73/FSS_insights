@@ -133,7 +133,7 @@ fun RegulatoryScreen(
     Box(modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "title") {
-                LargeTitle(title) {
+                LargeTitle(title, subtitle = if (source == RegSource.FSS_SANCTION) "금융회사별 제재 현황을 한눈에" else "금융감독원·금융위원회 공식 해석·지도") {
                     IconButton(onClick = { viewModel.refresh(source) }, enabled = !state.loading) {
                         Icon(Icons.Default.Refresh, contentDescription = "새로고침")
                     }
@@ -158,7 +158,7 @@ fun RegulatoryScreen(
                 SearchPill(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = "${source.tabLabel} 제목+내용 검색",
+                    placeholder = if (source == RegSource.FSS_SANCTION) "금융회사명(기관) 검색" else "${source.tabLabel} 제목+내용 검색",
                     onSearch = { keyboard?.hide(); focus.clearFocus() },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
                     description = "${source.tabLabel} 검색어"
@@ -195,7 +195,6 @@ fun RegulatoryScreen(
                 }
                 else -> itemsIndexed(shown, key = { i, it -> "${it.source.name}-$i" }) { _, item ->
                     RegulatoryRow(item, query) { openExternal(context, item.link) }
-                    RowDivider()
                 }
             }
         }
@@ -213,10 +212,12 @@ private fun RegulatoryRow(item: RegItem, query: String, onOpen: () -> Unit) {
         RegSource.LAW_INTERPRETATION, RegSource.NO_ACTION -> listOfNotNull(item.serial?.let { "일련번호 $it" })
         else -> listOfNotNull(item.dept, date)
     }
-    Column(
-        Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
+    val stripe = when {
+        item.source == RegSource.FSS_SANCTION -> MaterialTheme.colorScheme.tertiary
+        item.inForce == false -> MaterialTheme.colorScheme.outline
+        else -> MaterialTheme.colorScheme.primary
+    }
+    ListCard(stripe = stripe, onClick = onOpen) {
         Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (item.source.isGuidance) {
