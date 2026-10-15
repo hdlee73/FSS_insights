@@ -57,6 +57,11 @@ data class FisisProfile(
 data class FisisAsset(val value: Double, val month: String, val unit: String)
 data class FisisRankingPage(val assets: Map<String, FisisAsset>, val next: Int?, val ranked: Boolean)
 
+private val CORP_FORM = Regex("\\(\\s*주\\s*\\)|㈜|주식회사")
+
+/** 회사명에서 "주식회사", "(주)", "㈜"를 빼고, 빠진 자리의 공백도 정리한다. */
+internal fun cleanCompanyName(name: String): String = name.replace(CORP_FORM, " ").replace(Regex("\\s+"), " ").trim()
+
 internal fun parseFisisCompanies(body: String): List<FisisCompany> {
     val array = JSONObject(body).optJSONArray("items") ?: return emptyList()
     return (0 until array.length()).map { array.getJSONObject(it) }
@@ -84,7 +89,7 @@ internal fun parseFisisProfile(body: String): FisisProfile {
         )
     }
     return FisisProfile(
-        root.optString("name"), root.optString("term"),
+        cleanCompanyName(root.optString("name")), root.optString("term"),
         (0 until (options?.length() ?: 0)).map { options!!.getString(it) },
         metrics
     )
