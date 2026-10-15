@@ -367,8 +367,8 @@ private fun SectionHeader(title: String, unit: String? = "단위: 억원") {
 /** 재무상태 카드: 이름은 왼쪽, 숫자는 오른쪽 정렬. */
 @Composable
 private fun BalanceCard(label: String, value: String, highlight: Boolean, modifier: Modifier) {
-    val bg = if (highlight) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-    Column(modifier.clip(RoundedCornerShape(12.dp)).background(bg).padding(horizontal = 10.dp, vertical = 10.dp)) {
+    val bg = if (highlight) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
+    Column(modifier.clip(RoundedCornerShape(16.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)).background(bg).padding(horizontal = 10.dp, vertical = 10.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         Text(
             value, Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
@@ -429,7 +429,7 @@ private fun FinanceTab(profile: FisisProfile, basis: String, month: String?, onM
 
     SectionHeader("손익현황 ($basis)")
     val current = when (profile.term) { "H" -> "당반기"; "Y" -> "당기"; else -> "당분기" }
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))) {
+    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))) {
         Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(horizontal = 12.dp, vertical = 8.dp)) {
             Text("항목", Modifier.weight(1.2f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(current, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)

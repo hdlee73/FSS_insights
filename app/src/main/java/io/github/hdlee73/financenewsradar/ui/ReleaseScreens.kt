@@ -1,5 +1,6 @@
 package io.github.hdlee73.financenewsradar.ui
 
+import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -158,7 +159,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                     Icon(
                         if (showSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                         contentDescription = if (showSaved) "저장함 닫기" else "저장함 열기",
-                        tint = if (showSaved) androidx.compose.ui.graphics.Color(0xFFFFB38F) else androidx.compose.ui.graphics.Color.White
+                        tint = if (showSaved) AppColors.accent else AppColors.onHeader
                     )
                 }
             }

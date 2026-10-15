@@ -1,5 +1,6 @@
 package io.github.hdlee73.financenewsradar.ui
 
+import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -112,7 +113,7 @@ private fun NewsMain(viewModel: NewsViewModel, onOpenSettings: () -> Unit, onOpe
                         Icon(
                             if (state.bookmarksOnly) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                             contentDescription = "즐겨찾기만 보기",
-                            tint = if (state.bookmarksOnly) androidx.compose.ui.graphics.Color(0xFFFFB38F) else androidx.compose.ui.graphics.Color.White
+                            tint = if (state.bookmarksOnly) AppColors.accent else AppColors.onHeader
                         )
                     }
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, contentDescription = "설정") }

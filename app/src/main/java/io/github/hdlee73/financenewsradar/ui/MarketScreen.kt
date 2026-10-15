@@ -356,8 +356,8 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
 private val UpColor = Color(0xFFDC5C60)
 private val DownColor = Color(0xFF4B7BC8)
 private val ChartColor = Color(0xFF62A893)
-private val SoftFill = Color(0xFFF2F5F4)
-private val SoftLine = Color(0xFFE6EBE8)
+private val SoftFill = Color(0xFFEAF2FB)
+private val SoftLine = Color(0xFFE3ECF6)
 
 @Composable
 internal fun changeColor(change: Double?): Color = when {

@@ -15,32 +15,31 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * 흰 바탕 · 얇은 구분선 · 큰 제목 · 밑줄 탭으로 이루어진 담백한 디자인(Apple 앱과 증권 앱의 목록 화면을 참고).
- * 강조색은 차분한 감독 네이비 하나만 쓰고, 새 자료 표시에만 주황을 쓴다.
+ * 연한 하늘색 바탕 · 흰 카드 · 둥근 모서리의 밝은 디자인. 강조색은 밝은 파랑, 새 자료 표시에는 주황을 쓴다.
  */
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF2B4C8C),
+    primary = Color(0xFF2A7DE1),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE9EEF8),
-    onPrimaryContainer = Color(0xFF1B3263),
-    secondary = Color(0xFF5E6878),
+    primaryContainer = Color(0xFFDCEBFC),
+    onPrimaryContainer = Color(0xFF1A5FB4),
+    secondary = Color(0xFF47638A),
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFEFF1F5),
     onSecondaryContainer = Color(0xFF232A36),
-    tertiary = Color(0xFFD9642F),
+    tertiary = Color(0xFFF08A4B),
     onTertiary = Color.White,
     tertiaryContainer = Color(0xFFFCEDE5),
     onTertiaryContainer = Color(0xFFA8461A),
-    background = Color(0xFFFFFFFF),
-    onBackground = Color(0xFF14171C),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF14171C),
-    surfaceVariant = Color(0xFFF0F1F4),
-    onSurfaceVariant = Color(0xFF6C7482),
+    background = Color(0xFFF2F7FC),
+    onBackground = Color(0xFF1D2B3F),
+    surface = Color(0xFFF2F7FC),
+    onSurface = Color(0xFF1D2B3F),
+    surfaceVariant = Color(0xFFE6EEF8),
+    onSurfaceVariant = Color(0xFF64778F),
     surfaceContainer = Color(0xFFFFFFFF),
-    surfaceContainerHigh = Color(0xFFF3F4F7),
+    surfaceContainerHigh = Color(0xFFEAF2FB),
     outline = Color(0xFFA3AAB5),
-    outlineVariant = Color(0xFFECEEF2),
+    outlineVariant = Color(0xFFE3ECF6),
     error = Color(0xFFC9372C)
 )
 
@@ -91,13 +90,21 @@ private val AppShapes = Shapes(
     extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
 )
 
-/** 상단 바·강조에 쓰는 색(클리앙식 짙은 네이비 헤더 + 주황 포인트). */
+/** 상단 바·강조에 쓰는 색(연한 하늘색 헤더 + 파랑 포인트 + 주황 보조색). */
 object AppColors {
-    val headerLight = Color(0xFF262F40)
+    val headerLight = Color(0xFFE8F2FD)
     val headerDark = Color(0xFF151A23)
+    /** 머리말 그라데이션 끝색(밝은 하늘색 → 바탕색). */
+    val headerEndLight = Color(0xFFCFE4FB)
+    val headerEndDark = Color(0xFF1F2A40)
+    val onHeaderLight = Color(0xFF12305A)
+    val onHeaderDark = Color.White
     val accentLight = Color(0xFFE2622B)
     val accentDark = Color(0xFFFF9A72)
     val header: Color @Composable get() = if (isSystemInDarkTheme()) headerDark else headerLight
+    val headerEnd: Color @Composable get() = if (isSystemInDarkTheme()) headerEndDark else headerEndLight
+    /** 머리말 위 글자·아이콘 색(밝은 테마는 짙은 남색, 어두운 테마는 흰색). */
+    val onHeader: Color @Composable get() = if (isSystemInDarkTheme()) onHeaderDark else onHeaderLight
     val accent: Color @Composable get() = if (isSystemInDarkTheme()) accentDark else accentLight
 }
 

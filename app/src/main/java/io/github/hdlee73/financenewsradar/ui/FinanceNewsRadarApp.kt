@@ -1,5 +1,6 @@
 package io.github.hdlee73.financenewsradar.ui
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.size
@@ -134,9 +135,9 @@ fun FinanceNewsRadarApp(
     val focusManager = LocalFocusManager.current
     val stateHolder = rememberSaveableStateHolder()
     val view = LocalView.current
-    val darkIcons = false
+    val darkIcons = !isSystemInDarkTheme()
     SideEffect {
-        // 네이비 헤더 위에서 상태 표시줄 아이콘이 보이도록 밝은 아이콘으로.
+        // 밝은 테마는 연한 헤더 위에서 어두운 아이콘, 어두운 테마는 밝은 아이콘으로.
         (view.context as? android.app.Activity)?.window?.let {
             androidx.core.view.WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars = darkIcons
         }
@@ -218,9 +219,9 @@ fun FinanceNewsRadarApp(
         Spacer(Modifier.fillMaxWidth().background(AppColors.header).windowInsetsTopHeight(WindowInsets.statusBars))
         Row(Modifier.fillMaxWidth().background(AppColors.header).height(44.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = ::openMenu) {
-                Icon(Icons.Filled.Menu, contentDescription = "메뉴 열기", tint = Color.White)
+                Icon(Icons.Filled.Menu, contentDescription = "메뉴 열기", tint = AppColors.onHeader)
             }
-            Text("FSS Insights", color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+            Text("FSS Insights", color = AppColors.onHeader, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             // 화면을 오가도 각 화면의 검색어·스크롤 위치가 유지되도록 화면별로 상태를 보관한다.
