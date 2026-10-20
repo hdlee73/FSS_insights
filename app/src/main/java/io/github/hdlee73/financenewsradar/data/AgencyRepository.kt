@@ -46,14 +46,23 @@ internal object AgencySources {
         val fallback: Source? = null
     )
 
+    private val bcbsPattern = Regex("""(?i)/bcbs/publ/[A-Za-z0-9_.-]+\.(htm|html|pdf)|/publ/bcbs[A-Za-z0-9_.-]*\.(htm|html|pdf)""")
+
     private fun bcbsHtml() = Source(
-        listUrl = { _, _ -> "https://www.bis.org/publications" },
-        linkPattern = Regex("""(?i)/(publ|bcbs/publ|fsi/publ|speeches|review|cpmi/publ|ifc/publ|iosco/publ)/(?!index\.)[A-Za-z0-9_.-]+\.(htm|html|pdf)"""),
+        // 바젤위원회 발간물 목록 화면. 카드 안의 '분류 · 시리즈 · 날짜 · 제목 · 설명' 중 제목과 날짜만 쓴다.
+        listUrl = { _, _ -> "https://www.bis.org/bcbs/publications.htm" },
+        customParser = { body, url ->
+            val cards = HtmlListParser.extractCards(body, url, bcbsPattern)
+            val plain = if (cards.isEmpty()) HtmlListParser.extract(body, url, bcbsPattern).filter { it.date != null } else emptyList()
+            (cards + plain).filter { it.date != null }.sortedByDescending { it.date }
+        },
         pageable = false,
         deepSearch = false,
-        jsRendered = true,
-        genericFallback = true
+        jsRendered = true
     )
+
+    private val fcaPattern = Regex("""(?i)/publications?/(?!search-results)[A-Za-z0-9-]+/[A-Za-z0-9][A-Za-z0-9._-]{5,}""")
+    private val masPattern = Regex("""(?i)/publications/[A-Za-z0-9-]+/(\d{4}/)?[A-Za-z0-9][A-Za-z0-9-]{5,}""")
 
     private fun enc(text: String) = URLEncoder.encode(text, StandardCharsets.UTF_8.toString())
 
@@ -144,20 +153,25 @@ internal object AgencySources {
             fallback = bcbsHtml()
         )
         AgencyId.FCA -> Source(
-            listUrl = { _, _ -> "https://www.fca.org.uk/research" },
-            linkPattern = Regex("""(?i)/(publications?|research|data)/[A-Za-z0-9-]+/[A-Za-z0-9][A-Za-z0-9._-]{5,}"""),
-            pageable = false,
-            deepSearch = false,
-            jsRendered = true,
-            genericFallback = true
+            // 연구 자료 검색 결과(최신순). 10건씩 쪽을 넘기며, 날짜는 'First published'를 쓴다.
+            listUrl = { page, _ ->
+                "https://www.fca.org.uk/publications/search-results?p_search_term=" +
+                    "&category=research%2Cresearch-external%20research%2Cresearch-financial%20lives%2Cresearch-occasional%20papers" +
+                    "%2Cresearch-research%20articles%2Cresearch-research%20insights%2Cresearch-research%20notes%2Cresearch-research" +
+                    "&sort_by=dmetaZ" + if (page > 1) "&start=${(page - 1) * 10 + 1}" else ""
+            },
+            customParser = { body, url -> HtmlListParser.extractCards(body, url, fcaPattern) },
+            pageable = true,
+            pageSize = 10,
+            deepSearch = false
         )
         AgencyId.MAS -> Source(
             listUrl = { _, _ -> "https://www.mas.gov.sg/publications" },
-            linkPattern = Regex("""(?i)/publications/[A-Za-z0-9-]+/(\d{4}/)?[A-Za-z0-9][A-Za-z0-9-]{5,}"""),
+            // 카드의 제목과 'Published Date'를 읽는다.
+            customParser = { body, url -> HtmlListParser.extractCards(body, url, masPattern) },
             pageable = false,
             deepSearch = false,
-            jsRendered = true,
-            genericFallback = true
+            jsRendered = true
         )
         AgencyId.IOSCO -> Source(
             listUrl = { page, _ -> "https://www.iosco.org/publications/?subsection=public_reports" + if (page > 1) "&page=$page" else "" },
@@ -332,8 +346,11 @@ class AgencyRepository(private val context: android.content.Context) {
         // 링크 형식이 예상과 다르면(금융연구원 등) 날짜가 붙은 링크를 목록으로 간주하는 방식으로 한 번 더 시도한다.
         if (parsed.isEmpty() && source.requireDate) parsed = HtmlListParser.extractLoose(body, url)
         if (parsed.isEmpty() && source.genericFallback) parsed = HtmlListParser.extractGeneric(body, url)
-        return parsed
+        // 재정경제부처럼 게시글 안의 '첨부파일 다운로드'·'문서보기' 링크가 목록에 섞여 들어오는 것을 뺀다.
+        return parsed.filterNot { attachmentLabel.matches(it.title) }
     }
+
+    private val attachmentLabel = Regex("^(첨부\\s?파일.{0,10}|.{0,12}(다운로드|문서\\s?보기|미리\\s?보기|바로\\s?보기|파일\\s?보기)\\s*)$")
 
     private companion object {
         const val MAX_LATEST_PAGE = 4

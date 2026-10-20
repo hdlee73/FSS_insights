@@ -4,6 +4,18 @@ import android.content.Context
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
+import com.google.mlkit.genai.prompt.ImagePart
+import com.google.mlkit.genai.prompt.TextPart
+import com.google.mlkit.genai.prompt.generateContentRequest
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URI
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
@@ -47,6 +59,23 @@ internal object SummaryEngine {
         }?.let(::clean)
     }
 
+    /** 이미지 입력을 지원하지 않는 기기로 한 번 확인되면 이후 PDF는 시도하지 않는다. */
+    private var imageUnsupported = false
+
+    /** PDF 앞쪽 쪽 이미지로 한국어 요약(Gemini Nano가 이미지 입력을 지원하는 기기에서만 동작, 아니면 null). */
+    suspend fun summarizePages(title: String, pages: List<Bitmap>): String? {
+        if (imageUnsupported || pages.isEmpty()) return null
+        val client = model ?: return null
+        val prompt = "위 이미지는 금융 관련 영문 보고서의 일부 쪽입니다. 제목은 \"$title\"입니다. " +
+            "핵심 내용을 한국어로 두 문장, 150자 이내로 요약하세요. 요약문 외의 설명이나 머리말은 쓰지 마세요."
+        return lock.withLock {
+            runCatching {
+                val parts = pages.map { ImagePart(it) } + TextPart(prompt)
+                client.generateContent(generateContentRequest(parts.first(), *parts.drop(1).toTypedArray()) {}).candidates.firstOrNull()?.text
+            }.onFailure { imageUnsupported = true }.getOrNull()
+        }?.let(::clean)
+    }
+
     private fun clean(raw: String): String? {
         val text = raw.trim().removePrefix("요약:").trim().replace(Regex("[*#]+"), "").replace(Regex("\\s*\\n+\\s*"), " ").trim()
         return text.takeIf { it.length >= 10 }?.take(240)
@@ -79,18 +108,30 @@ internal class SummaryStore(context: Context) {
 
 /** 자료 상세 페이지에서 본문 글만 뽑는다. 읽지 못하거나 본문이 없으면 null. */
 internal object ArticleText {
-    private val skipLink = Regex("""(?i)\.(pdf|hwp|hwpx|docx?|xlsx?|pptx?|zip)(\?|$)|downloadw?\b|/download""")
+    private val pdfLink = Regex("""(?i)\.pdf(\?|$)""")
+    private val skipLink = Regex("""(?i)\.(hwp|hwpx|docx?|xlsx?|pptx?|zip)(\?|$)|downloadw?\b|/download""")
     private val noise = Regex("(?is)<!--.*?-->|<(script|style|noscript|nav|header|footer|aside|form)\\b.*?</\\1>")
     private val main = Regex("(?is)<(article|main)\\b.*?</\\1>")
     private val tag = Regex("(?s)<[^>]+>")
 
-    suspend fun fetch(context: Context, url: String): String? {
-        if (skipLink.containsMatchIn(url)) return null
+    /** 본문 글. 제목과 관련 없는 글(엉뚱한 페이지가 열린 경우)이면 null. */
+    suspend fun fetch(context: Context, url: String, title: String): String? {
+        if (skipLink.containsMatchIn(url) || pdfLink.containsMatchIn(url)) return null
         // 1차: 가벼운 HTTP. 막히거나 본문이 비면(자바스크립트로 그리는 사이트) 2차로 숨은 WebView로 읽는다.
-        val http = runCatching { HtmlFetcher.get(url) }.getOrNull()?.let(::bodyText)
+        val http = runCatching { HtmlFetcher.get(url) }.getOrNull()?.let(::bodyText)?.takeIf { relatedTo(title, it) }
         if (http != null) return http
         val rendered = runCatching { WebViewFetcher.get(context, url) }.getOrNull() ?: return null
-        return bodyText(rendered)
+        return bodyText(rendered)?.takeIf { relatedTo(title, it) }
+    }
+
+    fun isPdf(url: String) = pdfLink.containsMatchIn(url)
+
+    /** 제목의 낱말 중 40% 이상이 본문에 있어야 같은 자료로 본다(목록 페이지 등이 열려 모든 자료가 같은 요약이 되는 것을 막는다). */
+    private fun relatedTo(title: String, body: String): Boolean {
+        val words = title.split(Regex("[\\s,.:;()\\[\\]\"'‘’“”/-]+")).filter { it.length >= 2 }
+        if (words.isEmpty()) return true
+        val lower = body.lowercase()
+        return words.count { lower.contains(it.lowercase()) } * 100 >= words.size * 40
     }
 
     private fun bodyText(html: String): String? {
@@ -98,5 +139,49 @@ internal object ArticleText {
         val region = main.find(cleaned)?.value ?: cleaned
         val text = HtmlListParser.compact(HtmlListParser.decodeEntities(tag.replace(region, " ")))
         return text.takeIf { it.length >= 150 }
+    }
+}
+
+/** PDF 링크의 앞쪽 몇 쪽을 그림으로 만든다(본문 글을 못 읽는 PDF 요약용). 내려받기 실패 시 null. */
+internal object PdfPages {
+    private const val MAX_BYTES = 12 * 1024 * 1024
+    private const val WIDTH = 900
+
+    suspend fun render(context: Context, url: String): List<Bitmap>? = withContext(Dispatchers.IO) {
+        val file = File(context.cacheDir, "summary-source.pdf")
+        try {
+            val connection = URI(url).toURL().openConnection() as HttpURLConnection
+            try {
+                connection.connectTimeout = 8_000
+                connection.readTimeout = 20_000
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36")
+                if (connection.responseCode !in 200..299) return@withContext null
+                if (connection.contentLengthLong > MAX_BYTES) return@withContext null
+                connection.inputStream.use { input -> file.outputStream().use { input.copyTo(it) } }
+            } finally {
+                connection.disconnect()
+            }
+            if (file.length() == 0L || file.length() > MAX_BYTES) return@withContext null
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                PdfRenderer(fd).use { renderer ->
+                    val count = renderer.pageCount
+                    // 첫 쪽은 표지인 경우가 많아, 쪽이 충분하면 2~4쪽(요약문이 있는 쪽)을 쓴다.
+                    val indices = if (count >= 4) listOf(1, 2, 3) else (0 until minOf(count, 3)).toList()
+                    indices.map { index ->
+                        renderer.openPage(index).use { page ->
+                            val height = (WIDTH.toLong() * page.height / page.width).toInt().coerceAtLeast(1)
+                            val bitmap = Bitmap.createBitmap(WIDTH, height, Bitmap.Config.ARGB_8888)
+                            bitmap.eraseColor(Color.WHITE)
+                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            bitmap
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            null
+        } finally {
+            file.delete()
+        }
     }
 }
