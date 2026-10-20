@@ -154,6 +154,13 @@ class SettingsStore(context: Context) {
         preferences.edit().putBoolean(DISCLAIMER_ACCEPTED, true).apply()
     }
 
+    /** 업데이트 내용 팝업을 마지막으로 본 앱 버전. */
+    fun lastSeenVersion(): String = preferences.getString(LAST_SEEN_VERSION, "") ?: ""
+
+    fun setLastSeenVersion(version: String) {
+        preferences.edit().putString(LAST_SEEN_VERSION, version).apply()
+    }
+
     /** 참고자료(자료실)에 새 파일이 올라오면 알리는 설정. 기본은 꺼짐. */
     fun libraryAlertEnabled(): Boolean = preferences.getBoolean(LIBRARY_ALERT, false)
 
@@ -230,6 +237,7 @@ class SettingsStore(context: Context) {
         enumValues<T>().firstOrNull { it.name == raw } ?: fallback
 
     companion object {
+        private const val LAST_SEEN_VERSION = "last_seen_version"
         private const val DISCLAIMER_ACCEPTED = "disclaimer_accepted"
         private const val INSTITUTES = "custom_institutes"
         private const val KEYWORDS = "keywords"
