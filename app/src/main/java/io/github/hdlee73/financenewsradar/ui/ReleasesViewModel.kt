@@ -64,6 +64,7 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
     private val customJobs = mutableMapOf<String, Job>()
     private val summaryStore = SummaryStore(application)
     private val summaryJobs = mutableMapOf<String, Job>()
+    private val summarySkipped = mutableSetOf<String>()
 
     private val _state = MutableStateFlow(
         ReleasesUiState(
@@ -121,7 +122,6 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
                             newLinks = (it.newLinks + fresh).intersect(links.toSet())
                         )
                     }
-                    summarize(agency.name, items)
                 }
                 .onFailure { e ->
                     if (e is CancellationException) return@onFailure
@@ -222,7 +222,6 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
                     updateCustom(institute.url) {
                         it.copy(latest = items, latestLoaded = true, isLoading = false, newLinks = (it.newLinks + fresh).intersect(links.toSet()))
                     }
-                    summarize("CUSTOM_${institute.url}", items)
                 }
                 .onFailure { e ->
                     if (e is CancellationException) return@onFailure
@@ -263,18 +262,29 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
         _state.update { it.copy(links = UsefulLink.DEFAULTS) }
     }
 
+    /** 지금 보고 있는 기관 탭의 요약을 만든다(다른 탭 작업은 멈춰 화면에 보이는 목록부터 채운다). */
+    fun summarizeVisible(agency: AgencyId) = summarize(agency.name, _state.value.of(agency).latest)
+
+    fun summarizeVisibleCustom(institute: CustomInstitute) = summarize("CUSTOM_${institute.url}", _state.value.ofCustom(institute.url).latest)
+
     /**
      * Gemini Nano가 있는 기기에서만: 목록의 각 자료 본문을 읽어 한국어 요약을 만들어 제목 아래에 보여 준다.
      * 이미 만든 요약은 다시 만들지 않고, 기기가 지원하지 않으면 아무 것도 하지 않아 화면은 그대로다.
+     * 본문을 못 읽은 자료는 이번 실행 동안 다시 시도하지 않는다.
      */
     private fun summarize(key: String, items: List<ReleaseItem>) {
+        if (items.isEmpty()) return
+        summaryJobs.filterKeys { it != key }.values.forEach { it.cancel() }
         summaryJobs[key]?.cancel()
         summaryJobs[key] = viewModelScope.launch {
             if (!SummaryEngine.isAvailable()) return@launch
             for (item in items) {
-                if (_state.value.summaries.containsKey(item.link)) continue
-                val body = ArticleText.fetch(item.link) ?: continue
-                val summary = SummaryEngine.summarize(item.title, body) ?: continue
+                if (_state.value.summaries.containsKey(item.link) || item.link in summarySkipped) continue
+                val summary = ArticleText.fetch(getApplication(), item.link)?.let { SummaryEngine.summarize(item.title, it) }
+                if (summary == null) {
+                    summarySkipped += item.link
+                    continue
+                }
                 val next = _state.value.summaries + (item.link to summary)
                 _state.update { it.copy(summaries = next) }
                 summaryStore.save(next)

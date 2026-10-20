@@ -80,8 +80,8 @@ internal object AgencySources {
             // 제목·저자·날짜는 글 조각 순서로 읽고 링크는 보고서용을 우선한다.
             customParser = { body, url ->
                 // 글 조각 순서로 읽는 방식과 보고서 링크 기준 방식 중 더 많이 읽힌 쪽을 쓴다(일부만 읽히던 문제 대비).
-                val byText = HtmlListParser.extractReports(body, url)
-                val byLink = HtmlListParser.extractReportsByLink(body, url)
+                val byText = runCatching { HtmlListParser.extractReports(body, url) }.getOrDefault(emptyList())
+                val byLink = runCatching { HtmlListParser.extractReportsByLink(body, url) }.getOrDefault(emptyList())
                 if (byLink.size > byText.size) byLink else byText
             },
             // 목록은 '더보기'를 눌러야 나머지가 나오므로 WebView로 열어 버튼을 눌러 가며 읽는다.

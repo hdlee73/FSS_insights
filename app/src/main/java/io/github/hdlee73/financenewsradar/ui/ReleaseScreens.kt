@@ -118,6 +118,15 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
     val savedLinks = state.savedLinks
     LaunchedEffect(agency) { agency?.let(viewModel::ensureLatest) }
     LaunchedEffect(institute?.url) { institute?.let(viewModel::ensureCustom) }
+    // 목록이 다 읽힌 뒤, 보고 있는 탭의 자료부터 Gemini Nano 요약을 만든다(미지원 기기에서는 아무 일도 없음).
+    val shownCount = if (agency != null) state.of(agency).latest.size else institute?.let { state.ofCustom(it.url).latest.size } ?: 0
+    val shownLoading = if (agency != null) state.of(agency).let { it.isLoading || it.isLoadingMore } else false
+    LaunchedEffect(agency, institute?.url, shownCount, shownLoading) {
+        if (shownCount > 0 && !shownLoading) {
+            agency?.let(viewModel::summarizeVisible)
+            institute?.let(viewModel::summarizeVisibleCustom)
+        }
+    }
     // 지금 보는 기관의 첫 쪽이 뜬 뒤, 같은 탭의 다른 기관 자료도 백그라운드에서 미리 읽어 둔다.
     LaunchedEffect(group) {
         kotlinx.coroutines.delay(1_500)

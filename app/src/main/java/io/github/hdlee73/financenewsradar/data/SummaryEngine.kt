@@ -84,9 +84,16 @@ internal object ArticleText {
     private val main = Regex("(?is)<(article|main)\\b.*?</\\1>")
     private val tag = Regex("(?s)<[^>]+>")
 
-    suspend fun fetch(url: String): String? {
+    suspend fun fetch(context: Context, url: String): String? {
         if (skipLink.containsMatchIn(url)) return null
-        val html = runCatching { HtmlFetcher.get(url) }.getOrNull() ?: return null
+        // 1차: 가벼운 HTTP. 막히거나 본문이 비면(자바스크립트로 그리는 사이트) 2차로 숨은 WebView로 읽는다.
+        val http = runCatching { HtmlFetcher.get(url) }.getOrNull()?.let(::bodyText)
+        if (http != null) return http
+        val rendered = runCatching { WebViewFetcher.get(context, url) }.getOrNull() ?: return null
+        return bodyText(rendered)
+    }
+
+    private fun bodyText(html: String): String? {
         val cleaned = noise.replace(html, " ")
         val region = main.find(cleaned)?.value ?: cleaned
         val text = HtmlListParser.compact(HtmlListParser.decodeEntities(tag.replace(region, " ")))

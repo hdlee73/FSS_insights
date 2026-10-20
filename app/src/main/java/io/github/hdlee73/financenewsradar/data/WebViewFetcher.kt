@@ -24,7 +24,6 @@ internal object WebViewFetcher {
     /** '더보기'로 이어 붙이는 목록은 클릭을 여러 번 해야 하므로 더 오래 기다리고, 목록이 늘지 않으면 일찍 끝낸다. */
     private const val MAX_POLLS_MORE = 36
     private const val STALL_POLLS = 5
-    private const val MAX_SNAPSHOTS = 8
 
     /** [moreLabel]이 있으면 준비될 때까지 그 글자가 든 '더보기' 버튼을 매번 눌러 목록을 늘린다. */
     suspend fun get(context: Context, url: String, moreLabel: String? = null, isReady: (String) -> Boolean = { true }): String = withTimeout(TOTAL_TIMEOUT_MS) {
@@ -46,8 +45,6 @@ internal object WebViewFetcher {
                     webView = view
                     var loaded = false
                     var polls = 0
-                    // '더보기'를 누를 때마다 목록이 늘어나는 대신 바뀌기만 하는 사이트도 있어, 화면이 달라질 때마다 HTML을 모아 둔다.
-                    val snapshots = mutableListOf<String>()
                     var lastSize = 0
                     var stalled = 0
                     lateinit var poll: Runnable
@@ -65,8 +62,6 @@ internal object WebViewFetcher {
                                 if (html.length != lastSize) {
                                     lastSize = html.length
                                     stalled = 0
-                                    snapshots += html
-                                    if (snapshots.size > MAX_SNAPSHOTS) snapshots.removeAt(0)
                                 } else stalled++
                             }
                             val ready = !blocked && html.length > 3_000 && isReady(html)
@@ -74,7 +69,7 @@ internal object WebViewFetcher {
                             // 목록을 나중에 불러오는 사이트가 있어, 기대한 내용이 나타날 때까지 기다린다.
                             val gaveUp = polls >= limit || (moreLabel != null && polls >= 6 && stalled >= STALL_POLLS)
                             if (ready || gaveUp) {
-                                finish(Result.success(if (moreLabel != null && snapshots.isNotEmpty()) snapshots.joinToString("\n") else html))
+                                finish(Result.success(html))
                             } else {
                                 if (moreLabel != null && !blocked) current.evaluateJavascript(clickMoreScript(moreLabel), null)
                                 handler.postDelayed(poll, POLL_MS)
