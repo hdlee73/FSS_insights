@@ -18,9 +18,13 @@ import kotlin.coroutines.resumeWithException
  * 숨겨 둔 WebView(실제 크롬 엔진)로 페이지를 열고 화면에 그려진 HTML을 가져온다.
  */
 internal object WebViewFetcher {
-    private const val TOTAL_TIMEOUT_MS = 35_000L
+    private const val TOTAL_TIMEOUT_MS = 50_000L
     private const val POLL_MS = 1_000L
     private const val MAX_POLLS = 15
+    /** '더보기'로 이어 붙이는 목록은 클릭을 여러 번 해야 하므로 더 오래 기다리고, 목록이 늘지 않으면 일찍 끝낸다. */
+    private const val MAX_POLLS_MORE = 36
+    private const val STALL_POLLS = 5
+    private const val MAX_SNAPSHOTS = 8
 
     /** [moreLabel]이 있으면 준비될 때까지 그 글자가 든 '더보기' 버튼을 매번 눌러 목록을 늘린다. */
     suspend fun get(context: Context, url: String, moreLabel: String? = null, isReady: (String) -> Boolean = { true }): String = withTimeout(TOTAL_TIMEOUT_MS) {
@@ -42,6 +46,10 @@ internal object WebViewFetcher {
                     webView = view
                     var loaded = false
                     var polls = 0
+                    // '더보기'를 누를 때마다 목록이 늘어나는 대신 바뀌기만 하는 사이트도 있어, 화면이 달라질 때마다 HTML을 모아 둔다.
+                    val snapshots = mutableListOf<String>()
+                    var lastSize = 0
+                    var stalled = 0
                     lateinit var poll: Runnable
                     poll = Runnable {
                         val current = webView ?: return@Runnable
@@ -52,9 +60,21 @@ internal object WebViewFetcher {
                             polls++
                             val blocked = parsed.first.contains("just a moment", true) ||
                                 parsed.first.contains("access denied", true) || parsed.first.contains("attention required", true)
-                            // 목록을 나중에 불러오는 사이트가 있어, 기대한 내용이 나타날 때까지 기다린다(최대 MAX_POLLS초).
-                            if ((!blocked && parsed.second.length > 3_000 && isReady(parsed.second)) || polls >= MAX_POLLS) {
-                                finish(Result.success(parsed.second))
+                            val html = parsed.second
+                            if (moreLabel != null && !blocked && html.length > 3_000) {
+                                if (html.length != lastSize) {
+                                    lastSize = html.length
+                                    stalled = 0
+                                    snapshots += html
+                                    if (snapshots.size > MAX_SNAPSHOTS) snapshots.removeAt(0)
+                                } else stalled++
+                            }
+                            val ready = !blocked && html.length > 3_000 && isReady(html)
+                            val limit = if (moreLabel != null) MAX_POLLS_MORE else MAX_POLLS
+                            // 목록을 나중에 불러오는 사이트가 있어, 기대한 내용이 나타날 때까지 기다린다.
+                            val gaveUp = polls >= limit || (moreLabel != null && polls >= 6 && stalled >= STALL_POLLS)
+                            if (ready || gaveUp) {
+                                finish(Result.success(if (moreLabel != null && snapshots.isNotEmpty()) snapshots.joinToString("\n") else html))
                             } else {
                                 if (moreLabel != null && !blocked) current.evaluateJavascript(clickMoreScript(moreLabel), null)
                                 handler.postDelayed(poll, POLL_MS)
@@ -93,11 +113,21 @@ internal object WebViewFetcher {
         settings.blockNetworkImage = true
     }
 
-    /** 글자에 [label]이 든 가장 안쪽 버튼·링크를 눌러 목록을 더 불러온다. */
+    /**
+     * 글자에 [label]이 든 가장 안쪽 버튼·링크를 눌러 목록을 더 불러온다.
+     * 메뉴에도 같은 글자가 있을 수 있어 화면에서 가장 아래쪽(목록 끝)에 있는 것을 고르고,
+     * 스크롤로 불러오는 사이트도 있어 그 위치까지 내려 둔 뒤 click()과 마우스 이벤트를 모두 보낸다.
+     */
     private fun clickMoreScript(label: String): String =
-        "(function(){var l=" + org.json.JSONObject.quote(label) + ";var e=document.querySelectorAll('a,button,input[type=button],span,div');" +
+        "(function(){var l=" + org.json.JSONObject.quote(label) + ";var e=document.querySelectorAll('a,button,input[type=button],input[type=submit],span,div,li,p');" +
+            "var best=null,bestTop=-1;" +
             "for(var i=0;i<e.length;i++){var n=e[i];var t=(n.innerText||n.value||'').replace(/\\s+/g,'');" +
-            "if(t.length<=l.length+4&&t.indexOf(l)>=0&&n.offsetParent!==null){n.click();return true;}}return false;})()"
+            "if(t.length<=l.length+6&&t.indexOf(l)>=0&&n.offsetParent!==null){var r=n.getBoundingClientRect();var top=r.top+window.scrollY;" +
+            "if(r.width>0&&r.height>0&&top>=bestTop){best=n;bestTop=top;}}}" +
+            "if(!best){window.scrollTo(0,document.body.scrollHeight);return false;}" +
+            "best.scrollIntoView({block:'center'});" +
+            "['mousedown','mouseup','click'].forEach(function(k){best.dispatchEvent(new MouseEvent(k,{bubbles:true,cancelable:true,view:window}));});" +
+            "if(best.click)best.click();return true;})()"
 
     /** evaluateJavascript는 JSON 문자열을 한 번 더 따옴표로 감싸 돌려준다. */
     private fun decode(raw: String?): Pair<String, String> {
