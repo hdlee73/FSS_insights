@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withPermit
 
 data class AgencyUiState(
     val latest: List<ReleaseItem> = emptyList(),
@@ -50,7 +51,9 @@ data class ReleasesUiState(
     val institutes: List<CustomInstitute> = emptyList(),
     val custom: Map<String, AgencyUiState> = emptyMap(),
     /** 자료 링크 → 기기 내 Gemini Nano가 만든 한국어 요약(지원 기기에서만 채워진다). */
-    val summaries: Map<String, String> = emptyMap()
+    val summaries: Map<String, String> = emptyMap(),
+    /** 요약이 아직 없는 자료의 상태 문구(대기·진행·불가 사유). Gemini Nano가 있는 기기에서만 채워진다. */
+    val summaryNotes: Map<String, String> = emptyMap()
 ) {
     fun of(agency: AgencyId): AgencyUiState = agencies[agency] ?: AgencyUiState()
     fun ofCustom(url: String): AgencyUiState = custom[url] ?: AgencyUiState()
@@ -103,6 +106,9 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun refresh(agency: AgencyId) {
+        // 새로고침하면 지난번 요약 실패 자료도 다시 시도한다.
+        summarySkipped.clear()
+        _state.update { it.copy(summaryNotes = emptyMap()) }
         jobs[agency]?.cancel()
         jobs[agency] = viewModelScope.launch {
             update(agency) { it.copy(isLoading = true, isLoadingMore = false, error = null) }
@@ -268,10 +274,18 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
 
     fun summarizeVisibleCustom(institute: CustomInstitute) = summarize("CUSTOM_${institute.url}", _state.value.ofCustom(institute.url).latest)
 
+    private fun setNotes(change: (Map<String, String>) -> Map<String, String>) =
+        _state.update { it.copy(summaryNotes = change(it.summaryNotes)) }
+
+    /** 요약용으로 읽을 주소: 자본시장연구원 '바로보기'는 뷰어 페이지라 같은 자료의 PDF 내려받기 주소로 바꾼다. */
+    private fun summarySource(link: String): String =
+        if (link.contains("kcmi.re.kr/flexer/view")) link.replace("/flexer/view", "/common/downloadw") else link
+
     /**
      * Gemini Nano가 있는 기기에서만: 목록의 각 자료 본문을 읽어 한국어 요약을 만들어 제목 아래에 보여 준다.
      * 이미 만든 요약은 다시 만들지 않고, 기기가 지원하지 않으면 아무 것도 하지 않아 화면은 그대로다.
-     * 본문을 못 읽은 자료는 이번 실행 동안 다시 시도하지 않는다.
+     * 처리 상태(대기·진행·불가 사유)는 [ReleasesUiState.summaryNotes]로 목록에 작게 보여 준다.
+     * 본문 읽기는 3건씩 동시에, Gemini Nano 호출은 한 건씩 순서대로 한다.
      */
     private fun summarize(key: String, items: List<ReleaseItem>) {
         if (items.isEmpty()) return
@@ -279,20 +293,37 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
         summaryJobs[key]?.cancel()
         summaryJobs[key] = viewModelScope.launch {
             if (!SummaryEngine.isAvailable()) return@launch
-            for (item in items) {
-                if (_state.value.summaries.containsKey(item.link) || item.link in summarySkipped) continue
-                val summary = if (ArticleText.isPdf(item.link)) {
-                    PdfText.extract(getApplication(), item.link)?.let { SummaryEngine.summarize(item.title, it) }
-                } else {
-                    ArticleText.fetch(getApplication(), item.link, item.title)?.let { SummaryEngine.summarize(item.title, it) }
+            val todo = items.filter { !_state.value.summaries.containsKey(it.link) && it.link !in summarySkipped }
+            if (todo.isEmpty()) return@launch
+            try {
+                setNotes { notes -> notes + todo.associate { it.link to "요약 대기 중" } }
+                val gate = kotlinx.coroutines.sync.Semaphore(3)
+                kotlinx.coroutines.coroutineScope {
+                    for (item in todo) launch {
+                        gate.withPermit {
+                            setNotes { it + (item.link to "요약 중…") }
+                            val source = summarySource(item.link)
+                            val outcome = if (ArticleText.isPdf(source)) {
+                                val read = PdfText.extract(getApplication(), source)
+                                if (read.text != null) SummaryEngine.summarize(item.title, read.text) else read
+                            } else {
+                                val read = ArticleText.fetch(getApplication(), source, item.title)
+                                if (read.text != null) SummaryEngine.summarize(item.title, read.text) else read
+                            }
+                            if (outcome.text != null) {
+                                val next = _state.value.summaries + (item.link to outcome.text)
+                                _state.update { it.copy(summaries = next, summaryNotes = it.summaryNotes - item.link) }
+                                summaryStore.save(next)
+                            } else {
+                                summarySkipped += item.link
+                                setNotes { it + (item.link to "요약 불가 · ${outcome.reason}") }
+                            }
+                        }
+                    }
                 }
-                if (summary == null) {
-                    summarySkipped += item.link
-                    continue
-                }
-                val next = _state.value.summaries + (item.link to summary)
-                _state.update { it.copy(summaries = next) }
-                summaryStore.save(next)
+            } finally {
+                // 중간에 멈췄다면(다른 탭으로 이동 등) 대기·진행 문구는 지운다. 실패 사유는 남긴다.
+                setNotes { notes -> notes.filterValues { !it.startsWith("요약 대기") && !it.startsWith("요약 중") } }
             }
         }
     }
