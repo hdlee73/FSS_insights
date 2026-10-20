@@ -70,8 +70,13 @@ internal object SummaryEngine {
             "핵심 내용을 한국어로 두 문장, 150자 이내로 요약하세요. 요약문 외의 설명이나 머리말은 쓰지 마세요."
         return lock.withLock {
             runCatching {
-                val parts = pages.map { ImagePart(it) } + TextPart(prompt)
-                client.generateContent(generateContentRequest(parts.first(), *parts.drop(1).toTypedArray()) {}).candidates.firstOrNull()?.text
+                // 요청은 이미지 한 장 + 글 하나만 받으므로 여러 쪽을 세로로 이어 붙여 한 장으로 만든다.
+                val stitched = Bitmap.createBitmap(pages.maxOf { it.width }, pages.sumOf { it.height }, Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(stitched)
+                canvas.drawColor(Color.WHITE)
+                var top = 0f
+                for (page in pages) { canvas.drawBitmap(page, 0f, top, null); top += page.height }
+                client.generateContent(generateContentRequest(ImagePart(stitched), TextPart(prompt)) {}).candidates.firstOrNull()?.text
             }.onFailure { imageUnsupported = true }.getOrNull()
         }?.let(::clean)
     }
@@ -145,7 +150,7 @@ internal object ArticleText {
 /** PDF 링크의 앞쪽 몇 쪽을 그림으로 만든다(본문 글을 못 읽는 PDF 요약용). 내려받기 실패 시 null. */
 internal object PdfPages {
     private const val MAX_BYTES = 12 * 1024 * 1024
-    private const val WIDTH = 900
+    private const val WIDTH = 720
 
     suspend fun render(context: Context, url: String): List<Bitmap>? = withContext(Dispatchers.IO) {
         val file = File(context.cacheDir, "summary-source.pdf")
