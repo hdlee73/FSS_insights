@@ -42,6 +42,8 @@ internal object AgencySources {
         val genericFallback: Boolean = false,
         /** 목록 아래 '더보기' 버튼을 눌러 이어 붙이는 사이트: 이 글자가 든 버튼을 눌러 [minItems]건 이상 읽는다(WebView). */
         val loadMoreLabel: String? = null,
+        /** (페이지 주소, 경로): 일반 요청은 막고 브라우저 안 요청만 받는 RSS·ajax를 그 페이지 안에서 받아 온다. */
+        val inPageFetch: Pair<String, String>? = null,
         /** 이 주소로 읽지 못했을 때 대신 읽는 설정. */
         val fallback: Source? = null
     )
@@ -61,7 +63,6 @@ internal object AgencySources {
         jsRendered = true
     )
 
-    private val fcaPattern = Regex("""(?i)/publications?/(?!search-results)[A-Za-z0-9-]+/[A-Za-z0-9][A-Za-z0-9._-]{5,}""")
     private val masPattern = Regex("""(?i)/publications/[A-Za-z0-9-]+/(\d{4}/)?[A-Za-z0-9][A-Za-z0-9-]{5,}""")
 
     private fun enc(text: String) = URLEncoder.encode(text, StandardCharsets.UTF_8.toString())
@@ -150,20 +151,9 @@ internal object AgencySources {
             isRss = true,
             pageable = false,
             deepSearch = false,
+            // 직접 요청이 막혀 목록이 비던 문제: BIS 페이지를 연 상태에서 같은 사이트 안으로 RSS를 받는다.
+            inPageFetch = "https://www.bis.org/bcbs/publications.htm" to "/doclist/bcbspubls.rss",
             fallback = bcbsHtml()
-        )
-        AgencyId.FCA -> Source(
-            // 연구 자료 검색 결과(최신순). 10건씩 쪽을 넘기며, 날짜는 'First published'를 쓴다.
-            listUrl = { page, _ ->
-                "https://www.fca.org.uk/publications/search-results?p_search_term=" +
-                    "&category=research%2Cresearch-external%20research%2Cresearch-financial%20lives%2Cresearch-occasional%20papers" +
-                    "%2Cresearch-research%20articles%2Cresearch-research%20insights%2Cresearch-research%20notes%2Cresearch-research" +
-                    "&sort_by=dmetaZ" + if (page > 1) "&start=${(page - 1) * 10 + 1}" else ""
-            },
-            customParser = { body, url -> HtmlListParser.extractCards(body, url, fcaPattern) },
-            pageable = true,
-            pageSize = 10,
-            deepSearch = false
         )
         AgencyId.MAS -> Source(
             listUrl = { _, _ -> "https://www.mas.gov.sg/publications" },
@@ -194,7 +184,6 @@ internal object AgencySources {
             AgencyId.KIF -> "https://www.kif.re.kr/kif4/publication/pub_list?mid=10"
             AgencyId.IOSCO -> "https://www.iosco.org/publications/?subsection=public_reports"
             AgencyId.BCBS -> "https://www.bis.org/publications"
-            AgencyId.FCA -> "https://www.fca.org.uk/research"
             AgencyId.MAS -> "https://www.mas.gov.sg/publications"
             AgencyId.CUSTOM, AgencyId.CUSTOM_PRESS -> "https://www.google.com/search?q=$q"
             else -> agency.homeUrl
@@ -218,7 +207,7 @@ class AgencyRepository(private val context: android.content.Context) {
         val items = fetchPage(agency, source, source.listUrl(1, source.pageSize)).toMutableList()
         // 날짜가 있는 항목을 최신순으로(날짜 없는 항목은 뒤로). 사이트 목록 순서가 들쭉날쭉해도 '최근 N건'이 되도록.
         fun current() = items.sortedByDescending { it.date }.take(count)
-        val target = if (agency == AgencyId.KCMI || agency == AgencyId.IOSCO || agency == AgencyId.FCA) count * 2 else count
+        val target = if (agency == AgencyId.KCMI || agency == AgencyId.IOSCO) count * 2 else count
         if (items.size >= target || !source.pageable) return current()
         onPartial(current())
         // 한 쪽이 몇 건인지 알았으니 필요한 쪽(최대 4쪽까지)을 한꺼번에 병렬로 읽는다.
@@ -291,6 +280,11 @@ class AgencyRepository(private val context: android.content.Context) {
     }
 
     private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> {
+        source.inPageFetch?.let { (pageUrl, path) ->
+            val inPage = runCatching { WebViewFetcher.fetchInPage(context, pageUrl, path) }.getOrNull()
+                ?.let { runCatching { parse(source, it, url) }.getOrNull() }.orEmpty()
+            if (inPage.isNotEmpty()) return inPage.map { ReleaseItem(agency, it.title, it.url, it.date, author = it.author) }
+        }
         val primary = runCatching { fetchParsed(agency.label, url, source.jsRendered, source.minItems, source.loadMoreLabel) { body -> parse(source, body, url) } }
         val parsed = primary.getOrElse { error ->
             if (error is kotlinx.coroutines.CancellationException) throw error

@@ -5,7 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.AgencyRepository
 import io.github.hdlee73.financenewsradar.data.ArticleText
-import io.github.hdlee73.financenewsradar.data.PdfPages
+import io.github.hdlee73.financenewsradar.data.PdfText
 import io.github.hdlee73.financenewsradar.data.SettingsStore
 import io.github.hdlee73.financenewsradar.data.SummaryEngine
 import io.github.hdlee73.financenewsradar.data.SummaryStore
@@ -282,7 +282,7 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
             for (item in items) {
                 if (_state.value.summaries.containsKey(item.link) || item.link in summarySkipped) continue
                 val summary = if (ArticleText.isPdf(item.link)) {
-                    PdfPages.render(getApplication(), item.link)?.let { SummaryEngine.summarizePages(item.title, it) }
+                    PdfText.extract(getApplication(), item.link)?.let { SummaryEngine.summarize(item.title, it) }
                 } else {
                     ArticleText.fetch(getApplication(), item.link, item.title)?.let { SummaryEngine.summarize(item.title, it) }
                 }

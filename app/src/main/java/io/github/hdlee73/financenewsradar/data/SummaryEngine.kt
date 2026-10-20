@@ -4,13 +4,6 @@ import android.content.Context
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
-import com.google.mlkit.genai.prompt.ImagePart
-import com.google.mlkit.genai.prompt.TextPart
-import com.google.mlkit.genai.prompt.generateContentRequest
-import android.graphics.Bitmap
-import android.graphics.Color
-import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -25,7 +18,7 @@ import org.json.JSONObject
  * Gemini Nano를 쓸 수 없는 기기에서는 [isAvailable]이 false이며 요약 기능 전체가 꺼진 채 기존 화면 그대로 동작한다.
  */
 internal object SummaryEngine {
-    private const val MAX_INPUT_CHARS = 2_400
+    private const val MAX_INPUT_CHARS = 3_200
     private const val MIN_BODY_CHARS = 150
 
     private val lock = Mutex()
@@ -51,7 +44,7 @@ internal object SummaryEngine {
         val prompt = buildString {
             append("다음은 금융 관련 보도자료 또는 연구보고서입니다. 핵심 내용을 한국어로 두 문장, 150자 이내로 요약하세요. ")
             append("원문이 영어 등 외국어여도 요약은 반드시 한국어로 쓰고, 요약문 외의 설명이나 머리말은 쓰지 마세요.\n\n")
-            append("제목: ").append(title).append("\n본문: ").append(body.take(MAX_INPUT_CHARS))
+            append("제목: ").append(title).append("\n본문: ").append(body.take(capFor(body)))
         }
         // Gemini Nano는 한 번에 하나씩만 처리하므로 순서대로 실행한다.
         return lock.withLock {
@@ -59,26 +52,11 @@ internal object SummaryEngine {
         }?.let(::clean)
     }
 
-    /** 이미지 입력을 지원하지 않는 기기로 한 번 확인되면 이후 PDF는 시도하지 않는다. */
-    private var imageUnsupported = false
-
-    /** PDF 앞쪽 쪽 이미지로 한국어 요약(Gemini Nano가 이미지 입력을 지원하는 기기에서만 동작, 아니면 null). */
-    suspend fun summarizePages(title: String, pages: List<Bitmap>): String? {
-        if (imageUnsupported || pages.isEmpty()) return null
-        val client = model ?: return null
-        val prompt = "위 이미지는 금융 관련 영문 보고서의 일부 쪽입니다. 제목은 \"$title\"입니다. " +
-            "핵심 내용을 한국어로 두 문장, 150자 이내로 요약하세요. 요약문 외의 설명이나 머리말은 쓰지 마세요."
-        return lock.withLock {
-            runCatching {
-                // 요청은 이미지 한 장 + 글 하나만 받으므로 여러 쪽을 세로로 이어 붙여 한 장으로 만든다.
-                val stitched = Bitmap.createBitmap(pages.maxOf { it.width }, pages.sumOf { it.height }, Bitmap.Config.ARGB_8888)
-                val canvas = android.graphics.Canvas(stitched)
-                canvas.drawColor(Color.WHITE)
-                var top = 0f
-                for (page in pages) { canvas.drawBitmap(page, 0f, top, null); top += page.height }
-                client.generateContent(generateContentRequest(ImagePart(stitched), TextPart(prompt)) {}).candidates.firstOrNull()?.text
-            }.onFailure { imageUnsupported = true }.getOrNull()
-        }?.let(::clean)
+    /** 한글은 글자당 토큰이 많아 입력 한도(4천 토큰)에 맞게 더 짧게 자른다. */
+    private fun capFor(body: String): Int {
+        val sample = body.take(400)
+        val hangul = sample.count { it in '가'..'힣' }
+        return if (hangul * 3 > sample.length) 1_500 else MAX_INPUT_CHARS
     }
 
     private fun clean(raw: String): String? {
@@ -113,8 +91,8 @@ internal class SummaryStore(context: Context) {
 
 /** 자료 상세 페이지에서 본문 글만 뽑는다. 읽지 못하거나 본문이 없으면 null. */
 internal object ArticleText {
-    private val pdfLink = Regex("""(?i)\.pdf(\?|$)""")
-    private val skipLink = Regex("""(?i)\.(hwp|hwpx|docx?|xlsx?|pptx?|zip)(\?|$)|downloadw?\b|/download""")
+    private val pdfLink = Regex("""(?i)\.pdf(\?|$)|common/downloadw?\?""")
+    private val skipLink = Regex("""(?i)\.(hwp|hwpx|docx?|xlsx?|pptx?|zip)(\?|$)""")
     private val noise = Regex("(?is)<!--.*?-->|<(script|style|noscript|nav|header|footer|aside|form)\\b.*?</\\1>")
     private val main = Regex("(?is)<(article|main)\\b.*?</\\1>")
     private val tag = Regex("(?s)<[^>]+>")
@@ -147,18 +125,18 @@ internal object ArticleText {
     }
 }
 
-/** PDF 링크의 앞쪽 몇 쪽을 그림으로 만든다(본문 글을 못 읽는 PDF 요약용). 내려받기 실패 시 null. */
-internal object PdfPages {
-    private const val MAX_BYTES = 12 * 1024 * 1024
-    private const val WIDTH = 720
+/** PDF 링크를 내려받아 앞쪽 본문 글을 뽑는다(표지를 건너뛰고 2~5쪽). PDF가 아니거나 실패하면 null. */
+internal object PdfText {
+    private const val MAX_BYTES = 15 * 1024 * 1024
+    private var initialized = false
 
-    suspend fun render(context: Context, url: String): List<Bitmap>? = withContext(Dispatchers.IO) {
+    suspend fun extract(context: Context, url: String): String? = withContext(Dispatchers.IO) {
         val file = File(context.cacheDir, "summary-source.pdf")
         try {
             val connection = URI(url).toURL().openConnection() as HttpURLConnection
             try {
                 connection.connectTimeout = 8_000
-                connection.readTimeout = 20_000
+                connection.readTimeout = 25_000
                 connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36")
                 if (connection.responseCode !in 200..299) return@withContext null
                 if (connection.contentLengthLong > MAX_BYTES) return@withContext null
@@ -167,23 +145,21 @@ internal object PdfPages {
                 connection.disconnect()
             }
             if (file.length() == 0L || file.length() > MAX_BYTES) return@withContext null
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-                PdfRenderer(fd).use { renderer ->
-                    val count = renderer.pageCount
-                    // 첫 쪽은 표지인 경우가 많아, 쪽이 충분하면 2~4쪽(요약문이 있는 쪽)을 쓴다.
-                    val indices = if (count >= 4) listOf(1, 2, 3) else (0 until minOf(count, 3)).toList()
-                    indices.map { index ->
-                        renderer.openPage(index).use { page ->
-                            val height = (WIDTH.toLong() * page.height / page.width).toInt().coerceAtLeast(1)
-                            val bitmap = Bitmap.createBitmap(WIDTH, height, Bitmap.Config.ARGB_8888)
-                            bitmap.eraseColor(Color.WHITE)
-                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                            bitmap
-                        }
-                    }
-                }
+            if (!initialized) {
+                com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(context.applicationContext)
+                initialized = true
             }
-        } catch (e: Exception) {
+            com.tom_roush.pdfbox.pdmodel.PDDocument.load(file).use { doc ->
+                val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                stripper.sortByPosition = true
+                val pages = doc.numberOfPages
+                // 첫 쪽은 표지인 경우가 많아, 쪽이 3장 이상이면 2쪽부터 읽는다.
+                stripper.startPage = if (pages >= 3) 2 else 1
+                stripper.endPage = minOf(pages, 5)
+                val text = HtmlListParser.compact(stripper.getText(doc))
+                text.takeIf { it.length >= 150 }
+            }
+        } catch (e: Throwable) {
             null
         } finally {
             file.delete()

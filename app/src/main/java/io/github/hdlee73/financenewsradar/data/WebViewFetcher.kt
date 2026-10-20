@@ -93,6 +93,58 @@ internal object WebViewFetcher {
         }
     }
 
+    /** 자바스크립트 fetch() 결과를 받는 다리. */
+    private class FetchBridge(val onResult: (String) -> Unit) {
+        @android.webkit.JavascriptInterface
+        fun done(text: String?) = onResult(text.orEmpty())
+    }
+
+    /**
+     * [pageUrl]을 WebView로 연 뒤(쿠키·출처 확인 통과) 같은 사이트의 [path]를 그 페이지 안에서 fetch()로 받아 글을 돌려준다.
+     * 일반 HTTP 요청은 막고 브라우저 안 요청만 받아 주는 RSS·ajax 주소용. 못 받으면 빈 문자열.
+     */
+    suspend fun fetchInPage(context: Context, pageUrl: String, path: String): String = withTimeout(TOTAL_TIMEOUT_MS) {
+        suspendCancellableCoroutine { cont ->
+            val handler = Handler(Looper.getMainLooper())
+            handler.post {
+                var webView: WebView? = null
+                fun finish(text: String) {
+                    val view = webView
+                    webView = null
+                    if (view != null) {
+                        view.stopLoading()
+                        view.destroy()
+                    }
+                    if (cont.isActive) cont.resume(text)
+                }
+                try {
+                    val view = createWebView(context)
+                    webView = view
+                    var started = false
+                    view.addJavascriptInterface(FetchBridge { text -> handler.post { finish(text) } }, "FssBridge")
+                    view.webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(v: WebView?, u: String?) {
+                            if (started) return
+                            started = true
+                            handler.postDelayed({
+                                webView?.evaluateJavascript(
+                                    "(function(){fetch(" + org.json.JSONObject.quote(path) + ",{credentials:'include'})" +
+                                        ".then(function(r){return r.text();}).then(function(t){FssBridge.done(t);})" +
+                                        ".catch(function(e){FssBridge.done('');});})()",
+                                    null
+                                )
+                            }, 1_500)
+                        }
+                    }
+                    cont.invokeOnCancellation { handler.post { finish("") } }
+                    view.loadUrl(pageUrl)
+                } catch (e: Exception) {
+                    finish("")
+                }
+            }
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(context: Context): WebView = WebView(context.applicationContext).apply {
         // 쿠키는 모두 허용(쿠키 동의·봇 확인을 거치는 사이트용). 제3자 쿠키도 받는다.
