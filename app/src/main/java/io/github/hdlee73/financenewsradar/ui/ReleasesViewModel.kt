@@ -285,7 +285,7 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
      * Gemini Nano가 있는 기기에서만: 목록의 각 자료 본문을 읽어 한국어 요약을 만들어 제목 아래에 보여 준다.
      * 이미 만든 요약은 다시 만들지 않고, 기기가 지원하지 않으면 아무 것도 하지 않아 화면은 그대로다.
      * 처리 상태(대기·진행·불가 사유)는 [ReleasesUiState.summaryNotes]로 목록에 작게 보여 준다.
-     * 본문 읽기는 3건씩 동시에, Gemini Nano 호출은 한 건씩 순서대로 한다.
+     * 본문 읽기는 서버가 요청 폭주(429)로 막지 않도록 한 건씩 간격을 두고, 읽는 동안 앞 건의 Gemini Nano 호출이 이어진다.
      */
     private fun summarize(key: String, items: List<ReleaseItem>) {
         if (items.isEmpty()) return
@@ -297,19 +297,20 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
             if (todo.isEmpty()) return@launch
             try {
                 setNotes { notes -> notes + todo.associate { it.link to "요약 대기 중" } }
-                val gate = kotlinx.coroutines.sync.Semaphore(3)
+                val gate = kotlinx.coroutines.sync.Semaphore(1)
                 kotlinx.coroutines.coroutineScope {
                     for (item in todo) launch {
-                        gate.withPermit {
+                        // 읽기(내려받기)는 한 건씩 간격을 두고, 요약 생성은 읽기와 겹쳐 진행한다.
+                        val read = gate.withPermit {
                             setNotes { it + (item.link to "요약 중…") }
                             val source = summarySource(item.link)
-                            val outcome = if (ArticleText.isPdf(source)) {
-                                val read = PdfText.extract(getApplication(), source)
-                                if (read.text != null) SummaryEngine.summarize(item.title, read.text) else read
-                            } else {
-                                val read = ArticleText.fetch(getApplication(), source, item.title)
-                                if (read.text != null) SummaryEngine.summarize(item.title, read.text) else read
-                            }
+                            val fetched = if (ArticleText.isPdf(source)) PdfText.extract(getApplication(), source)
+                            else ArticleText.fetch(getApplication(), source, item.title)
+                            kotlinx.coroutines.delay(700)
+                            fetched
+                        }
+                        run {
+                            val outcome = if (read.text != null) SummaryEngine.summarize(item.title, read.text) else read
                             if (outcome.text != null) {
                                 val next = _state.value.summaries + (item.link to outcome.text)
                                 _state.update { it.copy(summaries = next, summaryNotes = it.summaryNotes - item.link) }

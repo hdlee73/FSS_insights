@@ -112,13 +112,14 @@ internal object WebViewFetcher {
 
     /**
      * [pageUrl] 안에서 같은 사이트의 파일 [fileUrl]을 받아 base64 글로 돌려준다(일반 요청은 403으로 막고 브라우저 요청만 받는 PDF용).
-     * 실패하면 "ERR:" 로 시작하는 글. 크기가 [maxBytes]를 넘으면 "ERR:big".
+     * 실패하면 "ERR:" 로 시작하는 글. 크기가 [maxBytes]를 넘으면 앞쪽 [maxBytes]만 돌려준다.
      */
     suspend fun fetchFileInPage(context: Context, pageUrl: String, fileUrl: String, maxBytes: Int): String = runInPage(
         context, pageUrl,
         "(function(){fetch(" + org.json.JSONObject.quote(fileUrl) + ",{credentials:'include'})" +
             ".then(function(r){if(!r.ok){throw 'http'+r.status;}return r.blob();})" +
-            ".then(function(b){if(b.size>" + maxBytes + "){FssBridge.done('ERR:big');return;}" +
+            // 너무 크면 앞쪽 [maxBytes]만 쓴다(PDF 앞쪽 쪽의 글은 대개 파일 앞부분에 있다).
+            ".then(function(b){if(b.size>" + maxBytes + "){b=b.slice(0," + maxBytes + ");}" +
             "var fr=new FileReader();fr.onload=function(){var s=String(fr.result);FssBridge.done(s.substring(s.indexOf(',')+1));};" +
             "fr.onerror=function(){FssBridge.done('ERR:read');};fr.readAsDataURL(b);})" +
             ".catch(function(e){FssBridge.done('ERR:'+e);});})()"

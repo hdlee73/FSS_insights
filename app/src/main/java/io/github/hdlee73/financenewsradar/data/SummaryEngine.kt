@@ -139,7 +139,8 @@ internal object ArticleText {
 
 /** PDF 링크를 내려받아 앞쪽 본문 글을 뽑는다(표지를 건너뛰고 2~5쪽). 실패하면 이유를 담는다. */
 internal object PdfText {
-    private const val MAX_BYTES = 15 * 1024 * 1024
+    private const val MAX_BYTES = 10 * 1024 * 1024
+    private const val IN_PAGE_BYTES = 6 * 1024 * 1024
     private var initialized = false
 
     /** 일반 요청으로 받는다. 실패하면 이유 글을, 성공하면 null. */
@@ -154,8 +155,19 @@ internal object PdfText {
             connection.setRequestProperty("Referer", URI(url).let { "${it.scheme}://${it.host}/" })
             val code = connection.responseCode
             if (code !in 200..299) return "서버 응답 $code"
-            if (connection.contentLengthLong > MAX_BYTES) return "PDF가 너무 큼"
-            connection.inputStream.use { input -> file.outputStream().use { input.copyTo(it) } }
+            // 너무 큰 PDF는 앞쪽 [MAX_BYTES]만 받는다(앞쪽 쪽의 글은 대개 파일 앞부분에 있다).
+            connection.inputStream.use { input ->
+                file.outputStream().use { out ->
+                    val buffer = ByteArray(64 * 1024)
+                    var total = 0
+                    while (total < MAX_BYTES) {
+                        val read = input.read(buffer, 0, minOf(buffer.size, MAX_BYTES - total))
+                        if (read < 0) break
+                        out.write(buffer, 0, read)
+                        total += read
+                    }
+                }
+            }
             null
         } finally {
             connection.disconnect()
@@ -163,14 +175,26 @@ internal object PdfText {
     }
 
     suspend fun extract(context: Context, url: String): Outcome {
-        // 여러 건을 동시에 처리하므로 호출마다 다른 임시 파일을 쓴다.
+        // 요청이 너무 잦아 서버가 429로 제한하면 잠시 기다렸다가 다시 시도한다.
+        var attempt = 0
+        while (true) {
+            val outcome = extractOnce(context, url)
+            val limited = outcome.reason?.contains("429") == true
+            if (!limited || attempt >= 3) return outcome
+            attempt++
+            kotlinx.coroutines.delay(4_000L * attempt)
+        }
+    }
+
+    private suspend fun extractOnce(context: Context, url: String): Outcome {
+        // 여러 건을 동시에 처리할 수 있으므로 호출마다 다른 임시 파일을 쓴다.
         val file = withContext(Dispatchers.IO) { File.createTempFile("summary-source", ".pdf", context.cacheDir) }
         try {
             var failure = withContext(Dispatchers.IO) { runCatching { download(url, file) }.getOrElse { "${it.javaClass.simpleName}" } }
             if (failure != null) {
                 // 직접 요청을 막는 사이트(403 등): 같은 사이트 페이지를 연 WebView 안에서 같은 세션으로 받아 본다.
                 val origin = runCatching { URI(url).let { "${it.scheme}://${it.host}/" } }.getOrNull()
-                val viaPage = origin?.let { runCatching { WebViewFetcher.fetchFileInPage(context, it, url, MAX_BYTES / 2) }.getOrNull() }
+                val viaPage = origin?.let { runCatching { WebViewFetcher.fetchFileInPage(context, it, url, IN_PAGE_BYTES) }.getOrNull() }
                 if (viaPage != null && viaPage.isNotEmpty() && !viaPage.startsWith("ERR:")) {
                     val bytes = runCatching { android.util.Base64.decode(viaPage, android.util.Base64.DEFAULT) }.getOrNull()
                     if (bytes != null && bytes.isNotEmpty()) {
@@ -192,7 +216,6 @@ internal object PdfText {
     private suspend fun parse(context: Context, file: File): Outcome = withContext(Dispatchers.IO) {
         try {
             if (file.length() == 0L) return@withContext Outcome(reason = "PDF 내려받기 실패(빈 파일)")
-            if (file.length() > MAX_BYTES) return@withContext Outcome(reason = "PDF가 너무 큼")
             try {
                 if (!initialized) {
                     com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(context.applicationContext)
