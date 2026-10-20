@@ -4,7 +4,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.AgencyRepository
+import io.github.hdlee73.financenewsradar.data.ArticleText
 import io.github.hdlee73.financenewsradar.data.SettingsStore
+import io.github.hdlee73.financenewsradar.data.SummaryEngine
+import io.github.hdlee73.financenewsradar.data.SummaryStore
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.model.AgencyId
 import io.github.hdlee73.financenewsradar.model.CustomInstitute
@@ -44,7 +47,9 @@ data class ReleasesUiState(
     val saved: List<ReleaseItem> = emptyList(),
     /** 사용자가 추가한 연구소와, 주소별 화면 상태. */
     val institutes: List<CustomInstitute> = emptyList(),
-    val custom: Map<String, AgencyUiState> = emptyMap()
+    val custom: Map<String, AgencyUiState> = emptyMap(),
+    /** 자료 링크 → 기기 내 Gemini Nano가 만든 한국어 요약(지원 기기에서만 채워진다). */
+    val summaries: Map<String, String> = emptyMap()
 ) {
     fun of(agency: AgencyId): AgencyUiState = agencies[agency] ?: AgencyUiState()
     fun ofCustom(url: String): AgencyUiState = custom[url] ?: AgencyUiState()
@@ -57,9 +62,14 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
     private val repository = AgencyRepository(application)
     private val jobs = mutableMapOf<AgencyId, Job>()
     private val customJobs = mutableMapOf<String, Job>()
+    private val summaryStore = SummaryStore(application)
+    private val summaryJobs = mutableMapOf<String, Job>()
 
     private val _state = MutableStateFlow(
-        ReleasesUiState(links = settingsStore.loadLinks(), saved = settingsStore.savedReleases(), institutes = loadInstitutesMigrated())
+        ReleasesUiState(
+            links = settingsStore.loadLinks(), saved = settingsStore.savedReleases(), institutes = loadInstitutesMigrated(),
+            summaries = summaryStore.load()
+        )
     )
     val state: StateFlow<ReleasesUiState> = _state.asStateFlow()
 
@@ -111,6 +121,7 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
                             newLinks = (it.newLinks + fresh).intersect(links.toSet())
                         )
                     }
+                    summarize(agency.name, items)
                 }
                 .onFailure { e ->
                     if (e is CancellationException) return@onFailure
@@ -211,6 +222,7 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
                     updateCustom(institute.url) {
                         it.copy(latest = items, latestLoaded = true, isLoading = false, newLinks = (it.newLinks + fresh).intersect(links.toSet()))
                     }
+                    summarize("CUSTOM_${institute.url}", items)
                 }
                 .onFailure { e ->
                     if (e is CancellationException) return@onFailure
@@ -249,6 +261,25 @@ class ReleasesViewModel(application: Application) : AndroidViewModel(application
     fun resetLinks() {
         settingsStore.saveLinks(UsefulLink.DEFAULTS)
         _state.update { it.copy(links = UsefulLink.DEFAULTS) }
+    }
+
+    /**
+     * Gemini Nano가 있는 기기에서만: 목록의 각 자료 본문을 읽어 한국어 요약을 만들어 제목 아래에 보여 준다.
+     * 이미 만든 요약은 다시 만들지 않고, 기기가 지원하지 않으면 아무 것도 하지 않아 화면은 그대로다.
+     */
+    private fun summarize(key: String, items: List<ReleaseItem>) {
+        summaryJobs[key]?.cancel()
+        summaryJobs[key] = viewModelScope.launch {
+            if (!SummaryEngine.isAvailable()) return@launch
+            for (item in items) {
+                if (_state.value.summaries.containsKey(item.link)) continue
+                val body = ArticleText.fetch(item.link) ?: continue
+                val summary = SummaryEngine.summarize(item.title, body) ?: continue
+                val next = _state.value.summaries + (item.link to summary)
+                _state.update { it.copy(summaries = next) }
+                summaryStore.save(next)
+            }
+        }
     }
 
     private fun friendly(error: Throwable): String =

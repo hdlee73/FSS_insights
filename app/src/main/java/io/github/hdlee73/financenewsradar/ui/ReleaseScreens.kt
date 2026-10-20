@@ -57,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hdlee73.financenewsradar.data.AgencySources
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
@@ -179,7 +180,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
             }
             itemsIndexed(saved, key = { i, it -> "saved-$i-${it.link}" }) { _, item ->
                 ReleaseRow(
-                    item = item, isNew = false, isSaved = true, showAgency = true,
+                    item = item, isNew = false, isSaved = true, showAgency = true, summary = state.summaries[item.link],
                     onOpen = { openItem(context, item) },
                     onToggleSaved = { viewModel.toggleSaved(item) },
                     onShare = { shareItem(context, item) }
@@ -198,6 +199,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 siteSearchUrl = { AgencySources.siteSearchUrl(agency, it) },
                 state = state.of(agency),
                 savedLinks = savedLinks,
+                summaries = state.summaries,
                 clearTick = clearTick,
                 context = context,
                 onRefresh = { viewModel.refresh(agency) },
@@ -223,6 +225,7 @@ fun ReleasesScreen(group: AgencyGroup, viewModel: ReleasesViewModel, modifier: M
                 },
                 state = state.ofCustom(institute.url),
                 savedLinks = savedLinks,
+                summaries = state.summaries,
                 clearTick = clearTick,
                 context = context,
                 onRefresh = { viewModel.refreshCustom(institute) },
@@ -276,6 +279,7 @@ private fun LazyListScope.agencyItems(
     siteSearchUrl: (String) -> String,
     state: AgencyUiState,
     savedLinks: Set<String>,
+    summaries: Map<String, String>,
     clearTick: Int,
     context: Context,
     onRefresh: () -> Unit,
@@ -333,7 +337,7 @@ private fun LazyListScope.agencyItems(
                 // 목록 주소가 모두 같은 사이트(주소를 못 읽어 목록 페이지로 대신한 경우)도 앱이 종료되지 않도록 순번을 키에 넣는다.
                 itemsIndexed(state.latest, key = { i, it -> "latest-$i-${it.link}" }) { _, item ->
                     ReleaseRow(
-                        item = item, isNew = item.link in state.newLinks, isSaved = item.link in savedLinks, showAgency = false,
+                        item = item, isNew = item.link in state.newLinks, isSaved = item.link in savedLinks, showAgency = false, summary = summaries[item.link],
                         onOpen = { openItem(context, item) },
                         onToggleSaved = { onToggleSaved(item) },
                         onShare = { shareItem(context, item) }
@@ -351,7 +355,7 @@ private fun LazyListScope.agencyItems(
         }
         itemsIndexed(state.results, key = { i, it -> "result-$i-${it.link}" }) { _, item ->
             ReleaseRow(
-                item = item, isNew = false, isSaved = item.link in savedLinks, showAgency = false,
+                item = item, isNew = false, isSaved = item.link in savedLinks, showAgency = false, summary = summaries[item.link],
                 onOpen = { openItem(context, item) },
                 onToggleSaved = { onToggleSaved(item) },
                 onShare = { shareItem(context, item) }
@@ -410,6 +414,7 @@ private fun ReleaseRow(
     isNew: Boolean,
     isSaved: Boolean,
     showAgency: Boolean,
+    summary: String? = null,
     onOpen: () -> Unit,
     onToggleSaved: () -> Unit,
     onShare: () -> Unit
@@ -419,6 +424,16 @@ private fun ReleaseRow(
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f).padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            // Gemini Nano가 만든 한국어 요약(지원 기기에서만 있음). 없으면 이 줄은 나타나지 않는다.
+            if (summary != null) {
+                Text(
+                    "✦ $summary",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (isNew) NewBadge()
                 if (meta.isNotBlank()) {
