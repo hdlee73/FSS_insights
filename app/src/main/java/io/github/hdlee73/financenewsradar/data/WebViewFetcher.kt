@@ -103,7 +103,28 @@ internal object WebViewFetcher {
      * [pageUrl]을 WebView로 연 뒤(쿠키·출처 확인 통과) 같은 사이트의 [path]를 그 페이지 안에서 fetch()로 받아 글을 돌려준다.
      * 일반 HTTP 요청은 막고 브라우저 안 요청만 받아 주는 RSS·ajax 주소용. 못 받으면 빈 문자열.
      */
-    suspend fun fetchInPage(context: Context, pageUrl: String, path: String): String = withTimeout(TOTAL_TIMEOUT_MS) {
+    suspend fun fetchInPage(context: Context, pageUrl: String, path: String): String = runInPage(
+        context, pageUrl,
+        "(function(){fetch(" + org.json.JSONObject.quote(path) + ",{credentials:'include'})" +
+            ".then(function(r){return r.text();}).then(function(t){FssBridge.done(t);})" +
+            ".catch(function(e){FssBridge.done('');});})()"
+    )
+
+    /**
+     * [pageUrl] 안에서 같은 사이트의 파일 [fileUrl]을 받아 base64 글로 돌려준다(일반 요청은 403으로 막고 브라우저 요청만 받는 PDF용).
+     * 실패하면 "ERR:" 로 시작하는 글. 크기가 [maxBytes]를 넘으면 "ERR:big".
+     */
+    suspend fun fetchFileInPage(context: Context, pageUrl: String, fileUrl: String, maxBytes: Int): String = runInPage(
+        context, pageUrl,
+        "(function(){fetch(" + org.json.JSONObject.quote(fileUrl) + ",{credentials:'include'})" +
+            ".then(function(r){if(!r.ok){throw 'http'+r.status;}return r.blob();})" +
+            ".then(function(b){if(b.size>" + maxBytes + "){FssBridge.done('ERR:big');return;}" +
+            "var fr=new FileReader();fr.onload=function(){var s=String(fr.result);FssBridge.done(s.substring(s.indexOf(',')+1));};" +
+            "fr.onerror=function(){FssBridge.done('ERR:read');};fr.readAsDataURL(b);})" +
+            ".catch(function(e){FssBridge.done('ERR:'+e);});})()"
+    )
+
+    private suspend fun runInPage(context: Context, pageUrl: String, script: String): String = withTimeout(TOTAL_TIMEOUT_MS) {
         suspendCancellableCoroutine { cont ->
             val handler = Handler(Looper.getMainLooper())
             handler.post {
@@ -126,14 +147,7 @@ internal object WebViewFetcher {
                         override fun onPageFinished(v: WebView?, u: String?) {
                             if (started) return
                             started = true
-                            handler.postDelayed({
-                                webView?.evaluateJavascript(
-                                    "(function(){fetch(" + org.json.JSONObject.quote(path) + ",{credentials:'include'})" +
-                                        ".then(function(r){return r.text();}).then(function(t){FssBridge.done(t);})" +
-                                        ".catch(function(e){FssBridge.done('');});})()",
-                                    null
-                                )
-                            }, 1_500)
+                            handler.postDelayed({ webView?.evaluateJavascript(script, null) }, 1_500)
                         }
                     }
                     cont.invokeOnCancellation { handler.post { finish("") } }

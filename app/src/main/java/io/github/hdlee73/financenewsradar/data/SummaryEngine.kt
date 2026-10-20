@@ -142,24 +142,55 @@ internal object PdfText {
     private const val MAX_BYTES = 15 * 1024 * 1024
     private var initialized = false
 
-    suspend fun extract(context: Context, url: String): Outcome = withContext(Dispatchers.IO) {
+    /** 일반 요청으로 받는다. 실패하면 이유 글을, 성공하면 null. */
+    private fun download(url: String, file: File): String? {
+        val connection = URI(url).toURL().openConnection() as HttpURLConnection
+        return try {
+            connection.connectTimeout = 8_000
+            connection.readTimeout = 25_000
+            connection.instanceFollowRedirects = true
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36")
+            connection.setRequestProperty("Accept", "application/pdf,*/*;q=0.8")
+            connection.setRequestProperty("Referer", URI(url).let { "${it.scheme}://${it.host}/" })
+            val code = connection.responseCode
+            if (code !in 200..299) return "서버 응답 $code"
+            if (connection.contentLengthLong > MAX_BYTES) return "PDF가 너무 큼"
+            connection.inputStream.use { input -> file.outputStream().use { input.copyTo(it) } }
+            null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    suspend fun extract(context: Context, url: String): Outcome {
         // 여러 건을 동시에 처리하므로 호출마다 다른 임시 파일을 쓴다.
-        val file = File.createTempFile("summary-source", ".pdf", context.cacheDir)
+        val file = withContext(Dispatchers.IO) { File.createTempFile("summary-source", ".pdf", context.cacheDir) }
         try {
-            val connection = URI(url).toURL().openConnection() as HttpURLConnection
-            try {
-                connection.connectTimeout = 8_000
-                connection.readTimeout = 25_000
-                connection.instanceFollowRedirects = true
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36")
-                connection.setRequestProperty("Accept", "application/pdf,*/*;q=0.8")
-                val code = connection.responseCode
-                if (code !in 200..299) return@withContext Outcome(reason = "PDF 내려받기 실패(서버 응답 $code)")
-                if (connection.contentLengthLong > MAX_BYTES) return@withContext Outcome(reason = "PDF가 너무 큼")
-                connection.inputStream.use { input -> file.outputStream().use { input.copyTo(it) } }
-            } finally {
-                connection.disconnect()
+            var failure = withContext(Dispatchers.IO) { runCatching { download(url, file) }.getOrElse { "${it.javaClass.simpleName}" } }
+            if (failure != null) {
+                // 직접 요청을 막는 사이트(403 등): 같은 사이트 페이지를 연 WebView 안에서 같은 세션으로 받아 본다.
+                val origin = runCatching { URI(url).let { "${it.scheme}://${it.host}/" } }.getOrNull()
+                val viaPage = origin?.let { runCatching { WebViewFetcher.fetchFileInPage(context, it, url, MAX_BYTES / 2) }.getOrNull() }
+                if (viaPage != null && viaPage.isNotEmpty() && !viaPage.startsWith("ERR:")) {
+                    val bytes = runCatching { android.util.Base64.decode(viaPage, android.util.Base64.DEFAULT) }.getOrNull()
+                    if (bytes != null && bytes.isNotEmpty()) {
+                        withContext(Dispatchers.IO) { file.writeBytes(bytes) }
+                        failure = null
+                    }
+                }
+                if (failure != null) {
+                    val detail = viaPage?.takeIf { it.startsWith("ERR:") }?.let { " · 브라우저 요청도 실패(${it.drop(4).take(30)})" }.orEmpty()
+                    return Outcome(reason = "PDF 내려받기 실패($failure$detail)")
+                }
             }
+            return parse(context, file)
+        } finally {
+            withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { file.delete() }
+        }
+    }
+
+    private suspend fun parse(context: Context, file: File): Outcome = withContext(Dispatchers.IO) {
+        try {
             if (file.length() == 0L) return@withContext Outcome(reason = "PDF 내려받기 실패(빈 파일)")
             if (file.length() > MAX_BYTES) return@withContext Outcome(reason = "PDF가 너무 큼")
             try {
