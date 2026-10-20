@@ -24,7 +24,6 @@ internal object WebViewFetcher {
     /** '더보기'로 이어 붙이는 목록은 클릭을 여러 번 해야 하므로 더 오래 기다리고, 목록이 늘지 않으면 일찍 끝낸다. */
     private const val MAX_POLLS_MORE = 36
     private const val STALL_POLLS = 5
-    private const val MAX_SNAPSHOTS = 8
 
     /** [moreLabel]이 있으면 준비될 때까지 그 글자가 든 '더보기' 버튼을 매번 눌러 목록을 늘린다. */
     suspend fun get(context: Context, url: String, moreLabel: String? = null, isReady: (String) -> Boolean = { true }): String = withTimeout(TOTAL_TIMEOUT_MS) {
@@ -46,8 +45,6 @@ internal object WebViewFetcher {
                     webView = view
                     var loaded = false
                     var polls = 0
-                    // '더보기'를 누를 때마다 목록이 늘어나는 대신 바뀌기만 하는 사이트도 있어, 화면이 달라질 때마다 HTML을 모아 둔다.
-                    val snapshots = mutableListOf<String>()
                     var lastSize = 0
                     var stalled = 0
                     lateinit var poll: Runnable
@@ -65,8 +62,6 @@ internal object WebViewFetcher {
                                 if (html.length != lastSize) {
                                     lastSize = html.length
                                     stalled = 0
-                                    snapshots += html
-                                    if (snapshots.size > MAX_SNAPSHOTS) snapshots.removeAt(0)
                                 } else stalled++
                             }
                             val ready = !blocked && html.length > 3_000 && isReady(html)
@@ -74,7 +69,7 @@ internal object WebViewFetcher {
                             // 목록을 나중에 불러오는 사이트가 있어, 기대한 내용이 나타날 때까지 기다린다.
                             val gaveUp = polls >= limit || (moreLabel != null && polls >= 6 && stalled >= STALL_POLLS)
                             if (ready || gaveUp) {
-                                finish(Result.success(if (moreLabel != null && snapshots.isNotEmpty()) snapshots.joinToString("\n") else html))
+                                finish(Result.success(html))
                             } else {
                                 if (moreLabel != null && !blocked) current.evaluateJavascript(clickMoreScript(moreLabel), null)
                                 handler.postDelayed(poll, POLL_MS)
@@ -93,6 +88,73 @@ internal object WebViewFetcher {
                     view.loadUrl(url)
                 } catch (e: Exception) {
                     finish(Result.failure(e))
+                }
+            }
+        }
+    }
+
+    /** 자바스크립트 fetch() 결과를 받는 다리. */
+    private class FetchBridge(val onResult: (String) -> Unit) {
+        @android.webkit.JavascriptInterface
+        fun done(text: String?) = onResult(text.orEmpty())
+    }
+
+    /**
+     * [pageUrl]을 WebView로 연 뒤(쿠키·출처 확인 통과) 같은 사이트의 [path]를 그 페이지 안에서 fetch()로 받아 글을 돌려준다.
+     * 일반 HTTP 요청은 막고 브라우저 안 요청만 받아 주는 RSS·ajax 주소용. 못 받으면 빈 문자열.
+     */
+    suspend fun fetchInPage(context: Context, pageUrl: String, path: String): String = runInPage(
+        context, pageUrl,
+        "(function(){fetch(" + org.json.JSONObject.quote(path) + ",{credentials:'include'})" +
+            ".then(function(r){return r.text();}).then(function(t){FssBridge.done(t);})" +
+            ".catch(function(e){FssBridge.done('');});})()"
+    )
+
+    /**
+     * [pageUrl] 안에서 같은 사이트의 파일 [fileUrl]을 받아 base64 글로 돌려준다(일반 요청은 403으로 막고 브라우저 요청만 받는 PDF용).
+     * 실패하면 "ERR:" 로 시작하는 글. 크기가 [maxBytes]를 넘으면 앞쪽 [maxBytes]만 돌려준다.
+     */
+    suspend fun fetchFileInPage(context: Context, pageUrl: String, fileUrl: String, maxBytes: Int): String = runInPage(
+        context, pageUrl,
+        "(function(){fetch(" + org.json.JSONObject.quote(fileUrl) + ",{credentials:'include'})" +
+            ".then(function(r){if(!r.ok){throw 'http'+r.status;}return r.blob();})" +
+            // 너무 크면 앞쪽 [maxBytes]만 쓴다(PDF 앞쪽 쪽의 글은 대개 파일 앞부분에 있다).
+            ".then(function(b){if(b.size>" + maxBytes + "){b=b.slice(0," + maxBytes + ");}" +
+            "var fr=new FileReader();fr.onload=function(){var s=String(fr.result);FssBridge.done(s.substring(s.indexOf(',')+1));};" +
+            "fr.onerror=function(){FssBridge.done('ERR:read');};fr.readAsDataURL(b);})" +
+            ".catch(function(e){FssBridge.done('ERR:'+e);});})()"
+    )
+
+    private suspend fun runInPage(context: Context, pageUrl: String, script: String): String = withTimeout(TOTAL_TIMEOUT_MS) {
+        suspendCancellableCoroutine { cont ->
+            val handler = Handler(Looper.getMainLooper())
+            handler.post {
+                var webView: WebView? = null
+                fun finish(text: String) {
+                    val view = webView
+                    webView = null
+                    if (view != null) {
+                        view.stopLoading()
+                        view.destroy()
+                    }
+                    if (cont.isActive) cont.resume(text)
+                }
+                try {
+                    val view = createWebView(context)
+                    webView = view
+                    var started = false
+                    view.addJavascriptInterface(FetchBridge { text -> handler.post { finish(text) } }, "FssBridge")
+                    view.webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(v: WebView?, u: String?) {
+                            if (started) return
+                            started = true
+                            handler.postDelayed({ webView?.evaluateJavascript(script, null) }, 1_500)
+                        }
+                    }
+                    cont.invokeOnCancellation { handler.post { finish("") } }
+                    view.loadUrl(pageUrl)
+                } catch (e: Exception) {
+                    finish("")
                 }
             }
         }

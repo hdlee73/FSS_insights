@@ -292,4 +292,7 @@ fun FinanceNewsRadarApp(
 
     // 최초 실행 1회: 비공식 앱 안내(확인해야 닫힘).
     DisclaimerDialog()
+
+    // 업데이트 설치 후 처음 열 때 1회: 이번 버전 변경 내용.
+    WhatsNewDialog()
 }

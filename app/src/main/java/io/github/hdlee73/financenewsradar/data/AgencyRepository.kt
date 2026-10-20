@@ -42,18 +42,28 @@ internal object AgencySources {
         val genericFallback: Boolean = false,
         /** 목록 아래 '더보기' 버튼을 눌러 이어 붙이는 사이트: 이 글자가 든 버튼을 눌러 [minItems]건 이상 읽는다(WebView). */
         val loadMoreLabel: String? = null,
+        /** (페이지 주소, 경로): 일반 요청은 막고 브라우저 안 요청만 받는 RSS·ajax를 그 페이지 안에서 받아 온다. */
+        val inPageFetch: Pair<String, String>? = null,
         /** 이 주소로 읽지 못했을 때 대신 읽는 설정. */
         val fallback: Source? = null
     )
 
+    private val bcbsPattern = Regex("""(?i)/bcbs/publ/[A-Za-z0-9_.-]+\.(htm|html|pdf)|/publ/bcbs[A-Za-z0-9_.-]*\.(htm|html|pdf)""")
+
     private fun bcbsHtml() = Source(
-        listUrl = { _, _ -> "https://www.bis.org/publications" },
-        linkPattern = Regex("""(?i)/(publ|bcbs/publ|fsi/publ|speeches|review|cpmi/publ|ifc/publ|iosco/publ)/(?!index\.)[A-Za-z0-9_.-]+\.(htm|html|pdf)"""),
+        // 바젤위원회 발간물 목록 화면. 카드 안의 '분류 · 시리즈 · 날짜 · 제목 · 설명' 중 제목과 날짜만 쓴다.
+        listUrl = { _, _ -> "https://www.bis.org/bcbs/publications.htm" },
+        customParser = { body, url ->
+            val cards = HtmlListParser.extractCards(body, url, bcbsPattern)
+            val plain = if (cards.isEmpty()) HtmlListParser.extract(body, url, bcbsPattern).filter { it.date != null } else emptyList()
+            (cards + plain).filter { it.date != null }.sortedByDescending { it.date }
+        },
         pageable = false,
         deepSearch = false,
-        jsRendered = true,
-        genericFallback = true
+        jsRendered = true
     )
+
+    private val masPattern = Regex("""(?i)/publications/[A-Za-z0-9-]+/(\d{4}/)?[A-Za-z0-9][A-Za-z0-9-]{5,}""")
 
     private fun enc(text: String) = URLEncoder.encode(text, StandardCharsets.UTF_8.toString())
 
@@ -80,8 +90,8 @@ internal object AgencySources {
             // 제목·저자·날짜는 글 조각 순서로 읽고 링크는 보고서용을 우선한다.
             customParser = { body, url ->
                 // 글 조각 순서로 읽는 방식과 보고서 링크 기준 방식 중 더 많이 읽힌 쪽을 쓴다(일부만 읽히던 문제 대비).
-                val byText = HtmlListParser.extractReports(body, url)
-                val byLink = HtmlListParser.extractReportsByLink(body, url)
+                val byText = runCatching { HtmlListParser.extractReports(body, url) }.getOrDefault(emptyList())
+                val byLink = runCatching { HtmlListParser.extractReportsByLink(body, url) }.getOrDefault(emptyList())
                 if (byLink.size > byText.size) byLink else byText
             },
             // 목록은 '더보기'를 눌러야 나머지가 나오므로 WebView로 열어 버튼을 눌러 가며 읽는다.
@@ -141,23 +151,17 @@ internal object AgencySources {
             isRss = true,
             pageable = false,
             deepSearch = false,
+            // 직접 요청이 막혀 목록이 비던 문제: BIS 페이지를 연 상태에서 같은 사이트 안으로 RSS를 받는다.
+            inPageFetch = "https://www.bis.org/bcbs/publications.htm" to "/doclist/bcbspubls.rss",
             fallback = bcbsHtml()
-        )
-        AgencyId.FCA -> Source(
-            listUrl = { _, _ -> "https://www.fca.org.uk/research" },
-            linkPattern = Regex("""(?i)/(publications?|research|data)/[A-Za-z0-9-]+/[A-Za-z0-9][A-Za-z0-9._-]{5,}"""),
-            pageable = false,
-            deepSearch = false,
-            jsRendered = true,
-            genericFallback = true
         )
         AgencyId.MAS -> Source(
             listUrl = { _, _ -> "https://www.mas.gov.sg/publications" },
-            linkPattern = Regex("""(?i)/publications/[A-Za-z0-9-]+/(\d{4}/)?[A-Za-z0-9][A-Za-z0-9-]{5,}"""),
+            // 카드의 제목과 'Published Date'를 읽는다.
+            customParser = { body, url -> HtmlListParser.extractCards(body, url, masPattern) },
             pageable = false,
             deepSearch = false,
-            jsRendered = true,
-            genericFallback = true
+            jsRendered = true
         )
         AgencyId.IOSCO -> Source(
             listUrl = { page, _ -> "https://www.iosco.org/publications/?subsection=public_reports" + if (page > 1) "&page=$page" else "" },
@@ -180,7 +184,6 @@ internal object AgencySources {
             AgencyId.KIF -> "https://www.kif.re.kr/kif4/publication/pub_list?mid=10"
             AgencyId.IOSCO -> "https://www.iosco.org/publications/?subsection=public_reports"
             AgencyId.BCBS -> "https://www.bis.org/publications"
-            AgencyId.FCA -> "https://www.fca.org.uk/research"
             AgencyId.MAS -> "https://www.mas.gov.sg/publications"
             AgencyId.CUSTOM, AgencyId.CUSTOM_PRESS -> "https://www.google.com/search?q=$q"
             else -> agency.homeUrl
@@ -204,7 +207,7 @@ class AgencyRepository(private val context: android.content.Context) {
         val items = fetchPage(agency, source, source.listUrl(1, source.pageSize)).toMutableList()
         // 날짜가 있는 항목을 최신순으로(날짜 없는 항목은 뒤로). 사이트 목록 순서가 들쭉날쭉해도 '최근 N건'이 되도록.
         fun current() = items.sortedByDescending { it.date }.take(count)
-        val target = if (agency == AgencyId.KCMI || agency == AgencyId.IOSCO || agency == AgencyId.FCA) count * 2 else count
+        val target = if (agency == AgencyId.KCMI || agency == AgencyId.IOSCO) count * 2 else count
         if (items.size >= target || !source.pageable) return current()
         onPartial(current())
         // 한 쪽이 몇 건인지 알았으니 필요한 쪽(최대 4쪽까지)을 한꺼번에 병렬로 읽는다.
@@ -277,6 +280,11 @@ class AgencyRepository(private val context: android.content.Context) {
     }
 
     private suspend fun fetchPage(agency: AgencyId, source: AgencySources.Source, url: String): List<ReleaseItem> {
+        source.inPageFetch?.let { (pageUrl, path) ->
+            val inPage = runCatching { WebViewFetcher.fetchInPage(context, pageUrl, path) }.getOrNull()
+                ?.let { runCatching { parse(source, it, url) }.getOrNull() }.orEmpty()
+            if (inPage.isNotEmpty()) return inPage.map { ReleaseItem(agency, it.title, it.url, it.date, author = it.author) }
+        }
         val primary = runCatching { fetchParsed(agency.label, url, source.jsRendered, source.minItems, source.loadMoreLabel) { body -> parse(source, body, url) } }
         val parsed = primary.getOrElse { error ->
             if (error is kotlinx.coroutines.CancellationException) throw error
@@ -332,8 +340,11 @@ class AgencyRepository(private val context: android.content.Context) {
         // 링크 형식이 예상과 다르면(금융연구원 등) 날짜가 붙은 링크를 목록으로 간주하는 방식으로 한 번 더 시도한다.
         if (parsed.isEmpty() && source.requireDate) parsed = HtmlListParser.extractLoose(body, url)
         if (parsed.isEmpty() && source.genericFallback) parsed = HtmlListParser.extractGeneric(body, url)
-        return parsed
+        // 재정경제부처럼 게시글 안의 '첨부파일 다운로드'·'문서보기' 링크가 목록에 섞여 들어오는 것을 뺀다.
+        return parsed.filterNot { attachmentLabel.matches(it.title) }
     }
+
+    private val attachmentLabel = Regex("^(첨부\\s?파일.{0,10}|.{0,12}(다운로드|문서\\s?보기|미리\\s?보기|바로\\s?보기|파일\\s?보기)\\s*)$")
 
     private companion object {
         const val MAX_LATEST_PAGE = 4

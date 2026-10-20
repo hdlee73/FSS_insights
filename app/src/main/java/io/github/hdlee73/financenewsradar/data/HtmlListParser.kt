@@ -40,6 +40,10 @@ object HtmlListParser {
         RegexOption.IGNORE_CASE
     )
 
+    /** "선임연구위원 김준석 외"처럼 직책으로 시작하는 저자 줄(제목이 아님). */
+    private val positionLabel = Regex("^[(（]?(선임|부|책임|초빙|객원|위촉|수석|전문)?\\s?(연구위원|연구원|연구조원|위원|원장|부원장|실장|팀장|센터장|본부장|박사|교수)(\\s|[)）]|$).*")
+    private fun isPosition(text: String) = text.length <= 40 && positionLabel.matches(text)
+
     private class Hit(val start: Int, val end: Int, val url: String, val title: String)
     private class DateHit(val date: LocalDate, val start: Int, val end: Int)
 
@@ -121,7 +125,7 @@ object HtmlListParser {
             val parts = ArrayDeque<String>()
             if (author.isNotEmpty()) parts.addFirst(author)
             val prevAnchor = if (n > 0) anchors[n - 1] else -1
-            while (k > prevAnchor && nodes[k].text.length < 12 && parts.size < 3 && !dotDate.containsMatchIn(nodes[k].text)) {
+            while (k > prevAnchor && (nodes[k].text.length < 12 || isPosition(nodes[k].text)) && parts.size < 4 && !dotDate.containsMatchIn(nodes[k].text)) {
                 parts.addFirst(nodes[k].text); k--
             }
             // 제목: 남은 앞쪽 조각 중 가장 가까운 제목다운(8자 이상, 안내 문구 아님) 글.
@@ -129,7 +133,7 @@ object HtmlListParser {
             var title = ""
             while (t > prevAnchor && t >= 0) {
                 val c = nodes[t].text
-                if (c.length >= 8 && !genericLabel.matches(c)) { title = c; break }
+                if (c.length >= 8 && !genericLabel.matches(c) && !isPosition(c)) { title = c; break }
                 t--
             }
             if (title.isEmpty()) return@mapIndexedNotNull null
@@ -173,11 +177,12 @@ object HtmlListParser {
             val date = runCatching { LocalDate.of(dm.groupValues[1].toInt(), dm.groupValues[2].toInt(), dm.groupValues[3].toInt()) }.getOrNull() ?: continue
             val dateIdx = nodes.indexOfFirst { dotDate.containsMatchIn(it) }
             // 제목: 날짜 조각 앞쪽에서 가장 가까운 제목다운 글(8자 이상, 안내 문구 아님). 없으면 뒤쪽에서 찾는다.
-            val title = nodes.take(dateIdx).lastOrNull { it.length >= 8 && !genericLabel.matches(it) }
-                ?: nodes.drop(dateIdx + 1).firstOrNull { it.length >= 8 && !genericLabel.matches(it) }
+            val title = nodes.take(dateIdx).lastOrNull { it.length >= 8 && !genericLabel.matches(it) && !isPosition(it) }
+                ?: nodes.drop(dateIdx + 1).firstOrNull { it.length >= 8 && !genericLabel.matches(it) && !isPosition(it) }
                 ?: continue
             val dateNode = nodes[dateIdx]
             val author = dateNode.substring(0, dotDate.findAll(dateNode).last().range.first).trim().ifEmpty { null }
+                ?: nodes.take(dateIdx).lastOrNull { isPosition(it) }
             val pick = (g.firstOrNull { it.report } ?: g.first()).url
             out += ParsedLink(title, pick, date, author)
         }
@@ -362,5 +367,77 @@ object HtmlListParser {
             val absolute = if (target.isAbsolute) target else base?.resolve(target) ?: return null
             absolute.toString().takeIf { absolute.scheme == "http" || absolute.scheme == "https" }
         }.getOrNull()
+    }
+
+    private val labeledDate = Regex("(?i)(first published|published date|date published|published)\\s*:?")
+    private val dateOnlyNode = Regex("^(\\d{1,2}\\s+[A-Za-z]{3,9}\\s+20\\d{2}|\\d{1,2}/\\d{1,2}/20\\d{2}|20\\d{2}[-./]\\d{1,2}[-./]\\d{1,2})$")
+
+    /** 제목이 아닌 머리말·꼬리말(분류명, 날짜, 안내 문구 등). */
+    private fun isNoiseNode(text: String) = genericLabel.matches(text) || dateOnlyNode.matches(text)
+
+    /** 글 속에서 "Published date"·"First published" 같은 이름표 바로 뒤의 날짜를 찾는다. */
+    private fun labeledDateIn(text: String): LocalDate? {
+        for (label in labeledDate.findAll(text)) {
+            val tail = text.substring(label.range.last + 1, minOf(text.length, label.range.last + 1 + 40))
+            findDates(tail).firstOrNull()?.takeIf { it.start <= 8 }?.let { return it.date }
+        }
+        return null
+    }
+
+    /**
+     * 카드형 목록(링크 안에 분류명·제목·날짜·설명이 함께 든 사이트: BIS·FCA·MAS)용.
+     * 링크 안의 글 조각을 따로 읽어 [날짜 조각 → 그다음 제목다운 조각]을 제목으로 삼고,
+     * 날짜 조각이 없으면 링크 글자(제목)만 쓰고 날짜는 링크 뒤쪽 글(이름표가 있으면 그 뒤)에서 찾는다.
+     * [wantTitleBeforeDate]가 true면(분류명 다음에 제목이 오는 형식이 아닌 경우) 날짜 앞의 제목다운 조각을 쓴다.
+     */
+    fun extractCards(html: String, baseUrl: String, hrefPattern: Regex, maxTitle: Int = 220): List<ParsedLink> {
+        val clean = abbreviateMonths(noise.replace(html, " "))
+        val base = runCatching { URI(baseUrl) }.getOrNull()
+        class Card(val url: String, val start: Int, val end: Int, val nodes: List<String>)
+        val cards = LinkedHashMap<String, Card>()
+        for (m in anchor.findAll(clean)) {
+            val rawHref = href.find(m.groupValues[1])?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } } ?: continue
+            val decoded = decodeEntities(rawHref).trim()
+            if (!hrefPattern.containsMatchIn(decoded)) continue
+            val url = resolve(base, decoded) ?: continue
+            if (url.substringBefore('#').substringBefore('?') == baseUrl.substringBefore('#').substringBefore('?')) continue
+            val nodes = textNode.findAll(">" + m.groupValues[2] + "<").map { compact(decodeEntities(it.groupValues[1])) }.filter { it.isNotEmpty() }.toList()
+            if (nodes.isEmpty()) continue
+            val existing = cards[url]
+            // 같은 주소가 아이콘·이름 등으로 여러 번 나오면 글 조각이 더 많은 쪽을 쓴다.
+            if (existing == null || nodes.size > existing.nodes.size) cards[url] = Card(url, existing?.start ?: m.range.first, m.range.last + 1, nodes)
+        }
+        val ordered = cards.values.sortedBy { it.start }
+        return ordered.mapIndexedNotNull { i, card ->
+            val nodes = card.nodes
+            val dateIdx = nodes.indexOfFirst { findDates(it).firstOrNull()?.let { d -> d.start == 0 && d.end >= it.length - 1 } == true }
+            val title: String
+            var date: LocalDate? = null
+            if (dateIdx >= 0 && nodes.size > 1) {
+                date = findDates(nodes[dateIdx]).first().date
+                // 'Publication / BCBS Newsletter No 37 / 19 Oct 2026 / 제목 / 설명' 순: 날짜 다음 조각이 제목.
+                title = nodes.drop(dateIdx + 1).firstOrNull { isTitleLike(it) && !isNoiseNode(it) }
+                    ?: nodes.take(dateIdx).lastOrNull { isTitleLike(it) && !isNoiseNode(it) }
+                    ?: return@mapIndexedNotNull null
+            } else {
+                // 제목 조각만 쓴다(분류명보다 긴 조각을 제목으로 본다). 하나뿐이면 그것.
+                title = nodes.filter { !isNoiseNode(it) && it.length >= 4 && findDates(it).isEmpty() }
+                    .maxByOrNull { minOf(it.length, maxTitle) } ?: return@mapIndexedNotNull null
+            }
+            if (title.length > maxTitle * 2) return@mapIndexedNotNull null
+            if (date == null) {
+                labeledDateIn(nodes.joinToString(" "))?.let { date = it }
+            }
+            if (date == null) {
+                val next = ordered.getOrNull(i + 1)?.start ?: clean.length
+                val after = compact(decodeEntities(tag.replace(clean.substring(card.end, minOf(next, card.end + 900)), " ")))
+                date = labeledDateIn(after) ?: findDates(after.take(160)).firstOrNull()?.date
+            }
+            if (date == null) {
+                val before = compact(decodeEntities(tag.replace(clean.substring(maxOf(ordered.getOrNull(i - 1)?.end ?: 0, card.start - 400), card.start), " ")))
+                date = labeledDateIn(before) ?: findDates(before).lastOrNull()?.date
+            }
+            ParsedLink(title.take(maxTitle), card.url, date)
+        }
     }
 }

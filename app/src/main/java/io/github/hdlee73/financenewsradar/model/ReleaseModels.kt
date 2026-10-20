@@ -21,7 +21,6 @@ enum class AgencyId(val label: String, val shortLabel: String, val group: Agency
     FSB("FSB", "FSB", AgencyGroup.RESEARCH, "https://www.fsb.org/publications/", "보고서"),
     BCBS("바젤은행감독위원회(BIS)", "BCBS", AgencyGroup.RESEARCH, "https://www.bis.org/publications", "보고서"),
     ESMA("ESMA", "ESMA", AgencyGroup.RESEARCH, "https://www.esma.europa.eu/databases-library/esma-library", "보고서"),
-    FCA("영국 금융행위감독청", "FCA", AgencyGroup.RESEARCH, "https://www.fca.org.uk/research", "보고서"),
     MAS("싱가포르 통화청", "MAS", AgencyGroup.RESEARCH, "https://www.mas.gov.sg/publications", "보고서"),
     /** 사용자가 직접 추가한 연구소(이름·주소는 [CustomInstitute]). */
     CUSTOM("추가한 연구소", "추가", AgencyGroup.RESEARCH, "", "자료"),

@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.hdlee73.financenewsradar"
         minSdk = 26
         targetSdk = 36
-        versionCode = 43
-        versionName = "1.6.0"
+        versionCode = 50
+        versionName = "1.6.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -91,6 +91,8 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     // 기기 내장 Gemini Nano 요약(지원 기기에서만 동작, 미지원 기기는 기존 화면 그대로)
     implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
+    // PDF 본문 글 추출(IOSCO·자본시장연구원 PDF 요약용)
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")

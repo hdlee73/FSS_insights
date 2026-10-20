@@ -291,4 +291,40 @@ class HtmlListParserTest {
         val result = HtmlListParser.extractGeneric(html, "https://www.mas.gov.sg/publications")
         assertEquals(java.time.LocalDate.of(2026, 10, 12), result[0].date)
     }
+
+    @Test
+    fun cardsTakeTitleAfterDateNotCategoryOrDescription() {
+        val html = """
+            <div><a href="/publ/work1384.htm"><span>Publication</span><span>BIS Working Paper No 1384</span><span>19 Oct 2026</span>
+            <span>Inflation after the Iran war</span><span>An unexpected increase in energy costs raises inflation.</span></a></div>
+            <div><a href="/author/ricardo_reis">Ricardo Reis</a></div>
+        """
+        val result = HtmlListParser.extractCards(html, "https://www.bis.org/bcbs/publications.htm", Regex("""/publ/[A-Za-z0-9_.-]+\.htm"""))
+        assertEquals(1, result.size)
+        assertEquals("Inflation after the Iran war", result[0].title)
+        assertEquals(LocalDate.of(2026, 10, 19), result[0].date)
+    }
+
+    @Test
+    fun cardsReadPublishedDateLabelAfterLink() {
+        val html = """
+            <li><a href="/publications/monographs/2026/macro-review-oct">Macroeconomic Review</a>
+            <p>Last updated 01 Nov 2026</p><p>Published Date 15 October 2026</p></li>
+        """
+        val result = HtmlListParser.extractCards(html, "https://www.mas.gov.sg/publications", Regex("""/publications/[A-Za-z0-9-]+/(\d{4}/)?[A-Za-z0-9-]{6,}"""))
+        assertEquals("Macroeconomic Review", result[0].title)
+        assertEquals(LocalDate.of(2026, 10, 15), result[0].date)
+    }
+
+    @Test
+    fun kcmiPositionLineIsAuthorNotTitle() {
+        val html = """
+            <ul><li><a href="/flexer/view?fid=29301&fgu=002002&fty=004003">무형자산의 부상과 생산요소의 배분 효율성</a>
+            <span>선임연구위원 김준석 외</span><span>2026.07.27</span>
+            <a href="/flexer/view?fid=29301&fgu=002002&fty=004003">바로보기</a></li></ul>
+        """
+        val result = HtmlListParser.extractReports(html, "https://www.kcmi.re.kr/report/report_list")
+        assertEquals("무형자산의 부상과 생산요소의 배분 효율성", result[0].title)
+        assertEquals(LocalDate.of(2026, 7, 27), result[0].date)
+    }
 }
