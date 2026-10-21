@@ -53,6 +53,14 @@ export const FIN_METRICS = [
   { key: "opinc", label: "영업이익", req: IS, pats: [/^영업이익(\(손실\))?$/, /^영업(이익|손익)$/, /영업(이익|손익)/] },
   { key: "netincome", label: "당기(분반기)순이익", req: IS, pats: [/^당기순(이익|손익)$/, /^분기순(이익|손익)$/, /^반기순(이익|손익)$/, /^당(분|반)?기순(이익|손익)/, /당기순(이익|손익)/, /^순(이익|손익)$/, /^당기순이익\(손실\)$/] },
 ];
+// 신용카드사(C)는 영업수익·영업비용·영업이익 대신 FISIS의 수익합계·비용합계·당기순이익(손실)으로 표시한다.
+export const FIN_METRICS_CARD = [
+  ...FIN_METRICS.slice(0, 3),
+  { key: "revenue", label: "수익합계", req: IS, pats: [/^수익합계$/, /^수익\(?합계\)?$/, /수익합계|수익총계|^총수익$/] },
+  { key: "expense", label: "비용합계", req: IS, pats: [/^비용합계$/, /^비용\(?합계\)?$/, /비용합계|비용총계|^총비용$/] },
+  { key: "netincome", label: "당기순이익(손실)", req: IS, pats: [/^당기순이익\(손실\)$/, /^당기순(이익|손익)/, /당기순(이익|손익)/, /^(분기|반기)순(이익|손익)/, /^순(이익|손익)/] },
+];
+export const FIN_METRICS_BY_SECTOR = { C: FIN_METRICS_CARD };
 // 비율 항목: 이름에 "비율/율/배율/NCR"이 든 계정만 후보로 삼는다(금액 계정이 비율로 잡히는 것을 막는다). exclude: 이 이름이면 제외.
 export const RATIO_SPECS = {
   F: [
@@ -177,8 +185,9 @@ export async function resolveSpec(api, sector) {
   const basis = {};
   const separate = fin.filter((l) => !/연결/.test(l.listNm));
   const connected = fin.filter((l) => /연결/.test(l.listNm));
-  basis["별도"] = pickAll(separate.length ? separate : fin, FIN_METRICS, { skipNoise: true });
-  if (connected.length) basis["연결"] = pickAll(connected, FIN_METRICS, { skipNoise: true });
+  const finMetrics = FIN_METRICS_BY_SECTOR[sector] || FIN_METRICS;
+  basis["별도"] = pickAll(separate.length ? separate : fin, finMetrics, { skipNoise: true });
+  if (connected.length) basis["연결"] = pickAll(connected, finMetrics, { skipNoise: true });
   return {
     basis,
     ratios: ratioSpecs.map((sp) => pickAccount(sp.pool === "con" ? ratioCon : ratioSep.length ? ratioSep : ratioPool, accountsOf, sp, { ratio: true })).filter(Boolean),

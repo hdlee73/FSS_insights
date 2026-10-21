@@ -72,6 +72,11 @@ private const val FISIS_SOURCE = "자료출처: 금융감독원 금융통계정�
 /** 비교에 담을 수 있는 회사 수. */
 private const val MAX_COMPARE = 3
 
+/** 신용카드사는 영업수익·영업비용·영업이익 대신 FISIS의 수익합계·비용합계·당기순이익(손실)을 보여 준다. */
+private val CARD_PL_LABELS = mapOf("revenue" to "수익합계", "expense" to "비용합계", "netincome" to "당기순이익(손실)")
+private val DEFAULT_PL_KEYS = listOf("revenue", "expense", "opinc", "netincome")
+private val CARD_PL_KEYS = listOf("revenue", "expense", "netincome")
+
 private val FINANCE_LABELS = mapOf(
     "assets" to "자산총계", "liab" to "부채총계", "equity" to "자기자본",
     "revenue" to "영업수익", "expense" to "영업비용", "opinc" to "영업이익", "netincome" to "당기순이익"
@@ -337,7 +342,7 @@ private fun ColumnScope.CompanyDetail(company: FisisCompany, state: FisisUiState
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         BASES.forEach { b -> PillChip("$b 재무제표", onClick = { basis = b; financeMonth = null }, selected = b == basis, onPanel = true) }
                     }
-                    FinanceTab(profile, basis, financeMonth, onMonth = { financeMonth = it })
+                    FinanceTab(sectorCode, profile, basis, financeMonth, onMonth = { financeMonth = it })
                 } else {
                     RatioTab(sectorCode, profile, ratioMonth, onMonth = { ratioMonth = it })
                 }
@@ -396,13 +401,16 @@ private fun PlRow(label: String, current: FisisMetric?, cumulative: FisisMetric?
 }
 
 @Composable
-private fun FinanceTab(profile: FisisProfile, basis: String, month: String?, onMonth: (String) -> Unit) {
+private fun FinanceTab(sector: String, profile: FisisProfile, basis: String, month: String?, onMonth: (String) -> Unit) {
     val fin = profile.group("fin", basis).filter { it.basis == basis }
     val funds = profile.group("fund")
     val months = monthsOf(fin + funds)
     val selected = month?.takeIf { it in months } ?: months.firstOrNull()
     PeriodPicker(months, selected, profile.term, onMonth)
-    if (fin.isEmpty()) Note("$basis 재무제표 자료가 없습니다.")
+    if (fin.isEmpty()) {
+        Note(if (basis == "연결") "금융통계시스템엔 연결 재무정보 없음" else "$basis 재무제표 자료가 없습니다.")
+        if (basis == "연결") return
+    }
     fun metric(key: String) = fin.firstOrNull { it.key == key }
 
     SectionHeader("재무상태 ($basis)")
@@ -434,9 +442,10 @@ private fun FinanceTab(profile: FisisProfile, basis: String, month: String?, onM
             Text(current, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
             Text("누적", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
         }
-        listOf("revenue", "expense", "opinc", "netincome").forEachIndexed { i, k ->
+        val card = sector == "C"
+        (if (card) CARD_PL_KEYS else DEFAULT_PL_KEYS).forEachIndexed { i, k ->
             if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            PlRow(FINANCE_LABELS.getValue(k), metric(k), metric("${k}_cum"), selected, bold = k == "netincome")
+            PlRow((if (card) CARD_PL_LABELS[k] else null) ?: FINANCE_LABELS.getValue(k), metric(k), metric("${k}_cum"), selected, bold = k == "netincome")
         }
     }
     if (funds.isNotEmpty()) {
