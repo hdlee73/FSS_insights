@@ -88,7 +88,9 @@ fun AppInfoScreen(modifier: Modifier = Modifier) {
                 Text("업데이트 내용", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
                 Text(info.notes, style = MaterialTheme.typography.bodyMedium)
             }
-            if (info.apkUrl != null) {
+            if (UpdateChecker.REQUIRES_REINSTALL) {
+                ReinstallGuide(Modifier.padding(top = 8.dp))
+            } else if (info.apkUrl != null) {
                 val sizeText = if (info.apkSize > 0) " (${"%.1f".format(info.apkSize / 1_048_576.0)}MB)" else ""
                 Button(
                     onClick = { flow.start(info) },
