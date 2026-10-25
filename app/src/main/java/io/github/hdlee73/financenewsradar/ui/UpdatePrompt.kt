@@ -16,10 +16,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hdlee73.financenewsradar.BuildConfig
+import io.github.hdlee73.financenewsradar.data.UpdateChecker
 import io.github.hdlee73.financenewsradar.data.UpdateStatus
 
 /**
@@ -31,8 +35,29 @@ fun UpdatePrompt(onOpenAppInfo: () -> Unit) {
     val info by UpdateStatus.available.collectAsStateWithLifecycle()
     var dismissedVersion by rememberSaveable { mutableStateOf<String?>(null) }
     val flow = rememberUpdateInstallFlow()
+    val context = LocalContext.current
     val update = info ?: return
     if (dismissedVersion == update.version && !flow.busy) return
+
+    if (UpdateChecker.REQUIRES_REINSTALL) {
+        AlertDialog(
+            onDismissRequest = { dismissedVersion = update.version },
+            title = { Text("새 버전 ${update.version} — 삭제 후 재설치 필요") },
+            text = {
+                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    Text("현재 ${BuildConfig.VERSION_NAME} → 최신 ${update.version}", Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                    ReinstallGuide()
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.url))) }
+                }) { Text("다운로드 페이지 열기") }
+            },
+            dismissButton = { TextButton(onClick = { dismissedVersion = update.version }) { Text("나중에") } }
+        )
+        return
+    }
 
     AlertDialog(
         onDismissRequest = { if (!flow.busy) dismissedVersion = update.version },
