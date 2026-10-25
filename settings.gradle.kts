@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "FSSInsights"
 include(":app")
+include(":law-core")

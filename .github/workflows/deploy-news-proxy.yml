@@ -27,6 +27,7 @@ jobs:
             GOOGLE_API_KEY
             GDRIVE_FOLDER_ID
             FISIS_API_KEY
+            LAW_OC
             ECOS_API_KEY
         env:
           APP_TOKEN: ${{ secrets.NEWS_PROXY_TOKEN }}
@@ -35,6 +36,7 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
           FISIS_API_KEY: ${{ secrets.FISIS_API_KEY }}
+          LAW_OC: ${{ secrets.LAW_OC }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
       - name: Show URL
         run: echo "NEWS_PROXY_URL = ${{ steps.deploy.outputs.deployment-url }}" >> "$GITHUB_STEP_SUMMARY"
