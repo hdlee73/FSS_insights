@@ -156,6 +156,7 @@ fun SearchScreen(
                 CompositionLocalProvider(LocalTreeViewOptions provides options) {
                     LawTreeView(
                         state = shown,
+                        isWide = isWide,
                         header = {
                             searchBar()
                             TreeHeader(
@@ -190,6 +191,7 @@ fun SearchScreen(
                         onToggle = vm::toggle,
                         onSelect = vm::select,
                         onOpenPrecedent = onOpenPrecedent,
+                    )
                 }
             }
 
