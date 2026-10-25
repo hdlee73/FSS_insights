@@ -19,6 +19,11 @@ interface LawRepository {
     suspend fun getLawArticles(law: LawSummary, article: ArticleNo? = null): List<Article>
     /** 시행일 기준 버전 목록(최신 시행일 먼저) */
     suspend fun getLawVersions(law: LawSummary): List<LawVersion>
+    /**
+     * [name]이 들어간 법령(시행령·시행규칙 포함)을 [ymd](yyyyMMdd)에 시행 중이던 버전으로 찾는다.
+     * 지금은 폐지된 법령도 연혁에 있으면 나오고, [ymd] 이전에 폐지됐거나 아직 시행 전이던 법령은 빠진다.
+     */
+    suspend fun searchLawVersionsAsOf(name: String, ymd: String): List<LawVersion> = emptyList()
     /** 특정 시행일 버전의 조문 */
     suspend fun getLawArticlesAt(version: LawVersion, article: ArticleNo? = null): List<Article>
     /** 3단비교. [mst]를 주면 해당 버전 기준으로 요청한다. */

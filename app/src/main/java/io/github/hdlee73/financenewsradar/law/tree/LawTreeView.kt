@@ -28,12 +28,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import io.github.hdlee73.financenewsradar.law.CitationText
+import io.github.hdlee73.financenewsradar.law.LocalTreeViewOptions
+import io.github.hdlee73.financenewsradar.law.highlighted
+import com.hdlee73.everylaw.core.domain.stableKey
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.draw.alpha
 import io.github.hdlee73.financenewsradar.law.citationContext
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -121,13 +130,15 @@ private fun AccordionTreeView(
     modifier: Modifier,
 ) {
     val root = state.tree.root
+    val listState = rememberLazyListState()
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item(key = "header") { Column { header() } }
-        stickyHeader(key = "actions") { actions() }
+        stickyHeader(key = "actions") { StickyBelowStatusBar(listState, actions) }
         item(key = "article") {
             ArticleCard {
                 ArticleBody(root, state.expanded, onToggle) { nodes ->
@@ -137,6 +148,19 @@ private fun AccordionTreeView(
         }
         precedentItems(state.tree, onOpenPrecedent)
     }
+}
+
+/**
+ * 위로 스크롤해 작업 줄이 화면 맨 위에 붙으면 상태바 아래로 내려 붙인다.
+ * 그러지 않으면 작업 줄이 상태바 밑에 깔려 버튼이 눌리지 않는다. 붙기 전(머리띠 아래)에는 여백 없이 그대로 둔다.
+ */
+@Composable
+private fun StickyBelowStatusBar(listState: LazyListState, content: @Composable () -> Unit) {
+    val stuck by remember { derivedStateOf { listState.firstVisibleItemIndex >= 1 } }
+    Box(
+        if (stuck) Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).statusBarsPadding()
+        else Modifier.fillMaxWidth(),
+    ) { content() }
 }
 
 /** 법률 조문 카드(흰 카드). 제목은 위의 남색 머리 카드에 있고, 여기에는 본문(항·호·목)과 그 아래 위임 규정이 들어간다. */
@@ -180,9 +204,15 @@ private fun ArticleBody(
     val parsed = root.article.parsed
     val attached = remember(root) { ItemAttachment.attach(root.article, root.children) }
 
+    val inline = LocalTreeViewOptions.current.inline
+
     @Composable
     fun Group(path: ItemPath, depth: Int) {
         val nodes = attached[path] ?: return
+        if (inline) {
+            InlineDelegation(nodes, "${path.display.ifEmpty { "조 전체" }}에 위임한 하위 규정", depth, content = { renderNodes(nodes) })
+            return
+        }
         DelegationGroup(
             nodes = nodes,
             title = if (path.isEmpty) "조 전체에 연결된 하위 규정" else "${path.display} 하위 규정",
@@ -207,8 +237,29 @@ private fun ArticleBody(
         ArticleTitle(root.article)
         if (parsed.lead.isNotBlank()) CitationText(parsed.lead, ctx, style = LawBodyStyle, selectable = true)
         if (parsed.items.isEmpty() && parsed.lead.isBlank()) CitationText(root.article.content, ctx, style = LawBodyStyle, selectable = true)
+        Group(ItemPath.LEAD, 0)
         parsed.items.forEach { Item(it, 0) }
         Group(ItemPath(), 0)
+    }
+}
+
+/** 위임한 항·호 바로 아래에 펼쳐 보이는 하위 규정. 왼쪽 세로선으로 위 줄에 딸린 내용임을 나타낸다. */
+@Composable
+private fun InlineDelegation(nodes: List<LawNode>, title: String, depth: Int, content: @Composable () -> Unit) {
+    Row(
+        Modifier.padding(start = (depth * 14).dp, top = 2.dp).height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(Modifier.width(3.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                "↳ $title (${nodes.sumOf { 1 + it.descendantCount }}건)",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+            )
+            content()
+        }
     }
 }
 
@@ -267,7 +318,12 @@ private fun StepNode(root: LawNode, node: LawNode, isLast: Boolean, expanded: Se
     val open = node.id in expanded
     val rotation by animateFloatAsState(if (open) 180f else 0f, label = "step-chevron")
     val labelColor = if (node.level == LawLevel.SUPERVISORY_REGULATION) tone.onContainer else tone.accent
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    val opts = LocalTreeViewOptions.current
+    val isHidden = node.stableKey in opts.hidden
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min).alpha(if (isHidden) 0.45f else 1f),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             StepDot(node.level)
             Box(
@@ -283,9 +339,16 @@ private fun StepNode(root: LawNode, node: LawNode, isLast: Boolean, expanded: Se
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                if (opts.selectMode) {
+                    Checkbox(
+                        checked = isHidden,
+                        onCheckedChange = { opts.onHide(node.stableKey, it) },
+                        modifier = Modifier.semantics { contentDescription = "${node.displayHeading} 숨기기" },
+                    )
+                }
                 Text(node.level.label, style = MaterialTheme.typography.labelMedium, color = labelColor)
                 Text(
-                    node.article.heading.ifBlank { node.sourceName },
+                    highlighted(node.displayHeading.ifBlank { node.sourceName }, opts.highlight),
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                     maxLines = if (open) 3 else 2,
@@ -322,13 +385,15 @@ private fun SplitTreeView(
 ) {
     Row(modifier.fillMaxSize().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         // 왼쪽: 상위 조문 + 위임 트리
+        val listState = rememberLazyListState()
         LazyColumn(
+            state = listState,
             modifier = Modifier.weight(1f).fillMaxHeight(),
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item(key = "header") { Column { header() } }
-            stickyHeader(key = "actions") { actions() }
+            stickyHeader(key = "actions") { StickyBelowStatusBar(listState, actions) }
             item(key = "article") {
                 val root = state.tree.root
                 ArticleCard {
@@ -357,7 +422,7 @@ private fun SplitTreeView(
         }
         // 오른쪽: 선택한 하위 규정 본문 (또는 판례 목록)
         Card(
-            modifier = Modifier.weight(1f).fillMaxHeight().padding(bottom = 12.dp),
+            modifier = Modifier.weight(1f).fillMaxHeight().statusBarsPadding().padding(bottom = 12.dp),
             shape = MaterialTheme.shapes.extraLarge,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -394,6 +459,8 @@ private fun SplitNodeTree(node: LawNode, depth: Int, selectedId: String, onSelec
 @Composable
 private fun SplitTreeRow(node: LawNode, depth: Int, selected: Boolean, onClick: () -> Unit) {
     val tone = LevelColors.current[node.level]
+    val opts = LocalTreeViewOptions.current
+    val isHidden = node.stableKey in opts.hidden
     Surface(
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
@@ -403,13 +470,21 @@ private fun SplitTreeRow(node: LawNode, depth: Int, selected: Boolean, onClick: 
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = (depth * 14).dp)
+            .alpha(if (isHidden) 0.45f else 1f)
             .semantics { if (selected) stateDescription = "선택됨" },
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (opts.selectMode) {
+                Checkbox(
+                    checked = isHidden,
+                    onCheckedChange = { opts.onHide(node.stableKey, it) },
+                    modifier = Modifier.semantics { contentDescription = "${node.displayHeading} 숨기기" },
+                )
+            }
             StepDot(node.level)
             Column(Modifier.weight(1f)) {
                 Text(
-                    node.article.heading.ifBlank { node.sourceName },
+                    highlighted(node.displayHeading.ifBlank { node.sourceName }, opts.highlight),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
                     maxLines = 2,
@@ -448,7 +523,7 @@ private fun NodeDetail(tree: DelegationTree, node: LawNode, onSelect: (String) -
             node.issuer?.let { Text(it, style = MaterialTheme.typography.labelMedium) }
         }
         Text(node.sourceName, style = MaterialTheme.typography.titleMedium)
-        Text(node.article.heading, style = MaterialTheme.typography.headlineSmall)
+        Text(node.displayHeading, style = MaterialTheme.typography.headlineSmall)
         CitationText(node.article.body, citationContext(tree.root, node), style = LawBodyStyle, selectable = true)
 
         if (node.children.isNotEmpty()) {

@@ -92,7 +92,7 @@ fun LawSearchBar(
             Box(Modifier.size(28.dp).background(Gold, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
                 Icon(EverylawIcons.Stairs, contentDescription = null, tint = Navy, modifier = Modifier.size(18.dp))
             }
-            Text("법령·위임체계", style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.weight(1f))
+            Text("스마트 법령검색", style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.weight(1f))
             Surface(
                 onClick = { showPicker = true },
                 shape = RoundedCornerShape(999.dp),

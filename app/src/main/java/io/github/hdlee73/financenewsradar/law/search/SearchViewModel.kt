@@ -7,6 +7,8 @@ import com.hdlee73.everylaw.core.domain.GetDelegationTreeUseCase
 import com.hdlee73.everylaw.core.domain.GetLawVersionsUseCase
 import com.hdlee73.everylaw.core.domain.LawDomainException
 import com.hdlee73.everylaw.core.domain.SearchKeywordUseCase
+import com.hdlee73.everylaw.core.domain.withParagraphPieces
+import com.hdlee73.everylaw.core.domain.withoutHidden
 import com.hdlee73.everylaw.core.model.DelegationTree
 import com.hdlee73.everylaw.core.model.KeywordSearchResult
 import com.hdlee73.everylaw.core.model.LawLevel
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -71,6 +74,27 @@ class SearchViewModel(
     private val _state = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
 
+    /** 결과 안에서 찾는 글 (키워드 또는 "제12조") */
+    private val _filter = MutableStateFlow("")
+    val filter: StateFlow<String> = _filter.asStateFlow()
+
+    /** 하위 법규를 위임 위치 바로 아래에 보여 주는지 */
+    val inlineDelegation: StateFlow<Boolean> = settings.settings.map { it.inlineDelegation }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun setInlineDelegation(on: Boolean) {
+        viewModelScope.launch { settings.setInlineDelegation(on) }
+    }
+
+    /** 숨길 항목을 체크하는 중인지 (켜져 있는 동안은 숨긴 항목도 흐리게 보인다) */
+    private val _selectMode = MutableStateFlow(false)
+    val selectMode: StateFlow<Boolean> = _selectMode.asStateFlow()
+
+    /** 지금 보는 조문에서 사용자가 숨긴 하위 규정의 키 */
+    val hidden: StateFlow<Set<String>> = combine(_state, settings.settings) { s, app ->
+        (s as? SearchUiState.TreeSuccess)?.let { app.hidden[articleKey(it.tree)] }.orEmpty()
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
     private val _versions = MutableStateFlow<VersionSheetState>(VersionSheetState.Hidden)
     val versions: StateFlow<VersionSheetState> = _versions.asStateFlow()
 
@@ -97,6 +121,7 @@ class SearchViewModel(
         // 이미 조문 결과를 보고 있으면 새 시점으로 다시 조회
         val current = _state.value
         if (current is SearchUiState.TreeSuccess) runTree(current.tree.query.raw, pushHistory = false)
+        else if (current is SearchUiState.KeywordSuccess) runKeyword(current.result.keyword)
     }
 
     /**
@@ -125,6 +150,7 @@ class SearchViewModel(
                         is DelegationProgress.Done -> {
                             if (pushHistory) push(before)
                             settings.addRecent(q)
+                            resetViewTools()
                             _state.value = SearchUiState.TreeSuccess(
                                 tree = p.tree,
                                 expanded = defaultExpanded(p.tree),
@@ -143,7 +169,7 @@ class SearchViewModel(
         job = viewModelScope.launch {
             _state.value = SearchUiState.Loading("'$q' 키워드로 법령·행정규칙·판례 찾는 중")
             _state.value = try {
-                val result = searchKeyword(q)
+                val result = searchKeyword(q, _asOf.value)
                 push(before)
                 settings.addRecent(q)
                 SearchUiState.KeywordSuccess(result)
@@ -162,9 +188,36 @@ class SearchViewModel(
     }
 
     fun expandAll(expand: Boolean) = updateTree { s ->
-        val groups = com.hdlee73.everylaw.core.domain.ItemAttachment.attach(s.tree.root.article, s.tree.root.children).keys.map { "grp:" + it.key }
-        s.copy(expanded = if (expand) (s.tree.root.flatten().map { it.id } + groups).toSet() else setOf(s.tree.root.id))
+        val root = if (inlineDelegation.value) s.tree.root.withParagraphPieces() else s.tree.root
+        val groups = com.hdlee73.everylaw.core.domain.ItemAttachment.attach(root.article, root.children).keys.map { "grp:" + it.key }
+        s.copy(expanded = if (expand) (root.flatten().map { it.id } + groups).toSet() else setOf(root.id))
     }
+
+    fun setFilter(text: String) {
+        _filter.value = text
+    }
+
+    fun setSelectMode(on: Boolean) {
+        _selectMode.value = on
+    }
+
+    fun setHidden(nodeKey: String, hide: Boolean) {
+        val tree = (_state.value as? SearchUiState.TreeSuccess)?.tree ?: return
+        viewModelScope.launch { settings.setHidden(articleKey(tree), nodeKey, hide) }
+    }
+
+    fun restoreAllHidden() {
+        val tree = (_state.value as? SearchUiState.TreeSuccess)?.tree ?: return
+        _selectMode.value = false
+        viewModelScope.launch { settings.clearHidden(articleKey(tree)) }
+    }
+
+    private fun resetViewTools() {
+        _filter.value = ""
+        _selectMode.value = false
+    }
+
+    private fun articleKey(tree: DelegationTree) = tree.law.name + "|" + tree.query.article.display
 
     fun select(nodeId: String) = updateTree { it.copy(selectedId = nodeId) }
 
@@ -173,7 +226,9 @@ class SearchViewModel(
     }
 
     private fun defaultExpanded(tree: DelegationTree): Set<String> =
-        tree.root.flatten().filter { it.level == LawLevel.LAW || it.level == LawLevel.DECREE }.map { it.id }.toSet()
+        // 항별로 쪼갠 조각(id에 #)도 처음부터 펼쳐 둔다
+        (tree.root.flatten() + tree.root.withParagraphPieces().flatten())
+            .filter { it.level == LawLevel.LAW || it.level == LawLevel.DECREE }.map { it.id }.toSet()
 
     // ---------- 시행 연혁 ----------
 
@@ -194,7 +249,9 @@ class SearchViewModel(
     /** PDF 범위에 맞춰 판례 본문·인용 조문을 내려받는다. */
     suspend fun pdfExtras(options: io.github.hdlee73.financenewsradar.law.tree.PdfOptions): com.hdlee73.everylaw.core.model.PdfExtras {
         val tree = (_state.value as? SearchUiState.TreeSuccess)?.tree ?: return com.hdlee73.everylaw.core.model.PdfExtras()
-        return buildPdfExtras(tree, options.precedentBodies, options.relatedArticles)
+        // 숨긴 하위 규정은 PDF에서도 뺀다
+        val shown = tree.copy(root = tree.root.withoutHidden(hidden.value))
+        return buildPdfExtras(shown, options.precedentBodies, options.relatedArticles)
     }
 
     fun closeVersions() {
@@ -233,6 +290,7 @@ class SearchViewModel(
             }
             _state.value = prev
         }
+        resetViewTools()
         _query.value = when (val s = _state.value) {
             is SearchUiState.TreeSuccess -> s.tree.query.raw
             is SearchUiState.KeywordSuccess -> s.result.keyword
@@ -244,7 +302,15 @@ class SearchViewModel(
     private fun errorOf(e: Throwable): SearchUiState.Error = when (e) {
         is LawDomainException -> SearchUiState.Error(e.message ?: "검색 결과가 없습니다.", canRetry = e !is LawDomainException.InvalidQuery)
         is DrfFormatException -> SearchUiState.Error("국가법령정보 API 응답 오류: ${e.message}", canRetry = true)
-        is retrofit2.HttpException -> SearchUiState.Error("국가법령정보 서버 응답 오류: HTTP ${e.code()} ${e.message()}", canRetry = true)
+        is retrofit2.HttpException -> SearchUiState.Error(
+            when (e.code()) {
+                401 -> "서버 인증에 실패했어요. 앱과 서버의 토큰이 맞는지 확인이 필요해요. (HTTP 401)"
+                404 -> "법령 서버(/law)를 찾지 못했어요. 서버에 법령 중계 기능이 아직 배포되지 않았을 수 있어요. (HTTP 404)"
+                503 -> "법령 서버에 국가법령정보 인증값(LAW_OC)이 아직 설정되지 않았어요. (HTTP 503)"
+                else -> "국가법령정보 서버 응답 오류: HTTP ${e.code()} ${e.message()}"
+            },
+            canRetry = true,
+        )
         is IOException -> SearchUiState.Error("네트워크 연결을 확인해 주세요. (${e::class.simpleName}: ${e.message})", canRetry = true)
         else -> SearchUiState.Error("${e::class.simpleName}: ${e.message?.takeIf { it.isNotBlank() } ?: "(메시지 없음)"}", canRetry = true)
     }

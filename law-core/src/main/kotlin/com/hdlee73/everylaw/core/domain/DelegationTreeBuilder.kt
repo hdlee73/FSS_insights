@@ -94,6 +94,7 @@ class DelegationTreeBuilder(
         const val LAW_PREFIX = """(?<![가-힣])법"""
         const val DECREE_PREFIX = """(?:(?<![가-힣])영|시행령)"""
         const val RULE_PREFIX = """(?:(?<![가-힣])규칙|시행규칙)"""
+        private val LEAD_FOLLOWS = Regex("""^\s*(?:각\s*호\s*외의\s*부분|본문|단서)""")
         const val SUPERVISORY_PREFIX = """(?:(?<![가-힣])규정|감독규정)"""
 
         /**
@@ -108,11 +109,14 @@ class DelegationTreeBuilder(
                     """(?:\s*제\s*(\d+)\s*항)?(?:\s*제\s*(\d+(?:\s*의\s*\d+)?)\s*호)?(?:\s*([가-힣])\s*목)?"""
             )
             val m = pattern.find(text) ?: return null
-            return ItemPath(
+            val path = ItemPath(
                 paragraph = m.groupValues[1].toIntOrNull(),
                 subparagraph = m.groupValues[2].takeIf { it.isNotEmpty() }?.replace(Regex("""\s+"""), ""),
                 item = m.groupValues[3].takeIf { it.isNotEmpty() },
             )
+            // "법 제85조 각 호 외의 부분 단서" 처럼 호 앞 본문·단서를 가리키면 조 전체가 아니라 그 부분
+            if (path.isEmpty && LEAD_FOLLOWS.containsMatchIn(text.substring(m.range.last + 1).take(20))) return ItemPath.LEAD
+            return path
         }
 
         /** [text]가 "[prefix] 제N조(의M)" 를 참조하는지. 제12조가 제120조·제12조의2와 섞이지 않게 경계를 본다. */

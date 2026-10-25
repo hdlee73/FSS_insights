@@ -12,6 +12,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import androidx.core.content.FileProvider
 import io.github.hdlee73.financenewsradar.BuildConfig
+import com.hdlee73.everylaw.core.domain.CompareTable
 import com.hdlee73.everylaw.core.domain.ItemAttachment
 import com.hdlee73.everylaw.core.model.ArticleItem
 import com.hdlee73.everylaw.core.model.DelegationTree
@@ -38,15 +39,25 @@ data class PdfOptions(
     val precedentList: Boolean = true,
     val precedentBodies: Boolean = false,
     val relatedArticles: Boolean = false,
+    /** true 면 고른 단계(levels)를 열로 나란히 놓는 비교표(가로), false 면 현행 방식(위에서 아래로 이어 쓰기) */
+    val compare: Boolean = false,
+    val paper: PdfPaper = PdfPaper.A4,
 )
+
+/** 용지 크기(1/72 인치, 세로 기준). 비교표는 가로로 돌려 쓴다. B4는 ISO 250x353mm. */
+enum class PdfPaper(val label: String, val w: Int, val h: Int) {
+    A4("A4", 595, 842),
+    B4("B4", 709, 1001),
+    A3("A3", 842, 1191),
+}
 
 object PdfExporter {
 
     private const val PAGE_W = 595 // A4, 1/72 inch
     private const val PAGE_H = 842
-    private const val MARGIN = 48f
+    internal const val MARGIN = 48f
 
-    private val levelColor = mapOf(
+    internal val levelColor = mapOf(
         LawLevel.LAW to 0xFF6750A4.toInt(),
         LawLevel.DECREE to 0xFF0B5CAD.toInt(),
         LawLevel.RULE to 0xFF0F6B50.toInt(),
@@ -74,7 +85,9 @@ object PdfExporter {
         out: OutputStream,
     ) = withContext(Dispatchers.IO) {
         val doc = PdfDocument()
-        val w = Writer(doc)
+        val compare = options.compare && CompareTable.columns(options.levels).size >= 2
+        // 비교표는 가로, 현행 방식은 세로. 용지 크기는 사용자가 고른다.
+        val w = if (compare) Writer(doc, options.paper.h, options.paper.w) else Writer(doc, options.paper.w, options.paper.h)
         val now = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.KOREA).format(Date())
         val purple = 0xFF4F378B.toInt()
 
@@ -95,21 +108,27 @@ object PdfExporter {
                 if (options.precedentBodies) "판례 본문" else null,
                 if (options.relatedArticles) "인용 조문" else null,
             )).joinToString(", ")
-        w.text("포함 범위: $scope", 9f, color = Color.DKGRAY)
+        if (compare) {
+            val cols = CompareTable.columns(options.levels)
+            w.text("비교 방식: ${cols.size}단 비교 (${cols.joinToString("·") { it.label }}) · ${options.paper.label} 가로", 9f, color = Color.DKGRAY)
+        } else w.text("포함 범위: $scope", 9f, color = Color.DKGRAY)
         tree.warnings.forEach { w.text("※ $it", 8.5f, color = Color.GRAY) }
         w.gap(10f)
 
         fun nodeBlock(n: LawNode, depth: Int) {
             val indent = depth * 14f
             w.text("[${n.level.label}] ${n.sourceName}", 9f, bold = true, color = levelColor.getValue(n.level), indent = indent)
-            w.text(n.article.heading, 11f, bold = true, indent = indent)
+            w.text(n.displayHeading, 11f, bold = true, indent = indent)
             w.text(n.article.body, 9.5f, indent = indent, extraSpacing = 2f)
             w.gap(6f)
             n.children.forEach { nodeBlock(it, depth + 1) }
         }
 
-        // 법률 조문: 항·호·목 줄 바로 아래에 그 위치가 위임한 하위 규정을 둔다.
         val root = tree.root
+        if (compare) {
+            PdfCompare.draw(w, root, options.levels)
+        } else {
+        // 법률 조문: 항·호·목 줄 바로 아래에 그 위치가 위임한 하위 규정을 둔다.
         val children = keepLevels(root.children, options.levels)
         val attached = ItemAttachment.attach(root.article, children)
         w.text("[${root.level.label}] ${root.sourceName}", 9f, bold = true, color = levelColor.getValue(root.level))
@@ -125,11 +144,16 @@ object PdfExporter {
             i.children.forEach { item(it, depth + 1) }
         }
         if (parsed.items.isEmpty() && parsed.lead.isBlank()) w.text(root.article.content, 9.5f, extraSpacing = 2f)
+        attached[ItemPath.LEAD]?.let { nodes ->
+            w.text("▼ 각 호 외의 부분 하위 규정", 8.5f, bold = true, color = Color.DKGRAY, indent = 8f)
+            nodes.forEach { nodeBlock(it, 1) }
+        }
         parsed.items.forEach { item(it, 0) }
         attached[ItemPath()]?.let { nodes ->
             w.gap(4f)
             w.text("▼ 조 전체에 연결된 하위 규정", 8.5f, bold = true, color = Color.DKGRAY, indent = 8f)
             nodes.forEach { nodeBlock(it, 1) }
+        }
         }
 
         if (options.relatedArticles) {
@@ -197,17 +221,22 @@ object PdfExporter {
     }
 
     /** 문단을 줄 단위로 쪼개 페이지를 넘기며 그린다. */
-    private class Writer(private val doc: PdfDocument) {
+    internal class Writer(private val doc: PdfDocument, val pageW: Int = PAGE_W, val pageH: Int = PAGE_H) {
         private var pageNo = 0
         private var page: PdfDocument.Page? = null
-        private var y = MARGIN
+        var y = MARGIN
 
-        private val canvas: Canvas get() = (page ?: newPage()).canvas
+        val canvas: Canvas get() = (page ?: newPage()).canvas
+
+        /** 다음 쪽으로 넘긴다 */
+        fun breakPage() {
+            newPage()
+        }
 
         private fun newPage(): PdfDocument.Page {
             page?.let { finishPage(it) }
             pageNo++
-            val p = doc.startPage(PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, pageNo).create())
+            val p = doc.startPage(PdfDocument.PageInfo.Builder(pageW, pageH, pageNo).create())
             page = p
             y = MARGIN
             return p
@@ -215,7 +244,7 @@ object PdfExporter {
 
         private fun finishPage(p: PdfDocument.Page) {
             val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply { textSize = 8f; color = Color.GRAY }
-            p.canvas.drawText("- $pageNo -", PAGE_W / 2f - 10f, PAGE_H - 24f, paint)
+            p.canvas.drawText("- $pageNo -", pageW / 2f - 10f, pageH - 24f, paint)
             doc.finishPage(p)
         }
 
@@ -237,7 +266,7 @@ object PdfExporter {
                 this.color = color
                 typeface = Typeface.create(Typeface.DEFAULT, if (bold) Typeface.BOLD else Typeface.NORMAL)
             }
-            val width = (PAGE_W - MARGIN * 2 - indent).toInt().coerceAtLeast(80)
+            val width = (pageW - MARGIN * 2 - indent).toInt().coerceAtLeast(80)
             val layout = StaticLayout.Builder.obtain(value, 0, value.length, paint, width)
                 .setAlignment(Layout.Alignment.ALIGN_NORMAL)
                 .setLineSpacing(extraSpacing, 1f)
@@ -246,7 +275,7 @@ object PdfExporter {
                 val top = layout.getLineTop(line)
                 val bottom = layout.getLineBottom(line)
                 val h = (bottom - top).toFloat()
-                if (page == null || y + h > PAGE_H - MARGIN) newPage()
+                if (page == null || y + h > pageH - MARGIN) newPage()
                 val c = canvas
                 c.save()
                 c.translate(MARGIN + indent, y - top)

@@ -55,13 +55,22 @@ data class ItemPath(val paragraph: Int? = null, val subparagraph: String? = null
 
     /** "제2항 제3호 가목" */
     val display: String
-        get() = listOfNotNull(paragraph?.let { "제${it}항" }, subparagraph?.let { "제${it}호" }, item?.let { "${it}목" }).joinToString(" ")
+        get() = listOfNotNull(
+            paragraph?.let { if (it == 0) "각 호 외의 부분" else "제${it}항" },
+            subparagraph?.let { "제${it}호" },
+            item?.let { "${it}목" },
+        ).joinToString(" ")
 
     /** 이 위치가 [prefix] 아래(또는 같은 위치)인지 */
     fun startsWith(prefix: ItemPath): Boolean =
         (prefix.paragraph == null || prefix.paragraph == paragraph) &&
             (prefix.subparagraph == null || prefix.subparagraph == subparagraph) &&
             (prefix.item == null || prefix.item == item)
+
+    companion object {
+        /** 항 번호가 없는 조에서 "각 호 외의 부분"(호 앞 본문·단서). 항 번호는 1부터라서 0을 표지로 쓴다. */
+        val LEAD = ItemPath(paragraph = 0)
+    }
 
     /** 한 단계 위. 더 올라갈 곳이 없으면 빈 위치 */
     fun parent(): ItemPath = when {
@@ -129,7 +138,12 @@ data class LawNode(
     val children: List<LawNode> = emptyList(),
     /** 법률 조문 바로 아래 노드일 때, 그 노드가 위임을 받는 법률 조문의 항·호·목 위치(조 전체면 빈 위치) */
     val anchor: ItemPath? = null,
+    /** 한 조가 여러 항으로 서로 다른 위치를 위임해 항별로 쪼갠 노드일 때 그 범위("제1항", "제2항~제3항") */
+    val part: String? = null,
 ) {
+    /** "시행령 제87조 제1항"처럼 조 제목 뒤에 항 범위를 붙인 제목 */
+    val displayHeading: String get() = listOfNotNull(article.heading.takeIf { it.isNotBlank() }, part).joinToString(" ")
+
     /** 자신을 포함한 모든 하위 노드를 깊이 우선으로 펼친 목록. */
     fun flatten(): List<LawNode> = listOf(this) + children.flatMap { it.flatten() }
 
@@ -263,6 +277,8 @@ data class KeywordSearchResult(
     val articleHits: List<ArticleHit> = emptyList(),
     /** "법령명 + 키워드"로 범위를 좁힌 경우 그 법령 */
     val scopeLaw: LawSummary? = null,
+    /** 범위를 정하지 않은 검색에서 조문을 어느 법령에서 찾았는지 안내 */
+    val scanNote: String = "",
 )
 
 /**

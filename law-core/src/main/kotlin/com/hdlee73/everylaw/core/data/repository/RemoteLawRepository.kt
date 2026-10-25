@@ -46,6 +46,16 @@ class RemoteLawRepository(
             .sortedByDescending { it.effectiveDate }
     }
 
+    override suspend fun searchLawVersionsAsOf(name: String, ymd: String): List<LawVersion> = withContext(io) {
+        val compact = name.replace(" ", "")
+        DrfParsers.parseLawVersions(api.searchEffectiveLaws(name))
+            .filter { it.name.replace(" ", "").contains(compact) }
+            .groupBy { it.name }
+            .mapNotNull { (_, versions) -> versions.filter { it.effectiveDate <= ymd }.maxByOrNull { it.effectiveDate } }
+            // 그 시점에 이미 폐지된 법령은 제외(가장 가까운 버전이 폐지 버전이면 폐지 후)
+            .filter { it.revisionType?.contains("폐지") != true }
+    }
+
     override suspend fun getLawArticlesAt(version: LawVersion, article: ArticleNo?): List<Article> = withContext(io) {
         DrfParsers.parseLawBody(api.getEffectiveLaw(version.mst, version.effectiveDate, article?.joParam)).articles
     }

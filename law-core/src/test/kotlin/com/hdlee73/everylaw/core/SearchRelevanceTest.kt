@@ -146,3 +146,73 @@ class ArticleCitationExtractorTest {
         assertEquals(listOf("상호저축은행법 제10조"), queries("상호저축은행법 제10조"))
     }
 }
+
+/** 본문 검색 결과가 가나다순으로 길게 나오고, 자본시장법은 맨 뒤(또는 아예 빠진) 상황 */
+private class CrowdedRepo(private val cmaInBodyResults: Boolean) : LawRepository by FakeRepo() {
+    private val cma = FakeRepo().law
+    private val fillers = (1..9).map { LawSummary("f$it", "20$it", "가나다${it}법", null, "법률", "20260101") }
+    override suspend fun searchLaws(query: String, bodySearch: Boolean): List<LawSummary> = when {
+        bodySearch -> fillers + if (cmaInBodyResults) listOf(cma) else emptyList()
+        CMA.replace(" ", "") == query.replace(" ", "") -> listOf(cma)
+        else -> emptyList()
+    }
+    override suspend fun getLawArticles(law: LawSummary, article: ArticleNo?) =
+        if (law.mst == cma.mst) FakeRepo().articles else listOf(Article(ArticleNo("1"), "(목적)", "제1조(목적) 관련 없음"))
+}
+
+class KeywordCrowdedTest {
+    @Test fun majorLawIsScannedEvenWhenLastInResultList() = runTest {
+        val r = SearchKeywordUseCase(CrowdedRepo(cmaInBodyResults = true))("손실보전")
+        assertTrue(r.articleHits.any { it.law.name == CMA && it.article.number == ArticleNo("55") })
+    }
+
+    @Test fun widensToMajorFinancialLawsMissingFromResultList() = runTest {
+        val r = SearchKeywordUseCase(CrowdedRepo(cmaInBodyResults = false))("손실보전")
+        assertTrue(r.articleHits.any { it.law.name == CMA })
+        assertTrue(r.scanNote.contains("넓혀"))
+    }
+}
+
+/** 1999년에는 증권거래법만 있고 자본시장법(2009 시행)은 없던 상황 */
+private class HistoricalRepo : LawRepository by FakeRepo() {
+    private val oldName = "증권거래법"
+    private val old = LawVersion("old1", oldName, "19980101", null, "일부개정", "연혁")
+    private val audit = LawVersion("aud1", "주식회사의외부감사에관한법률", "19980101", null, "일부개정", "연혁")
+    private val cma = LawVersion("cma1", CMA, "20090204", null, "제정", "현행")
+    override suspend fun searchLaws(query: String, bodySearch: Boolean) = FakeRepo().let {
+        if (bodySearch) listOf(it.law) else emptyList()
+    }
+    override suspend fun searchLawVersionsAsOf(name: String, ymd: String): List<LawVersion> =
+        listOf(old, audit, cma).filter { it.name.replace(" ", "").contains(name.replace(" ", "")) && it.effectiveDate <= ymd }
+    override suspend fun getLawArticlesAt(version: LawVersion, article: ArticleNo?) =
+        if (version.mst == "aud1") listOf(Article(ArticleNo("2"), "(외부감사의 대상)", "제2조(외부감사의 대상) 외부감사를 받아야 한다."))
+        else if (version.mst == "old1") listOf(Article(ArticleNo("8"), "(유가증권신고서)", "제8조(유가증권신고서) 증권신고서를 제출하여야 한다."))
+        else FakeRepo().articles
+}
+
+class KeywordAsOfTest {
+    @Test fun asOf1999FindsOldLawAndSkipsLawNotYetInForce() = runTest {
+        val r = SearchKeywordUseCase(HistoricalRepo())("증권신고서", "19991006")
+        assertTrue(r.articleHits.isNotEmpty())
+        assertTrue(r.articleHits.all { it.law.name == "증권거래법" })
+        assertTrue(r.laws.isEmpty() && r.adminRules.isEmpty())
+        assertTrue(r.scanNote.contains("1999.10.06"))
+    }
+
+    @Test fun asOfFindsOldLawByKeywordInItsRenamedTitle() = runTest {
+        val r = SearchKeywordUseCase(HistoricalRepo())("외부감사", "19991007")
+        assertTrue(r.articleHits.any { it.law.name == "주식회사의외부감사에관한법률" })
+        assertTrue(r.scanNote.contains("주식회사의외부감사에관한법률"))
+    }
+
+    @Test fun lawNamePlusKeywordAsOfUsesThatDatesVersion() = runTest {
+        val r = SearchKeywordUseCase(HistoricalRepo())("증권거래법 증권신고서", "19991006")
+        assertEquals("증권거래법", r.scopeLaw?.name)
+        assertEquals(1, r.articleHits.size)
+    }
+
+    @Test fun lawNotYetInForceIsNotFoundAsOf() = runTest {
+        val r = SearchKeywordUseCase(HistoricalRepo())("자본시장법 손실보전", "19991006")
+        assertEquals(null, r.scopeLaw)
+    }
+}

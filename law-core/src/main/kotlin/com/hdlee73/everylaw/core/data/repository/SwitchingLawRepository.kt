@@ -20,6 +20,7 @@ class SwitchingLawRepository(
     override suspend fun searchLaws(query: String, bodySearch: Boolean) = current.searchLaws(query, bodySearch)
     override suspend fun getLawArticles(law: LawSummary, article: ArticleNo?) = current.getLawArticles(law, article)
     override suspend fun getLawVersions(law: LawSummary) = current.getLawVersions(law)
+    override suspend fun searchLawVersionsAsOf(name: String, ymd: String) = current.searchLawVersionsAsOf(name, ymd)
     override suspend fun getLawArticlesAt(version: LawVersion, article: ArticleNo?) = current.getLawArticlesAt(version, article)
     override suspend fun getThreeTier(law: LawSummary, mst: String) = current.getThreeTier(law, mst)
     override suspend fun getRelatedAdminRuleNames(law: LawSummary) = current.getRelatedAdminRuleNames(law)

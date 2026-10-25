@@ -22,6 +22,46 @@ import com.hdlee73.everylaw.core.parser.CitationLinker
 /** 본문 속 조문 인용을 눌렀을 때 그 조문을 검색하는 동작. 앱 루트에서 제공한다. */
 val LocalCitationHandler = compositionLocalOf<(String) -> Unit> { {} }
 
+/** 결과 안 찾기·숨기기 상태. 트리 화면이 제공하고, 본문·제목 그리기와 체크박스가 읽는다. */
+data class TreeViewOptions(
+    val highlight: String = "",
+    val selectMode: Boolean = false,
+    val hidden: Set<String> = emptySet(),
+    /** 하위 법규를 위임한 항·호 바로 아래에 펼쳐 보여 주는 방식 */
+    val inline: Boolean = false,
+    val onHide: (nodeKey: String, hide: Boolean) -> Unit = { _, _ -> },
+)
+
+val LocalTreeViewOptions = compositionLocalOf { TreeViewOptions() }
+
+/** [query]와 맞는 글자 범위. 조문번호 검색("제12조")이면 그 번호 표기를 찾는다. */
+fun highlightRanges(text: String, query: String): List<IntRange> {
+    val q = query.trim()
+    if (q.isEmpty()) return emptyList()
+    val needle = com.hdlee73.everylaw.core.domain.TreeFilter.articleNo(q)?.display ?: q
+    val out = mutableListOf<IntRange>()
+    var from = 0
+    while (true) {
+        val i = text.indexOf(needle, from, ignoreCase = true)
+        if (i < 0) break
+        out += i until i + needle.length
+        from = i + needle.length
+    }
+    return out
+}
+
+/** 제목 같은 짧은 글에 검색어 강조를 입힌다. */
+@Composable
+fun highlighted(text: String, query: String): AnnotatedString {
+    val bg = MaterialTheme.colorScheme.tertiaryContainer
+    return remember(text, query, bg) {
+        buildAnnotatedString {
+            append(text)
+            highlightRanges(text, query).forEach { addStyle(SpanStyle(background = bg), it.first, it.last + 1) }
+        }
+    }
+}
+
 @Composable
 fun ProvideCitationHandler(onCite: (String) -> Unit, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalCitationHandler provides onCite, content = content)
@@ -40,7 +80,9 @@ fun CitationText(
 ) {
     val onCite = LocalCitationHandler.current
     val linkColor = MaterialTheme.colorScheme.primary
-    val annotated = remember(text, ctx, linkColor, onCite) {
+    val highlight = LocalTreeViewOptions.current.highlight
+    val hlBg = MaterialTheme.colorScheme.tertiaryContainer
+    val annotated = remember(text, ctx, linkColor, onCite, highlight, hlBg) {
         val cites = CitationLinker.find(text, ctx)
         buildAnnotatedString {
             var pos = 0
@@ -55,6 +97,7 @@ fun CitationText(
                 pos = c.end
             }
             append(text.substring(pos))
+            highlightRanges(text, highlight).forEach { addStyle(SpanStyle(background = hlBg), it.first, it.last + 1) }
         }
     }
     val body = @Composable { Text(annotated, style = style, modifier = modifier, maxLines = maxLines, overflow = overflow) }
