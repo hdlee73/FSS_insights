@@ -57,7 +57,7 @@ object UpdateChecker {
      * 서명키를 교체하기 전 마지막 과도기 버전만 true. 새 버전은 서명이 달라 자동 설치가 실패하므로
      * 내려받아 설치하는 대신 삭제 후 재설치 안내를 보여 준다. 새 키로 서명한 버전에서는 false로 되돌린다.
      */
-    const val REQUIRES_REINSTALL = true
+    const val REQUIRES_REINSTALL = false
     const val RELEASES_URL = "https://github.com/hdlee73/FSS_insights/releases"
     private const val LATEST_API = "https://api.github.com/repos/hdlee73/FSS_insights/releases/latest"
     private const val CHANNEL_ID = "app_update"
