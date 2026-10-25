@@ -586,12 +586,21 @@ class BuildPdfExtrasUseCase(private val repository: LawRepository) {
 
 /** 법률 조문의 항·호·목 위치별로 그 위치를 위임 근거로 삼는 하위 규정 노드를 묶는다. 빈 위치 = 조 전체. */
 object ItemAttachment {
+    /** "④ 삭제 <2024.2.13>", "삭제 〈2024.2.13〉"처럼 내용 없이 삭제 표시만 있는 줄 (앞의 ①·1.·가. 번호는 있어도 된다) */
+    private val DELETED = Regex("""^(?:[\u2460-\u2473\u3251-\u325F\u32B1-\u32BF]|\d+(?:의\d+)?\.|[가-힣]\.)?\s*삭제\s*(?:[<〈‹][^>〉›]*[>〉›])?$""")
+
+    fun isDeletedText(text: String): Boolean = DELETED.matches(text.trim())
+
+    /** 삭제된 항·호·목(또는 삭제된 조 전체)에는 위임한 하위 규정을 붙이지 않는다. */
     fun attach(article: Article, children: List<LawNode>): Map<ItemPath, List<LawNode>> {
-        val paths = article.parsed.allPaths()
+        val parsed = article.parsed
+        val paths = parsed.allPaths()
+        val articleDeleted = parsed.items.isEmpty() && isDeletedText(parsed.lead.ifBlank { article.body })
+        val deleted = parsed.items.flatMap { it.flatten() }.filter { isDeletedText(it.text) }.map { it.path }.toSet()
         return children.groupBy { c ->
             var p = c.anchor ?: ItemPath()
             while (!p.isEmpty && p != ItemPath.LEAD && p !in paths) p = p.parent()
             p
-        }
+        }.filterKeys { p -> !articleDeleted && p !in deleted }
     }
 }
