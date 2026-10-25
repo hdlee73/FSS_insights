@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -75,18 +76,20 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.material3.DrawerValue
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.NavigationDrawerItemDefaults
-import androidx.compose.material3.rememberDrawerState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.contentDescription
-import io.github.hdlee73.financenewsradar.BuildConfig
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.min
 import io.github.hdlee73.financenewsradar.data.UpdateStatus
 import kotlinx.coroutines.launch
 private class AppScreen(val label: String, val icon: ImageVector)
@@ -122,14 +125,44 @@ private val appScreens = listOf(
     AppScreen("스마트 법령검색", Icons.Filled.AccountTree)
 )
 
-// 서랍 메뉴의 묶음: 소제목과 그 아래 화면 번호.
-private val drawerSections = listOf(
+// 왼쪽 메뉴의 묶음: 소제목과 그 아래 화면 번호.
+private val menuSections = listOf(
     null to listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_FISIS, SCREEN_SANCTION, SCREEN_LAW),
     "자료" to listOf(SCREEN_PRESS, SCREEN_REGULATORY, SCREEN_RESEARCH, SCREEN_LIBRARY),
     "더보기" to listOf(SCREEN_SITES, SCREEN_ALERTS, SCREEN_INFO)
 )
 
-/** 앱의 뼈대: 왼쪽 서랍 메뉴(상단 메뉴 버튼 또는 화면 왼쪽 가장자리 밀기)로 모든 화면을 오간다. */
+/** 화면별 머리말 색. 왼쪽 메뉴의 아이콘 타일도 같은 색을 쓴다. */
+private fun screenPalette(screen: Int) = when (screen) {
+    SCREEN_BRIEFING -> HeroPalettes.Sky
+    SCREEN_NEWS -> HeroPalettes.Indigo
+    SCREEN_MARKET -> HeroPalettes.Teal
+    SCREEN_PRESS -> HeroPalettes.Ocean
+    SCREEN_RESEARCH -> HeroPalettes.Violet
+    SCREEN_LIBRARY -> HeroPalettes.Amber
+    SCREEN_SITES -> HeroPalettes.Slate
+    SCREEN_ALERTS -> HeroPalettes.Rose
+    SCREEN_FISIS -> HeroPalettes.Green
+    SCREEN_REGULATORY -> HeroPalettes.Indigo
+    SCREEN_SANCTION -> HeroPalettes.Coral
+    SCREEN_LAW -> HeroPalettes.Violet
+    else -> HeroPalettes.Slate
+}
+
+private val sideMenuSections = menuSections.map { (title, ids) ->
+    SideMenuSection(title, ids.map { SideMenuItem(it, appScreens[it].label, appScreens[it].icon, screenPalette(it).end) })
+}
+
+/** 메뉴가 열렸을 때 본문이 줄어드는 비율과 모서리 둥글기. */
+private const val MENU_CONTENT_SCALE = 0.88f
+private val MENU_CONTENT_CORNER = 28.dp
+/** 메뉴가 닫혀 있을 때 끌어서 열 수 있는 왼쪽 가장자리 폭(위 메뉴 바는 어디서나 가능). */
+private val MENU_EDGE = 24.dp
+
+/**
+ * 앱의 뼈대: 아이폰 앱처럼 왼쪽 메뉴로 모든 화면을 오간다. 메뉴는 본문 뒤에 있고, 상단 ☰ 버튼·위 메뉴 바나
+ * 왼쪽 가장자리를 오른쪽으로 밀면 본문이 오른쪽으로 밀려나며 메뉴가 드러난다. 뒤로가기는 열린 메뉴를 먼저 닫는다.
+ */
 @Composable
 fun FinanceNewsRadarApp(
     newsViewModel: NewsViewModel = viewModel(),
@@ -158,13 +191,19 @@ fun FinanceNewsRadarApp(
     // 앱 안에서 거쳐 온 화면(뒤로가기 시 이전 화면으로). "1,2" 형태의 문자열로 저장해 화면 회전에도 유지한다.
     var history by rememberSaveable { mutableStateOf("") }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    // 메뉴가 열린 정도(0 = 닫힘, 1 = 열림). 손가락을 따라 움직이고, 떼면 가까운 쪽으로 스프링 애니메이션.
+    val menu = remember { Animatable(0f) }
+    val menuVisible by remember { derivedStateOf { menu.value > 0f } }
     val scope = rememberCoroutineScope()
+    val menuSpring = spring<Float>(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)
 
     fun openMenu() {
         keyboard?.hide()
         focusManager.clearFocus()
-        scope.launch { drawerState.open() }
+        scope.launch { menu.animateTo(1f, menuSpring) }
+    }
+    fun closeMenu() {
+        scope.launch { menu.animateTo(0f, menuSpring) }
     }
     fun go(target: Int) {
         keyboard?.hide()
@@ -173,14 +212,14 @@ fun FinanceNewsRadarApp(
             history = (history.split(',').filter { it.isNotEmpty() } + screen.toString()).takeLast(30).joinToString(",")
             screen = target
         }
-        scope.launch { drawerState.close() }
+        closeMenu()
     }
-    BackHandler(enabled = history.isNotEmpty() && !drawerState.isOpen) {
+    BackHandler(enabled = history.isNotEmpty() && !menuVisible) {
         val stack = history.split(',').filter { it.isNotEmpty() }
         screen = stack.last().toInt()
         history = stack.dropLast(1).joinToString(",")
     }
-    BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
+    BackHandler(enabled = menuVisible) { closeMenu() }
 
     LaunchedEffect(newsState.error) {
         newsState.error?.let {
@@ -189,61 +228,69 @@ fun FinanceNewsRadarApp(
         }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet {
-                Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
-                    Column(Modifier.padding(start = 28.dp, end = 16.dp, top = 28.dp, bottom = 12.dp)) {
-                        Text("FSS Insights", style = MaterialTheme.typography.headlineSmall)
-                        Text("v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    drawerSections.forEachIndexed { index, (title, ids) ->
-                        if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                        if (title != null) {
-                            Text(title, Modifier.padding(start = 28.dp, top = 4.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val dark = isSystemInDarkTheme()
+    val density = LocalDensity.current
+    val topBarBottomPx = WindowInsets.statusBars.getTop(density) + with(density) { 44.dp.toPx() }
+    val edgePx = with(density) { MENU_EDGE.toPx() }
+    // 메뉴 폭은 화면 폭의 78%(최대 320dp). 화면 회전 등으로 폭이 바뀌면 끌기 계산도 새로 한다.
+    val menuWidth = min(LocalConfiguration.current.screenWidthDp * 0.78f, 320f).dp
+    val menuWidthPx = with(density) { menuWidth.toPx() }
+    Box(
+        Modifier.fillMaxSize()
+            .background(if (dark) Color(0xFF07090C) else MaterialTheme.colorScheme.surfaceVariant)
+            .pointerInput(menuWidthPx, topBarBottomPx) {
+                detectSideMenuDrag(
+                    canStart = { p: Offset -> menu.value > 0f || p.x <= edgePx || p.y <= topBarBottomPx },
+                    onDrag = { dx -> scope.launch { menu.snapTo((menu.value + dx / menuWidthPx).coerceIn(0f, 1f)) } },
+                    onDragEnd = { vx ->
+                        val target = when {
+                            vx > 600f -> 1f
+                            vx < -600f -> 0f
+                            menu.value > 0.5f -> 1f
+                            else -> 0f
                         }
-                        ids.forEach { id ->
-                            val item = appScreens[id]
-                            NavigationDrawerItem(
-                                icon = { Icon(item.icon, contentDescription = null) },
-                                label = { Text(item.label) },
-                                badge = if (id == SCREEN_INFO && updateAvailable != null) {
-                                    { Text("NEW", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }
-                                } else null,
-                                selected = screen == id,
-                                onClick = { go(id) },
-                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                            )
-                        }
+                        if (target == 1f) { keyboard?.hide(); focusManager.clearFocus() }
+                        scope.launch { menu.animateTo(target, menuSpring) }
                     }
-                }
+                )
             }
-        }
     ) {
+
+        SideMenu(
+            sections = sideMenuSections,
+            selected = screen,
+            badgeId = if (updateAvailable != null) SCREEN_INFO else null,
+            onSelect = ::go,
+            modifier = Modifier.width(menuWidth).graphicsLayer {
+                // 메뉴는 본문보다 조금 느리게 따라 들어온다(시차 효과).
+                translationX = -(1f - menu.value) * menuWidthPx * 0.25f
+                alpha = menu.value
+            }
+        )
+
+        val corner = with(density) { MENU_CONTENT_CORNER.toPx() }
+        Box(
+            Modifier.fillMaxSize()
+                .graphicsLayer {
+                    val p = menu.value
+                    val scale = 1f - (1f - MENU_CONTENT_SCALE) * p
+                    transformOrigin = TransformOrigin(0f, 0.5f)
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = p * menuWidthPx
+                    shape = RoundedCornerShape(corner * p)
+                    clip = p > 0f
+                    shadowElevation = 24.dp.toPx() * p
+                }
+        ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHost) }
     ) { padding ->
-        val palette = when (screen) {
-            SCREEN_BRIEFING -> HeroPalettes.Sky
-            SCREEN_NEWS -> HeroPalettes.Indigo
-            SCREEN_MARKET -> HeroPalettes.Teal
-            SCREEN_PRESS -> HeroPalettes.Ocean
-            SCREEN_RESEARCH -> HeroPalettes.Violet
-            SCREEN_LIBRARY -> HeroPalettes.Amber
-            SCREEN_SITES -> HeroPalettes.Slate
-            SCREEN_ALERTS -> HeroPalettes.Rose
-            SCREEN_FISIS -> HeroPalettes.Green
-            SCREEN_REGULATORY -> HeroPalettes.Indigo
-            SCREEN_SANCTION -> HeroPalettes.Coral
-            SCREEN_LAW -> HeroPalettes.Violet
-            else -> HeroPalettes.Slate
-        }
-        CompositionLocalProvider(LocalHeroPalette provides palette) {
+        CompositionLocalProvider(LocalHeroPalette provides screenPalette(screen)) {
         Column(Modifier.fillMaxSize().padding(padding).navigationBarsPadding()) {
-        // 상태 표시줄 영역과 상단 메뉴 바를 같은 네이비로 칠한다.
+        // 상태 표시줄 영역과 상단 메뉴 바를 같은 머리말 색으로 칠한다.
         Spacer(Modifier.fillMaxWidth().background(AppColors.heroStart).windowInsetsTopHeight(WindowInsets.statusBars))
         Row(Modifier.fillMaxWidth().background(AppColors.heroStart).height(44.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = ::openMenu) {
@@ -278,6 +325,18 @@ fun FinanceNewsRadarApp(
         }
         }
     }
+            // 메뉴가 열려 있으면 본문은 눌러도 반응하지 않고, 누르면 메뉴가 닫힌다.
+            if (menuVisible) {
+                Box(
+                    Modifier.fillMaxSize().clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClickLabel = "메뉴 닫기",
+                        onClick = ::closeMenu
+                    )
+                )
+            }
+        }
     }
 
     if (settingsOpen) {

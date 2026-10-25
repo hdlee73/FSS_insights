@@ -2,6 +2,7 @@ package io.github.hdlee73.financenewsradar.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,11 +35,24 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hdlee73.financenewsradar.BuildConfig
 import io.github.hdlee73.financenewsradar.data.UpdateChecker
 import io.github.hdlee73.financenewsradar.data.UpdateStatus
+
+private const val HOMEPAGE_URL = "https://hdlee73.github.io/Home/"
+
+private val USAGE_GUIDE = listOf(
+    "왼쪽 위 ☰ 버튼을 누르거나 위 메뉴 바·화면 왼쪽 가장자리를 오른쪽으로 밀면 메뉴가 열립니다. 메뉴에서 원하는 화면을 고르세요.",
+    "메뉴는 왼쪽으로 밀거나, 오른쪽에 보이는 본문을 누르거나, 뒤로가기를 누르면 닫힙니다.",
+    "뒤로가기 버튼·제스처는 앱을 끄지 않고 직전 화면으로 돌아갑니다.",
+    "뉴스 검색: 키워드를 입력하고 '필터'로 검색 방식·언론 범위·기간을 바꿉니다. AND·OR·괄호·따옴표·-제외어 검색을 지원합니다.",
+    "기사를 누르면 앱 안에서 원문을 보고, PDF로 저장하거나 공유할 수 있습니다.",
+    "알림 메뉴에서 키워드 알림을 켜면 새 기사가 나올 때 알려 줍니다.",
+    "새 버전이 나오면 앱을 열 때 알려 주며, 이 화면의 '자동 업데이트' 버튼으로 바로 설치합니다."
+)
 
 /** 앱 이름·버전·만든이와 업데이트 확인(릴리스 노트 표시, 새 버전 자동 내려받기·설치). */
 @Composable
@@ -55,7 +69,21 @@ fun AppInfoScreen(modifier: Modifier = Modifier) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         InfoRow("앱 이름", "FSS Insights")
         InfoRow("버전", BuildConfig.VERSION_NAME)
-        InfoRow("만든이", "이현덕 (hdlee73@gmail.com)")
+        InfoRow("만든이", "이현덕 with Claude")
+        InfoRow("이메일", "hdlee73@gmail.com")
+        Row(Modifier.fillMaxWidth()) {
+            Text("홈페이지", Modifier.width(72.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                HOMEPAGE_URL,
+                Modifier.clickable { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(HOMEPAGE_URL))) } },
+                color = MaterialTheme.colorScheme.primary,
+                textDecoration = TextDecoration.Underline,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        Text("사용 방법", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+        USAGE_GUIDE.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
 
         Text("면책 안내", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
         Text(DISCLAIMER_SHORT, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
