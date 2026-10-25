@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.hdlee73.financenewsradar"
         minSdk = 26
         targetSdk = 36
-        versionCode = 52
-        versionName = "1.6.9"
+        versionCode = 53
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -33,11 +33,15 @@ android {
                 keyPassword = "android"
             }
         }
-        create("publicTest") {
-            storeFile = rootProject.file("keystore/public-test.keystore")
-            storePassword = "finance-news-radar-test"
-            keyAlias = "finance-news-radar-test"
-            keyPassword = "finance-news-radar-test"
+        // 배포 서명키는 저장소에 두지 않고 CI 비밀값(ANDROID_KEYSTORE_BASE64 등)으로만 받는다.
+        create("release") {
+            val keystorePath = System.getenv("ANDROID_KEYSTORE_FILE").orEmpty()
+            if (keystorePath.isNotEmpty()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
         }
     }
 
@@ -48,7 +52,7 @@ android {
         }
         release {
             isMinifyEnabled = true
-            signingConfig = signingConfigs.getByName("publicTest")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -78,6 +82,7 @@ dependencies {
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
+    implementation(project(":law-core"))
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")

@@ -2,6 +2,7 @@
 //  - /news    : 네이버 뉴스 검색 프록시. 네이버 키는 이 서버의 비밀값으로만 존재한다.
 //  - /library : 자료실. 구글 드라이브의 공유 폴더 목록·파일을 읽기 전용으로 중계한다.
 //  - /stats   : 국내 금융 통계(한국은행 ECOS). 키는 이 서버의 비밀값(ECOS_API_KEY)으로만 존재한다.
+//  - /law     : 국가법령정보 Open API(DRF) 중계. 인증값(LAW_OC)은 이 서버의 비밀값으로만 존재한다.
 //  - /fisis   : 금융통계정보시스템(FISIS) Open API 중계(금융회사 목록·총자산 순위·주요 경영정보). 인증키는 이 서버의 비밀값(FISIS_API_KEY)으로만 존재한다.
 import fisisData from "./fisis-data.json";
 import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos } from "./fisis-lib.js";
@@ -47,6 +48,13 @@ export default {
         return fail(502, e.message || "FISIS 서버 오류");
       }
     }
+    if (url.pathname.startsWith("/law/") && request.method === "GET") {
+      try {
+        return await law(url, env, ctx);
+      } catch (e) {
+        return fail(502, `법령 서버 오류: ${e.message}`);
+      }
+    }
     if (url.pathname.startsWith("/library") && request.method === "GET") {
       try {
         return await library(url, env);
@@ -57,6 +65,30 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 };
+
+// 국가법령정보 공동활용 Open API(DRF) 중계. OC 인증값은 이 서버의 비밀값(LAW_OC)으로만 존재하고, 앱이 보낸 OC는 버린다.
+const LAW_ORIGIN = "https://www.law.go.kr";
+const LAW_ENDPOINTS = new Set(["/DRF/lawSearch.do", "/DRF/lawService.do"]);
+async function law(url, env, ctx) {
+  if (!env.LAW_OC) return fail(503, "LAW_OC가 설정되지 않았습니다");
+  const path = url.pathname.slice("/law".length);
+  if (!LAW_ENDPOINTS.has(path)) return new Response("Not found", { status: 404 });
+  const params = new URLSearchParams();
+  for (const [k, v] of url.searchParams) if (k.toLowerCase() !== "oc") params.append(k, v.slice(0, 200));
+  params.set("OC", env.LAW_OC);
+  const cacheKey = new Request(`${LAW_ORIGIN}${path}?${[...params].filter(([k]) => k !== "OC").map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&")}`);
+  const cache = caches.default;
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+  const res = await fetch(`${LAW_ORIGIN}${path}?${params}`);
+  const body = await res.text();
+  const out = new Response(body, {
+    status: res.status,
+    headers: { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" },
+  });
+  if (res.ok) ctx.waitUntil(cache.put(cacheKey, out.clone()));
+  return out;
+}
 
 async function news(url, env, ctx) {
   const query = (url.searchParams.get("query") || "").trim().slice(0, 200);
