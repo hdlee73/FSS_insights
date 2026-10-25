@@ -89,3 +89,37 @@ class InlineDelegationTest {
         assertEquals(listOf(LawLevel.LAW, LawLevel.RULE), CompareTable.columns(setOf(LawLevel.RULE)))
     }
 }
+
+class DeletedItemAttachmentTest {
+    private val law = Article(
+        ArticleNo.of("420"), "과태료",
+        "제420조(과태료) ① 다음 각 호의 어느 하나에 해당하는 자에게는 과태료를 부과한다.\n" +
+            "② 금융위원회는 필요하다고 인정되는 경우 자료의 제출을 요구할 수 있다.\n④ 삭제 <2024.2.13>",
+    )
+    private val decree = Article(ArticleNo.of("373"), "조치", "제373조(조치) 법 제420조제4항에 따라 대통령령으로 정하는 경우는 다음과 같다.")
+    private val rule = Article(ArticleNo.of("374"), "조치", "제374조(조치) 법 제420조제2항에 따른 방법은 다음과 같다.")
+
+    private fun attached(a: Article): Map<ItemPath, List<com.hdlee73.everylaw.core.model.LawNode>> {
+        val tree = DelegationTreeBuilder().build(
+            DelegationTreeBuilder.Input("자본시장법", a, "자본시장법 시행령", listOf(decree, rule), "자본시장법 시행규칙", emptyList(), emptyList(), emptyList()),
+        )
+        return ItemAttachment.attach(tree.article, tree.children)
+    }
+
+    @Test fun deletedParagraphGetsNoDelegatedRules() {
+        val m = attached(law)
+        assertTrue(m.keys.none { it.paragraph == 4 })
+    }
+
+    @Test fun deletedTextVariants() {
+        assertTrue(ItemAttachment.isDeletedText("④ 삭제 <2024.2.13>"))
+        assertTrue(ItemAttachment.isDeletedText("삭제 〈2019.4.30〉"))
+        assertTrue(ItemAttachment.isDeletedText("3. 삭제"))
+        assertTrue(!ItemAttachment.isDeletedText("② 삭제된 조문을 제외한다."))
+    }
+
+    @Test fun deletedArticleGetsNothing() {
+        val m = attached(Article(ArticleNo.of("420"), "삭제", "제420조 삭제 <2024.2.13>"))
+        assertTrue(m.isEmpty())
+    }
+}
