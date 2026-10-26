@@ -156,6 +156,17 @@ object PdfExporter {
         }
         }
 
+        val cited = keepLevels(tree.cited, options.levels)
+        if (cited.isNotEmpty()) {
+            w.gap(8f)
+            w.text("인용된 법규 (${cited.sumOf { 1 + it.descendantCount }}건)", 13f, bold = true, color = purple)
+            w.text("이 조문을 인용했지만 위임받은 규정은 아닙니다.", 9f, color = Color.DKGRAY)
+            cited.forEach { n ->
+                nodeBlock(n, 0)
+                if (n.delegatedBy.isNotEmpty()) w.text("위임 근거: " + n.delegatedBy.joinToString(", ") { "${root.sourceName} ${it.heading}" }, 8.5f, color = Color.DKGRAY, indent = 0f)
+            }
+        }
+
         if (options.relatedArticles) {
             w.gap(8f)
             w.text("인용 조문 (${extras.relatedArticles.size}건)", 13f, bold = true, color = purple)

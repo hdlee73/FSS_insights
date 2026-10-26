@@ -4,7 +4,9 @@ import com.hdlee73.everylaw.core.model.AdminRuleDocument
 import com.hdlee73.everylaw.core.model.Article
 import com.hdlee73.everylaw.core.model.ArticleNo
 import com.hdlee73.everylaw.core.model.ItemPath
+import com.hdlee73.everylaw.core.model.LawLevel
 import com.hdlee73.everylaw.core.model.LawNode
+import com.hdlee73.everylaw.core.model.ThreeTierComparison
 import com.hdlee73.everylaw.core.model.DelegationTree
 import com.hdlee73.everylaw.core.model.KeywordSearchResult
 import com.hdlee73.everylaw.core.model.LawQuery
@@ -90,33 +92,30 @@ class GetDelegationTreeUseCase(
         val lawArticle: Article = (fetched() ?: fromRow)
             ?: throw LawDomainException.NotFound("${law.name}에 ${query.article.display}가 없어요.")
 
-        // 3단 비교가 시행령·시행규칙을 돌려주지 않으면, 시행령·시행규칙 본문에서 "법 제N조"를 인용한 조문을 직접 찾는다.
+        // 3단 비교가 돌려준 시행령·시행규칙 외에도, 시행령·시행규칙 본문에서 "법 제N조"를 인용한 조문을 직접 찾아 보탠다.
+        // 3단 비교에 없던 것은 인용만 한 것일 수 있어, 아래 buildSplit이 위임 문구로 위임/인용을 가른다.
         var decrees = row?.decrees.orEmpty()
         var rules = row?.rules.orEmpty()
         var decreeName = threeTier?.decreeName
         var ruleName = threeTier?.ruleName
-        if (decrees.isEmpty()) {
-            emit(DelegationProgress.Step("시행령 본문에서 위임 조문 찾는 중"))
-            val found = findCitingArticles(decreeName ?: "${law.name} 시행령", version == null, warnings) { text ->
-                DelegationTreeBuilder.refersTo(text, DelegationTreeBuilder.LAW_PREFIX, query.article)
-            }
-            if (found != null && found.second.isNotEmpty()) {
-                decreeName = found.first
-                decrees = found.second
-                warnings += "3단 비교에서 시행령 연결을 받지 못해, 시행령 본문의 '법 ${query.article.display}' 인용으로 찾았습니다."
-            }
+        emit(DelegationProgress.Step("시행령 본문에서 인용 조문 찾는 중"))
+        val foundDecrees = findCitingArticles(decreeName ?: "${law.name} 시행령", version == null, warnings) { text ->
+            DelegationTreeBuilder.refersTo(text, DelegationTreeBuilder.LAW_PREFIX, query.article)
         }
-        if (rules.isEmpty()) {
-            emit(DelegationProgress.Step("시행규칙 본문에서 위임 조문 찾는 중"))
-            val decreeNos = decrees.mapNotNull { it.number }
-            val found = findCitingArticles(ruleName ?: "${law.name} 시행규칙", version == null, warnings) { text ->
-                DelegationTreeBuilder.refersTo(text, DelegationTreeBuilder.LAW_PREFIX, query.article) ||
-                    decreeNos.any { DelegationTreeBuilder.refersTo(text, DelegationTreeBuilder.DECREE_PREFIX, it) }
-            }
-            if (found != null && found.second.isNotEmpty()) {
-                ruleName = found.first
-                rules = found.second
-            }
+        if (foundDecrees != null && foundDecrees.second.isNotEmpty()) {
+            if (decrees.isEmpty()) warnings += "3단 비교에서 시행령 연결을 받지 못해, 시행령 본문의 '법 ${query.article.display}' 인용으로 찾았습니다."
+            decreeName = decreeName ?: foundDecrees.first
+            decrees = decrees + foundDecrees.second.filter { f -> decrees.none { it.number.sameNo(f.number) } }
+        }
+        emit(DelegationProgress.Step("시행규칙 본문에서 인용 조문 찾는 중"))
+        val decreeNos = decrees.mapNotNull { it.number }
+        val foundRules = findCitingArticles(ruleName ?: "${law.name} 시행규칙", version == null, warnings) { text ->
+            DelegationTreeBuilder.refersTo(text, DelegationTreeBuilder.LAW_PREFIX, query.article) ||
+                decreeNos.any { DelegationTreeBuilder.refersTo(text, DelegationTreeBuilder.DECREE_PREFIX, it) }
+        }
+        if (foundRules != null && foundRules.second.isNotEmpty()) {
+            ruleName = ruleName ?: foundRules.first
+            rules = rules + foundRules.second.filter { f -> rules.none { it.number.sameNo(f.number) } }
         }
 
         emit(DelegationProgress.Step("감독규정·시행세칙과 판례 찾는 중"))
@@ -129,7 +128,7 @@ class GetDelegationTreeUseCase(
             Triple(sup.await(), det.await(), prec.await())
         }
 
-        var root = builder.build(
+        val split = builder.buildSplit(
             DelegationTreeBuilder.Input(
                 lawName = law.name,
                 lawArticle = lawArticle,
@@ -141,7 +140,12 @@ class GetDelegationTreeUseCase(
                 details = details,
             )
         )
+        var root = split.root
         if (!query.path.isEmpty) root = focusOn(root, query, warnings)
+        // 인용된 법규에는 그것에 위임한 (질의한 조문이 아닌) 상위 법 조항을 3단 비교에서 찾아 붙인다.
+        val cited = split.cited
+            .filter { c -> query.path.isEmpty || c.anchor?.let { it.startsWith(query.path) || query.path.startsWith(it) } != false }
+            .map { c -> c.copy(delegatedBy = delegatingArticles(threeTier, c, query.article)) }
 
         emit(
             DelegationProgress.Done(
@@ -153,6 +157,7 @@ class GetDelegationTreeUseCase(
                     version = version,
                     precedents = precedentResult.first,
                     precedentBasis = precedentResult.second,
+                    cited = cited,
                     isSample = repository.isSample,
                     warnings = warnings.toList(),
                 )
@@ -282,6 +287,23 @@ class GetDelegationTreeUseCase(
         const val MAX_PREC_CANDIDATES = 40
         const val MAX_PRECEDENTS_SHOWN = 20
     }
+}
+
+private fun ArticleNo?.sameNo(other: ArticleNo?): Boolean =
+    this != null && other != null && sameAs(other)
+
+/** [node](시행령·시행규칙 조문)를 위임 대상으로 삼는 법 조문 중 [self]가 아닌 것(3단 비교 기준). */
+private fun delegatingArticles(threeTier: ThreeTierComparison?, node: LawNode, self: ArticleNo): List<Article> {
+    val no = node.article.number ?: return emptyList()
+    val rows = threeTier?.rows ?: return emptyList()
+    return rows.filter { r ->
+        !r.law.number.sameAs(self) &&
+            (when (node.level) {
+                LawLevel.DECREE -> r.decrees
+                LawLevel.RULE -> r.rules
+                else -> emptyList()
+            }).any { it.number.sameNo(no) }
+    }.map { it.law }.distinctBy { it.number?.display }
 }
 
 private fun ArticleNo?.sameAs(other: ArticleNo): Boolean =

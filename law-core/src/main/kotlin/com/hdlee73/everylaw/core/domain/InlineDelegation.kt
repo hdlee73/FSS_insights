@@ -80,7 +80,12 @@ fun selectForPath(children: List<LawNode>, path: ItemPath): Pair<List<LawNode>, 
 }
 
 /** 비교표 한 줄: 법률 조문의 한 부분과, 그 부분을 위임 근거로 삼은 단계별 규정들. */
-data class CompareRow(val lawText: String, val cells: Map<LawLevel, List<LawNode>>)
+data class CompareRow(
+    val lawText: String,
+    val cells: Map<LawLevel, List<LawNode>>,
+    /** [lawText] 안에서 하위 규정이 위임받은 항·호의 글이 시작하는 위치. 하위 규정 칸은 법률 칸의 그 줄과 같은 높이에서 시작해야 한다. */
+    val anchorStart: Int = 0,
+)
 
 /**
  * 단계 비교표(2단~5단). 법률은 항상 첫 열이고, 사용자가 고른 시행령·시행규칙·감독규정·시행세칙만 열로 만든다.
@@ -103,17 +108,20 @@ object CompareTable {
 
         val rows = mutableListOf<CompareRow>()
         val pending = StringBuilder()
+        var lastStart = 0
         fun add(text: String) {
             if (text.isBlank()) return
             if (pending.isNotEmpty()) pending.append('\n')
+            lastStart = pending.length
             pending.append(text)
         }
         fun emit(path: ItemPath, blankLabel: String? = null) {
+            val start = if (path.isEmpty) 0 else lastStart
             val nodes = attached[path] ?: return
             val c = cells(nodes)
             // 고른 단계에 해당하는 규정이 없으면 줄을 만들지 않고, 법률 글은 다음 줄에 이어 붙인다
             if (c.isEmpty()) return
-            rows += CompareRow(pending.toString().ifBlank { blankLabel.orEmpty() }, c)
+            rows += CompareRow(pending.toString().ifBlank { blankLabel.orEmpty() }, c, start.coerceAtMost(pending.length))
             pending.clear()
         }
 

@@ -46,10 +46,15 @@ internal object PdfCompare {
         header()
 
         rows.forEach { row ->
-            val texts = listOf<CharSequence>(row.lawText) + levels.drop(1).map { lv -> cellText(row.cells[lv].orEmpty(), lv) }
-            val layouts = texts.map { t ->
-                StaticLayout.Builder.obtain(t, 0, t.length, paint, textW.coerceAtLeast(40))
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).setLineSpacing(1.5f, 1f).build()
+            fun layoutOf(t: CharSequence) = StaticLayout.Builder.obtain(t, 0, t.length, paint, textW.coerceAtLeast(40))
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL).setLineSpacing(1.5f, 1f).build()
+            val lawLayout = layoutOf(row.lawText)
+            // 하위 규정은 위임받은 항·호가 시작하는 줄과 같은 줄에서 시작하도록, 그 줄 앞의 줄 수만큼 빈 줄을 앞에 둔다
+            // (칸 너비·글꼴·줄 간격이 같아 빈 줄 높이가 법률 칸의 한 줄 높이와 같다).
+            val lead = if (row.lawText.isEmpty()) 0 else lawLayout.getLineForOffset(row.anchorStart.coerceIn(0, row.lawText.length - 1))
+            val layouts = listOf(lawLayout) + levels.drop(1).map { lv ->
+                val cell = cellText(row.cells[lv].orEmpty(), lv)
+                layoutOf(if (cell.isEmpty() || lead == 0) cell else SpannableStringBuilder("\n".repeat(lead)).append(cell))
             }
             val next = IntArray(layouts.size)
             fun remaining() = layouts.indices.any { next[it] < layouts[it].lineCount }

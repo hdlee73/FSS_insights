@@ -140,6 +140,8 @@ data class LawNode(
     val anchor: ItemPath? = null,
     /** 한 조가 여러 항으로 서로 다른 위치를 위임해 항별로 쪼갠 노드일 때 그 범위("제1항", "제2항~제3항") */
     val part: String? = null,
+    /** 인용된 법규로 분류된 노드일 때, 이 규정에 위임한 (질의한 조문이 아닌) 상위 법 조항 */
+    val delegatedBy: List<Article> = emptyList(),
 ) {
     /** "시행령 제87조 제1항"처럼 조 제목 뒤에 항 범위를 붙인 제목 */
     val displayHeading: String get() = listOfNotNull(article.heading.takeIf { it.isNotBlank() }, part).joinToString(" ")
@@ -232,7 +234,15 @@ data class DelegationTree(
     val warnings: List<String> = emptyList(),
     /** 판례를 어떤 기준으로 골랐는지 화면에 보여 줄 안내 */
     val precedentBasis: String = "",
-)
+    /**
+     * 질의한 조문을 인용했지만 그 위치를 위임받은 것은 아닌 하위 법규(시행령·시행규칙·감독규정 등).
+     * 위임 트리와 섞지 않고 맨 아래에 따로 보여 준다.
+     */
+    val cited: List<LawNode> = emptyList(),
+) {
+    /** 위임 트리와 인용된 법규를 모두 뒤져 [id] 노드를 찾는다. */
+    fun findNode(id: String): LawNode? = root.find(id) ?: cited.firstNotNullOfOrNull { it.find(id) }
+}
 
 /** 판례 검색 결과 한 건 (lawSearch.do target=prec). */
 data class PrecedentSummary(

@@ -75,6 +75,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.ADR_PLACEHOLDER
 import io.github.hdlee73.financenewsradar.data.BRIEFING_EXCLUDED_DEFAULT
 import io.github.hdlee73.financenewsradar.data.DEFAULT_PANEL_SLOTS
+import io.github.hdlee73.financenewsradar.data.InvestorFlow
 import io.github.hdlee73.financenewsradar.data.INDEX_CHOICES
 import io.github.hdlee73.financenewsradar.data.IndexSelection
 import io.github.hdlee73.financenewsradar.data.Instrument
@@ -126,6 +127,8 @@ data class MarketUiState(
     /** 증시동향 지수 칸 그래프 종류: true면 당일, false면 1년 추이. */
     val indexIntraday: Boolean = true,
     val quotes: Map<String, Quote> = emptyMap(),
+    /** 코스피·코스닥 투자자별 순매수(심볼 → 금액). */
+    val investors: Map<String, InvestorFlow> = emptyMap(),
     val histories: Map<String, PriceHistory> = emptyMap(),
     val isRefreshing: Boolean = false,
     val failed: Boolean = false,
@@ -209,6 +212,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
             _state.update { it.copy(isRefreshing = false, failed = anyFailed) }
+            loadInvestors()
             loadIntraday()
             loadCharts()
             loadStats()
@@ -286,8 +290,16 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
             indexSymbols().map { symbol ->
                 async { runCatching { client.quote(symbol) }.onSuccess { q -> _state.update { it.copy(quotes = it.quotes + (symbol to q)) } } }
             }.awaitAll()
+            loadInvestors()
             loadIntraday()
         }
+    }
+
+    /** 코스피·코스닥 투자자별 순매수를 받는다(실패하면 직전 값을 그대로 둔다). */
+    private suspend fun loadInvestors() {
+        KOREA_INDEXES.map { it.symbol }.map { symbol ->
+            viewModelScope.async { runCatching { client.investors(symbol) }.onSuccess { f -> _state.update { it.copy(investors = it.investors + (symbol to f)) } } }
+        }.awaitAll()
     }
 
     /** 지수 칸 그래프(당일 분봉)를 1분에 한 번만 다시 받는다. 실패해도 1분 뒤에 다시 시도한다. */
@@ -551,7 +563,10 @@ private fun IndexPanel(state: MarketUiState) {
         if (wide.isNotEmpty()) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 wide.forEach {
-                    IndexTile(it, state.quotes[it.symbol], state.intraday[it.symbol], state.histories[it.symbol], state.indexIntraday, wide = true, tinted = false, modifier = Modifier.weight(1f))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IndexTile(it, state.quotes[it.symbol], state.intraday[it.symbol], state.histories[it.symbol], state.indexIntraday, wide = true, tinted = false, modifier = Modifier.fillMaxWidth())
+                        InvestorBox(state.investors[it.symbol])
+                    }
                 }
                 if (wide.size == 1) Spacer(Modifier.weight(1f))
             }
@@ -569,6 +584,32 @@ private fun IndexPanel(state: MarketUiState) {
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+/** 지수 칸 바로 아래에 개인·외국인·기관계 순매수(억원)를 보여 준다. 매수 우위는 빨강, 매도 우위는 파랑. */
+@Composable
+private fun InvestorBox(flow: InvestorFlow?) {
+    val shape = RoundedCornerShape(8.dp)
+    Column(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f), shape)
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape)
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text("투자자별 순매수(억원)", style = TextStyle(fontSize = 9.5.sp, fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary, maxLines = 1)
+        Row(Modifier.fillMaxWidth()) {
+            listOf("개인" to flow?.personal, "외국인" to flow?.foreign, "기관계" to flow?.institutional).forEach { (label, value) ->
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(label, style = TextStyle(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    Text(
+                        value?.let { (if (it > 0) "+" else "") + grouped(it, 0) } ?: "—",
+                        style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp),
+                        color = changeColor(value), maxLines = 1
+                    )
+                }
+            }
+        }
     }
 }
 
