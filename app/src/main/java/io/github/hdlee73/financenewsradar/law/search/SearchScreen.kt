@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.VerticalAlignBottom
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.UnfoldLess
@@ -340,6 +341,15 @@ private fun TreeActions(
     // 범위 선택 창: null 이면 닫힘, true 면 공유, false 면 파일로 저장
     var chooseFor by remember { mutableStateOf<Boolean?>(null) }
     var options by remember { mutableStateOf(PdfOptions()) }
+    var showCompare by remember { mutableStateOf(false) }
+    if (showCompare) {
+        io.github.hdlee73.financenewsradar.law.tree.CompareDialog(
+            root = tree.root,
+            title = "${tree.law.name} ${tree.query.target}",
+            onDismiss = { showCompare = false },
+            onPdf = { levels -> showCompare = false; options = options.copy(compare = true, levels = levels); chooseFor = false },
+        )
+    }
     val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         if (uri != null) scope.launch {
             Toast.makeText(context, "PDF를 만드는 중이에요", Toast.LENGTH_SHORT).show()
@@ -374,6 +384,7 @@ private fun TreeActions(
     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { chooseFor = false }) { Icon(Icons.Outlined.PictureAsPdf, "PDF 저장") }
         IconButton(onClick = { chooseFor = true }) { Icon(Icons.Outlined.Share, "공유") }
+        IconButton(onClick = { showCompare = true }) { Icon(Icons.Outlined.TableChart, "비교표 보기") }
         IconButton(onClick = { showFilter = !showFilter }) {
             Icon(Icons.Outlined.Search, "결과 안에서 찾기", tint = if (showFilter || filter.isNotBlank()) MaterialTheme.colorScheme.primary else LocalContentColor.current)
         }

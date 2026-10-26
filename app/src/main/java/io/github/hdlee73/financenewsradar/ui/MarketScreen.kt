@@ -563,10 +563,7 @@ private fun IndexPanel(state: MarketUiState) {
         if (wide.isNotEmpty()) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 wide.forEach {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IndexTile(it, state.quotes[it.symbol], state.intraday[it.symbol], state.histories[it.symbol], state.indexIntraday, wide = true, tinted = false, modifier = Modifier.fillMaxWidth())
-                        InvestorBox(state.investors[it.symbol])
-                    }
+                    IndexTile(it, state.quotes[it.symbol], state.intraday[it.symbol], state.histories[it.symbol], state.indexIntraday, wide = true, tinted = false, modifier = Modifier.weight(1f), investors = state.investors[it.symbol], showInvestors = true)
                 }
                 if (wide.size == 1) Spacer(Modifier.weight(1f))
             }
@@ -587,27 +584,20 @@ private fun IndexPanel(state: MarketUiState) {
     }
 }
 
-/** 지수 칸 바로 아래에 개인·외국인·기관계 순매수(억원)를 보여 준다. 매수 우위는 빨강, 매도 우위는 파랑. */
+/** 지수 칸 안쪽 아래에 개인·외국인·기관계 순매수(억원)를 보여 준다. 매수 우위는 빨강, 매도 우위는 파랑. */
 @Composable
-private fun InvestorBox(flow: InvestorFlow?) {
-    val shape = RoundedCornerShape(8.dp)
-    Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f), shape)
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Text("투자자별 순매수(억원)", style = TextStyle(fontSize = 9.5.sp, fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary, maxLines = 1)
-        Row(Modifier.fillMaxWidth()) {
-            listOf("개인" to flow?.personal, "외국인" to flow?.foreign, "기관계" to flow?.institutional).forEach { (label, value) ->
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(label, style = TextStyle(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    Text(
-                        value?.let { (if (it > 0) "+" else "") + grouped(it, 0) } ?: "—",
-                        style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp),
-                        color = changeColor(value), maxLines = 1
-                    )
-                }
+private fun InvestorRow(flow: InvestorFlow?) {
+    HorizontalDivider(Modifier.padding(top = 6.dp, bottom = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    Text("투자자별 순매수(억원)", style = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary, maxLines = 1)
+    Row(Modifier.fillMaxWidth()) {
+        listOf("개인" to flow?.personal, "외국인" to flow?.foreign, "기관계" to flow?.institutional).forEach { (label, value) ->
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(label, style = TextStyle(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                Text(
+                    value?.let { (if (it > 0) "+" else "") + grouped(it, 0) } ?: "—",
+                    style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp),
+                    color = changeColor(value), maxLines = 1
+                )
             }
         }
     }
@@ -615,7 +605,8 @@ private fun InvestorBox(flow: InvestorFlow?) {
 
 @Composable
 private fun IndexTile(
-    item: Instrument, quote: Quote?, series: IntradaySeries?, history: PriceHistory?, showIntraday: Boolean, wide: Boolean, tinted: Boolean, modifier: Modifier = Modifier
+    item: Instrument, quote: Quote?, series: IntradaySeries?, history: PriceHistory?, showIntraday: Boolean, wide: Boolean, tinted: Boolean, modifier: Modifier = Modifier,
+    investors: InvestorFlow? = null, showInvestors: Boolean = false
 ) {
     val color = changeColor(quote?.change)
     val price = quote?.let { priceText(item, it.price) } ?: "—"
@@ -644,6 +635,7 @@ private fun IndexTile(
             }
             // 등락률 괄호까지 들어가도록 차트 아래 칸 전체 폭을 쓴다(차트 옆 좁은 칸에서는 잘림).
             Text(delta, Modifier.padding(top = 2.dp), style = deltaStyle, color = color, maxLines = 1)
+            if (showInvestors) InvestorRow(investors)
         } else {
             Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             // 코스피·코스닥 이외 칸은 수치를 오른쪽 끝에 맞춘다.
