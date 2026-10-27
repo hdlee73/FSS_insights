@@ -221,7 +221,7 @@ class XmlTreeNonXmlTest {
     @org.junit.Test
     fun htmlResponseGivesReadableError() {
         val e = runCatching {
-            com.hdlee73.everylaw.core.parser.XmlTree.parse("<!DOCTYPE html><html><head><meta charset=utf-8><title>접근 제한</title></head></html>")
+            com.hdlee73.everylaw.core.parser.XmlNode.parse("<!DOCTYPE html><html><head><meta charset=utf-8><title>접근 제한</title></head></html>")
         }.exceptionOrNull()
         org.junit.Assert.assertTrue(e?.message.orEmpty().contains("XML이 아닌 응답"))
     }
