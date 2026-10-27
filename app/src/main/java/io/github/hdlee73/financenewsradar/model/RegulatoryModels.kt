@@ -40,6 +40,21 @@ enum class RegSource(val label: String, val tabLabel: String, val listUrl: Strin
             else -> RegulatoryParser.ListKind.GUIDANCE
         }
 
+    /** 요약 프롬프트에 쓰는 문서 종류와 요약 초점. */
+    val summaryKind: String
+        get() = when (this) {
+            LAW_INTERPRETATION -> "금융당국의 법령해석(유권해석) 회신문"
+            NO_ACTION -> "금융당국의 비조치의견서 회신문"
+            FSS_GUIDANCE, FSC_GUIDANCE -> "금융당국의 행정지도 문서"
+            FSS_SANCTION -> "금융회사 제재 공시"
+        }
+    val summaryFocus: String
+        get() = when (this) {
+            LAW_INTERPRETATION, NO_ACTION -> "질의 요지와 회신(결론)"
+            FSS_GUIDANCE, FSC_GUIDANCE -> "지도 대상과 핵심 지도 내용"
+            FSS_SANCTION -> "제재 대상과 사유·조치 내용"
+        }
+
     /** 처음 가져오는 건수(출처마다). */
     val count: Int get() = 20
 }

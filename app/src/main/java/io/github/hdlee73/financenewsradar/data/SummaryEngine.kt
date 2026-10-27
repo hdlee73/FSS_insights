@@ -41,11 +41,11 @@ internal object SummaryEngine {
     }
 
     /** 본문 [body]를 한국어 2문장 안팎으로 요약. 실패하면 [Outcome.reason]에 이유를 담는다. */
-    suspend fun summarize(title: String, body: String): Outcome {
+    suspend fun summarize(title: String, body: String, kind: String = "금융 관련 보도자료 또는 연구보고서", focus: String = "핵심 내용"): Outcome {
         if (body.length < MIN_BODY_CHARS) return Outcome(reason = "본문이 너무 짧음")
         val client = model ?: return Outcome(reason = "Gemini Nano 준비 안 됨")
         val prompt = buildString {
-            append("다음은 금융 관련 보도자료 또는 연구보고서입니다. 핵심 내용을 한국어로 두 문장, 150자 이내로 요약하세요. ")
+            append("다음은 ").append(kind).append("입니다. ").append(focus).append("을 한국어로 두 문장, 150자 이내로 요약하세요. ")
             append("원문이 영어 등 외국어여도 요약은 반드시 한국어로 쓰고, 요약문 외의 설명이나 머리말은 쓰지 마세요.\n\n")
             append("제목: ").append(title).append("\n본문: ").append(body.take(capFor(body)))
         }
@@ -75,8 +75,8 @@ internal object SummaryEngine {
 }
 
 /** 요약문 저장소: 같은 자료를 다시 요약하지 않도록 링크별로 기기에 보관(최근 400건). */
-internal class SummaryStore(context: Context) {
-    private val prefs = context.getSharedPreferences("summary_cache", Context.MODE_PRIVATE)
+internal class SummaryStore(context: Context, name: String = "summary_cache") {
+    private val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
 
     fun load(): Map<String, String> {
         val raw = prefs.getString(KEY, null) ?: return emptyMap()

@@ -37,11 +37,14 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.RegulatoryParser
 import io.github.hdlee73.financenewsradar.data.RegulatoryRepository
+import io.github.hdlee73.financenewsradar.data.SummaryEngine
+import io.github.hdlee73.financenewsradar.data.SummaryStore
 import io.github.hdlee73.financenewsradar.model.RegItem
 import io.github.hdlee73.financenewsradar.model.RegSource
 import kotlinx.coroutines.CancellationException
@@ -59,13 +62,20 @@ data class RegSourceState(
     /** 목록은 떴고 상세 내용(검색용)을 받는 중. */
     val loadingBodies: Boolean = false,
     val error: String? = null,
-    val loaded: Boolean = false
+    val loaded: Boolean = false,
+    /** 자료 링크 → 기기 내 Gemini Nano가 만든 핵심 내용 요약(지원 기기에서만 채워진다). */
+    val summaries: Map<String, String> = emptyMap(),
+    /** 요약이 아직 없는 자료의 상태 문구(대기·진행·불가 사유). */
+    val summaryNotes: Map<String, String> = emptyMap()
 )
 
 class RegulatoryViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = RegulatoryRepository(application)
     private val jobs = mutableMapOf<RegSource, Job>()
-    private val _state = MutableStateFlow(RegSource.entries.associateWith { RegSourceState() })
+    private val summaryJobs = mutableMapOf<RegSource, Job>()
+    private val summaryStore = SummaryStore(application, "summary_cache_regulatory")
+    private val summarySkipped = mutableSetOf<String>()
+    private val _state = MutableStateFlow(summaryStore.load().let { saved -> RegSource.entries.associateWith { RegSourceState(summaries = saved) } })
     val state: StateFlow<Map<RegSource, RegSourceState>> = _state.asStateFlow()
 
     private fun update(source: RegSource, change: (RegSourceState) -> RegSourceState) {
@@ -80,6 +90,7 @@ class RegulatoryViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun refresh(source: RegSource) {
+        summarySkipped.clear()
         jobs[source]?.cancel()
         jobs[source] = viewModelScope.launch {
             update(source) { it.copy(loading = true, error = null) }
@@ -92,6 +103,7 @@ class RegulatoryViewModel(application: Application) : AndroidViewModel(applicati
                     update(source) { s -> s.copy(items = list.map { n -> s.items.firstOrNull { o -> o.link == n.link && o.body.isNotEmpty() } ?: n }, loadingBodies = true) }
                 }
                 update(source) { it.copy(items = items, loading = false, loadingBodies = false, loaded = true) }
+                summarize(source, items)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -99,6 +111,39 @@ class RegulatoryViewModel(application: Application) : AndroidViewModel(applicati
             }
         }
     }
+
+    /**
+     * Gemini Nano가 있는 기기에서만: 읽어 둔 상세 내용으로 항목마다 핵심 내용 요약을 만들어 제목 아래에 보여 준다.
+     * 이미 만든 요약은 다시 만들지 않고, 지원하지 않는 기기에서는 아무 것도 하지 않아 화면은 그대로다.
+     */
+    private fun summarize(source: RegSource, items: List<RegItem>) {
+        if (source == RegSource.FSS_SANCTION) return
+        summaryJobs[source]?.cancel()
+        summaryJobs[source] = viewModelScope.launch {
+            if (!SummaryEngine.isAvailable()) return@launch
+            val todo = items.filter { !_state.value.getValue(source).summaries.containsKey(it.link) && it.link !in summarySkipped }
+            if (todo.isEmpty()) return@launch
+            try {
+                setNotes(source) { notes -> notes + todo.associate { it.link to "요약 대기 중" } }
+                for (item in todo) {
+                    setNotes(source) { it + (item.link to "요약 중…") }
+                    val outcome = SummaryEngine.summarize(item.title, item.body, source.summaryKind, source.summaryFocus)
+                    if (outcome.text != null) {
+                        update(source) { it.copy(summaries = it.summaries + (item.link to outcome.text), summaryNotes = it.summaryNotes - item.link) }
+                        summaryStore.save(_state.value.values.fold(emptyMap()) { acc, s -> acc + s.summaries })
+                    } else {
+                        summarySkipped += item.link
+                        setNotes(source) { it + (item.link to "요약 불가 · ${outcome.reason}") }
+                    }
+                }
+            } finally {
+                setNotes(source) { notes -> notes.filterValues { !it.startsWith("요약 대기") && !it.startsWith("요약 중") } }
+            }
+        }
+    }
+
+    private fun setNotes(source: RegSource, change: (Map<String, String>) -> Map<String, String>) =
+        update(source) { it.copy(summaryNotes = change(it.summaryNotes)) }
 }
 
 /** 서랍 메뉴별 출처 묶음. */
@@ -195,7 +240,7 @@ fun RegulatoryScreen(
                     CenterMessage(if (query.isBlank()) "표시할 항목이 없습니다." else "일치하는 항목이 없습니다.")
                 }
                 else -> itemsIndexed(shown, key = { i, it -> "${it.source.name}-$i" }) { _, item ->
-                    RegulatoryRow(item, query) { openExternal(context, item.link) }
+                    RegulatoryRow(item, query, state.summaries[item.link], state.summaryNotes[item.link]) { openExternal(context, item.link) }
                 }
             }
         }
@@ -204,7 +249,7 @@ fun RegulatoryScreen(
 }
 
 @Composable
-private fun RegulatoryRow(item: RegItem, query: String, onOpen: () -> Unit) {
+private fun RegulatoryRow(item: RegItem, query: String, summary: String?, summaryNote: String?, onOpen: () -> Unit) {
     val date = item.date?.format(regDateFormat)
     val snippet = if (query.isBlank()) null else RegulatoryParser.snippet(item, query)
     // 라벨 없이 값만 보여 준다(제재공시: 요구일 · 관련부서, 행정지도: 소관부서 · 시행일, 유권해석·비조치의견서: 일련번호).
@@ -224,6 +269,7 @@ private fun RegulatoryRow(item: RegItem, query: String, onOpen: () -> Unit) {
             InitialAvatar(item.title, stripe)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                SummaryLines(summary, summaryNote)
                 if (meta.isNotEmpty()) Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (snippet != null) Text(snippet, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
@@ -231,6 +277,7 @@ private fun RegulatoryRow(item: RegItem, query: String, onOpen: () -> Unit) {
         return@ListCard
     }
         Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        SummaryLines(summary, summaryNote)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (item.source.isGuidance) {
                 when (item.inForce) {
@@ -244,5 +291,15 @@ private fun RegulatoryRow(item: RegItem, query: String, onOpen: () -> Unit) {
         if (snippet != null) {
             Text(snippet, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
+    }
+}
+
+@Composable
+private fun SummaryLines(summary: String?, note: String?) {
+    // Gemini Nano가 만든 핵심 내용 요약(지원 기기에서만 있음). 없으면 이 줄은 나타나지 않는다.
+    if (summary != null) {
+        Text("✦ $summary", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
+    } else if (note != null) {
+        Text("✦ $note", style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.outline, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }

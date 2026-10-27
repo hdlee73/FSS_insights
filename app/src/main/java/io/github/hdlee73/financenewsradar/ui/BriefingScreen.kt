@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hdlee73.financenewsradar.ArticleReaderActivity
+import io.github.hdlee73.financenewsradar.data.InvestorFlow
 import io.github.hdlee73.financenewsradar.data.KOREA_INDEXES
 import io.github.hdlee73.financenewsradar.data.PublisherCatalog
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
@@ -139,7 +140,7 @@ fun BriefingScreen(
                     tiles.chunked(2).forEach { pair ->
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             pair.forEach { (item, quote) ->
-                                MarketTile(item, quote, market.intraday[item.symbol], Modifier.weight(1f)) { onOpenTab(TAB_MARKET) }
+                                MarketTile(item, quote, market.intraday[item.symbol], Modifier.weight(1f), investors = market.investors[item.symbol]) { onOpenTab(TAB_MARKET) }
                             }
                             if (pair.size == 1) Spacer(Modifier.weight(1f))
                         }
@@ -267,13 +268,15 @@ private fun BriefingCard(content: @Composable () -> Unit) {
 
 /** 지표 한 칸: 이름, 현재가(오른쪽 정렬)와 괄호 안 작은 글자의 등락률, 당일 흐름 그래프. 상승 빨강·하락 파랑. */
 @Composable
-private fun MarketTile(item: Instrument, quote: Quote, series: IntradaySeries?, modifier: Modifier, onClick: () -> Unit) {
+private fun MarketTile(item: Instrument, quote: Quote, series: IntradaySeries?, modifier: Modifier, investors: InvestorFlow? = null, onClick: () -> Unit) {
     val color = changeColor(quote.change)
     Surface(modifier.clickable(onClick = onClick), shape = RoundedCornerShape(16.dp), color = color.copy(alpha = 0.09f)) {
         Column(Modifier.padding(12.dp)) {
             Text(item.name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             ValueWithDelta(priceText(item, quote.price), quote.changePercent?.let { arrowPercent(it) }, color, Modifier.padding(top = 2.dp))
             IntradayChart(series, color, Modifier.fillMaxWidth().padding(top = 6.dp).height(30.dp))
+            // 코스피·코스닥 칸에는 투자자별 순매수(개인·외국인·기관계)를 함께 보여 준다.
+            if (item.symbol == "^KS11" || item.symbol == "^KQ11") InvestorRow(investors, valueSize = 10.5.sp)
         }
     }
 }

@@ -586,7 +586,7 @@ private fun IndexPanel(state: MarketUiState) {
 
 /** 지수 칸 안쪽 아래에 개인·외국인·기관계 순매수(억원)를 보여 준다. 매수 우위는 빨강, 매도 우위는 파랑. */
 @Composable
-private fun InvestorRow(flow: InvestorFlow?) {
+internal fun InvestorRow(flow: InvestorFlow?, valueSize: androidx.compose.ui.unit.TextUnit = 11.5.sp) {
     HorizontalDivider(Modifier.padding(top = 6.dp, bottom = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
     Text("투자자별 순매수(억원)", style = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary, maxLines = 1)
     Row(Modifier.fillMaxWidth()) {
@@ -595,7 +595,7 @@ private fun InvestorRow(flow: InvestorFlow?) {
                 Text(label, style = TextStyle(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 Text(
                     value?.let { (if (it > 0) "+" else "") + grouped(it, 0) } ?: "—",
-                    style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp),
+                    style = TextStyle(fontSize = valueSize, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp),
                     color = changeColor(value), maxLines = 1
                 )
             }
