@@ -365,7 +365,8 @@ private fun TreeActions(
         if (uri != null) scope.launch {
             Toast.makeText(context, "한글 문서를 만드는 중이에요", Toast.LENGTH_SHORT).show()
             runCatching {
-                context.contentResolver.openOutputStream(uri)?.use { PdfExporter.writeHwpx(tree, options, it) } ?: error("파일을 열 수 없어요")
+                val extras = buildExtras(options)
+                context.contentResolver.openOutputStream(uri)?.use { PdfExporter.writeHwpx(tree, options, extras, it) } ?: error("파일을 열 수 없어요")
             }.onSuccess { Toast.makeText(context, "한글(HWPX) 문서를 저장했어요", Toast.LENGTH_SHORT).show() }
                 .onFailure { Toast.makeText(context, "HWPX 저장 실패: ${it.message}", Toast.LENGTH_LONG).show() }
         }

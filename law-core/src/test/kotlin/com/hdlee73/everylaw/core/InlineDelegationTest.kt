@@ -209,4 +209,40 @@ class HwpxExporterTest {
             java.io.File(System.getProperty("java.io.tmpdir"), "hwpx-test-${if (compare) "compare" else "seq"}.hwpx").writeBytes(out.toByteArray())
         }
     }
+
+    @Test fun fullOptionsMatchPdfContent() {
+        val extras = com.hdlee73.everylaw.core.model.PdfExtras(
+            precedents = listOf(
+                com.hdlee73.everylaw.core.model.PrecedentDetail(
+                    com.hdlee73.everylaw.core.model.PrecedentSummary("1", "은행 건전경영 사건", "2020다1", "20200101", "대법원", null, null),
+                    "판시사항 내용", "판결요지 내용", "은행법 제34조", "", "",
+                ),
+            ),
+            relatedArticles = listOf(Article(ArticleNo.of("35"), "대출", "제35조(대출) ① 인용 조문 본문이다.")),
+        )
+        for (compare in listOf(false, true)) {
+            val out = java.io.ByteArrayOutputStream()
+            com.hdlee73.everylaw.core.domain.HwpxExporter.write(
+                tree(),
+                com.hdlee73.everylaw.core.domain.HwpxOptions(
+                    compare = compare, levels = setOf(LawLevel.DECREE, LawLevel.RULE), paperLabel = "B4", paperWidthPt = 709, paperHeightPt = 1001,
+                    precedentBodies = true, relatedArticles = true, extras = extras, footer = "FSS Insights test",
+                ),
+                out,
+            )
+            val files = entries(out.toByteArray())
+            val section = files.getValue("Contents/section0.xml")
+            listOf("판례 본문 (1건)", "판시사항 내용", "인용 조문 (1건)", "인용 조문 본문이다", "FSS Insights test", "pageNum").forEach { assertTrue(it, section.contains(it)) }
+            assertEquals(compare, section.contains("""landscape="NARROWLY" width="100100" height="70900""""))
+            if (compare) {
+                // 제목 줄은 가운데 정렬(paraPr 20)과 단계 색 바탕을 쓴다
+                assertTrue(section.contains("""paraPrIDRef="20""""))
+                assertTrue(section.contains("""borderFillIDRef="5""""))
+            }
+            files.filterKeys { it.endsWith(".xml") || it.endsWith(".hpf") || it.endsWith(".rdf") }.forEach { (_, xml) ->
+                javax.xml.parsers.DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }.newDocumentBuilder().parse(xml.byteInputStream())
+            }
+            java.io.File(System.getProperty("java.io.tmpdir"), "hwpx-full-${if (compare) "compare" else "seq"}.hwpx").writeBytes(out.toByteArray())
+        }
+    }
 }
