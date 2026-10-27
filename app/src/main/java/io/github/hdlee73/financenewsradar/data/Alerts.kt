@@ -212,6 +212,14 @@ object BriefingAlert {
                 }
             }
             if (parts.isNotEmpty()) lines += parts.joinToString(" · ")
+            // 투자자별 순매수(억원): "코스피 개인 +1,794 외국인 -7,035 기관 +4,832"
+            val flows = listOf("^KS11" to "코스피", "^KQ11" to "코스닥").mapNotNull { (symbol, name) ->
+                runCatching { market.investors(symbol) }.getOrNull()?.let { f ->
+                    fun s(v: Double) = (if (v > 0) "+" else "") + "%,.0f".format(v)
+                    "$name 개인 ${s(f.personal)} 외국인 ${s(f.foreign)} 기관 ${s(f.institutional)}"
+                }
+            }
+            if (flows.isNotEmpty()) lines += "순매수(억원) " + flows.joinToString(" · ")
         }
 
         runCatching {
