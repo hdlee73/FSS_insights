@@ -123,3 +123,90 @@ class DeletedItemAttachmentTest {
         assertTrue(m.isEmpty())
     }
 }
+
+class CitedProvisionTest {
+    private val law = Article(
+        ArticleNo.of("34"), "건전경영의 지도",
+        "제34조(건전경영의 지도) ① 은행은 은행업을 경영할 때 자기자본을 충실하게 하고 적정한 유동성을 유지하는 등 경영의 건전성을 확보하여야 한다.\n" +
+            "② 은행은 경영의 건전성을 유지하기 위하여 다음 각 호의 사항에 관하여 대통령령으로 정하는 바에 따라 금융위원회가 정하는 경영지도기준을 지켜야 한다.\n" +
+            "1. 자본의 적정성에 관한 사항\n2. 자산의 건전성에 관한 사항\n3. 유동성에 관한 사항\n4. 그 밖에 경영의 건전성 확보를 위하여 필요한 사항",
+    )
+    private val delegated = Article(ArticleNo.of("20"), "경영지도기준 등", "제20조(경영지도기준 등) ① 법 제34조제2항에 따른 경영지도기준에는 다음 각 호의 내용이 포함되어야 한다.\n1. 자기자본비율")
+    private val citedOnly = Article(
+        ArticleNo.of("29"), "민감정보 및 고유식별정보의 처리",
+        "제29조(민감정보 및 고유식별정보의 처리) ① 금융위원회는 다음 각 호의 사무를 수행하기 위하여 불가피한 경우 민감정보를 처리할 수 있다.\n1. 법 제34조제2항제4호에 따른 사무",
+    )
+
+    private fun split() = DelegationTreeBuilder().buildSplit(
+        DelegationTreeBuilder.Input("은행법", law, "은행법 시행령", listOf(delegated, citedOnly), null, emptyList(), emptyList(), emptyList()),
+    )
+
+    @Test fun citationOfNonDelegatingItemIsNotDelegation() {
+        val s = split()
+        assertEquals(listOf(ArticleNo.of("20")), s.root.children.map { it.article.number })
+        assertEquals(listOf(ArticleNo.of("29")), s.cited.map { it.article.number })
+    }
+
+    @Test fun decreeWithoutLawCitationStaysDelegated() {
+        val s = DelegationTreeBuilder().buildSplit(
+            DelegationTreeBuilder.Input("은행법", law, "은행법 시행령", listOf(Article(ArticleNo.of("5"), "기타", "제5조(기타) 이 영에서 정한다.")), null, emptyList(), emptyList(), emptyList()),
+        )
+        assertEquals(1, s.root.children.size)
+        assertTrue(s.cited.isEmpty())
+    }
+}
+
+class CompareAnchorTest {
+    @Test fun delegatedItemStartsAtItsOwnLine() {
+        val law = Article(
+            ArticleNo.of("34"), "건전경영",
+            "제34조(건전경영) ① 첫째 항이다.\n② 둘째 항은 대통령령으로 정한다.\n③ 셋째 항은 대통령령으로 정한다.",
+        )
+        val decree = Article(ArticleNo.of("9"), "세부", "제9조(세부) 법 제34조제3항에 따라 정한다.")
+        val root = DelegationTreeBuilder().build(
+            DelegationTreeBuilder.Input("은행법", law, "은행법 시행령", listOf(decree), null, emptyList(), emptyList(), emptyList()),
+        )
+        val row = CompareTable.build(root, setOf(LawLevel.DECREE)).single { it.cells.isNotEmpty() }
+        assertTrue(row.lawText.substring(row.anchorStart).startsWith("③"))
+    }
+}
+
+class HwpxExporterTest {
+    private val law = Article(
+        ArticleNo.of("34"), "건전경영",
+        "제34조(건전경영) ① 첫째 항이다.\n② 둘째 항은 대통령령으로 정한다.\n③ 셋째 항은 대통령령으로 정한다.",
+    )
+    private val decree = Article(ArticleNo.of("9"), "세부", "제9조(세부) 법 제34조제3항에 따라 정한다. & <기타>")
+
+    private fun tree(): com.hdlee73.everylaw.core.model.DelegationTree {
+        val root = DelegationTreeBuilder().build(
+            DelegationTreeBuilder.Input("은행법", law, "은행법 시행령", listOf(decree), null, emptyList(), emptyList(), emptyList()),
+        )
+        return com.hdlee73.everylaw.core.model.DelegationTree(
+            query = com.hdlee73.everylaw.core.model.LawQuery("은행법 제34조", "은행법", ArticleNo.of("34")),
+            law = com.hdlee73.everylaw.core.model.LawSummary("1", "1", "은행법", null, "법률", null),
+            root = root,
+        )
+    }
+
+    private fun entries(bytes: ByteArray) =
+        java.util.zip.ZipInputStream(bytes.inputStream()).use { z -> generateSequence { z.nextEntry }.associate { it.name to z.readBytes().toString(Charsets.UTF_8) } }
+
+    @Test fun writesValidPackageForBothModes() {
+        for (compare in listOf(false, true)) {
+            val out = java.io.ByteArrayOutputStream()
+            com.hdlee73.everylaw.core.domain.HwpxExporter.write(tree(), compare, setOf(LawLevel.DECREE), out)
+            val files = entries(out.toByteArray())
+            assertEquals("application/hwp+zip", files["mimetype"])
+            val section = files.getValue("Contents/section0.xml")
+            assertTrue(section.contains("셋째 항"))
+            assertTrue(section.contains("&amp; &lt;기타&gt;"))
+            assertEquals(compare, section.contains("<hp:tbl"))
+            // 모든 XML이 올바른 형식인지
+            files.filterKeys { it.endsWith(".xml") || it.endsWith(".hpf") || it.endsWith(".rdf") }.forEach { (_, xml) ->
+                javax.xml.parsers.DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }.newDocumentBuilder().parse(xml.byteInputStream())
+            }
+            java.io.File(System.getProperty("java.io.tmpdir"), "hwpx-test-${if (compare) "compare" else "seq"}.hwpx").writeBytes(out.toByteArray())
+        }
+    }
+}

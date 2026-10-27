@@ -42,7 +42,14 @@ data class PdfOptions(
     /** true 면 고른 단계(levels)를 열로 나란히 놓는 비교표(가로), false 면 현행 방식(위에서 아래로 이어 쓰기) */
     val compare: Boolean = false,
     val paper: PdfPaper = PdfPaper.A4,
+    /** 저장 형식: PDF 또는 한글(HWPX). HWPX는 판례·인용 조문 없이 조문·하위 규정·비교표만 담는다. */
+    val format: SaveFormat = SaveFormat.PDF,
 )
+
+enum class SaveFormat(val label: String, val ext: String, val mime: String) {
+    PDF("PDF", "pdf", "application/pdf"),
+    HWPX("한글(HWPX)", "hwpx", "application/hwp+zip"),
+}
 
 /** 용지 크기(1/72 인치, 세로 기준). 비교표는 가로로 돌려 쓴다. B4는 ISO 250x353mm. */
 enum class PdfPaper(val label: String, val w: Int, val h: Int) {
@@ -65,10 +72,10 @@ object PdfExporter {
         LawLevel.ENFORCEMENT_DETAIL to 0xFF9C2452.toInt(),
     )
 
-    fun fileName(tree: DelegationTree): String {
+    fun fileName(tree: DelegationTree, ext: String = "pdf"): String {
         val base = "${tree.law.abbreviation ?: tree.law.name}_${tree.query.target}"
         val asOf = tree.asOf?.let { "_${it}기준" }.orEmpty()
-        return (base + asOf).replace(Regex("""[\\/:*?"<>|\s]"""), "_") + ".pdf"
+        return (base + asOf).replace(Regex("""[\\/:*?"<>|\s]"""), "_") + "." + ext
     }
 
     /** 고른 단계에 없는 노드는 빼고, 그 아래 노드는 한 단계 위로 올린다. */
@@ -156,6 +163,17 @@ object PdfExporter {
         }
         }
 
+        val cited = keepLevels(tree.cited, options.levels)
+        if (cited.isNotEmpty()) {
+            w.gap(8f)
+            w.text("인용된 법규 (${cited.sumOf { 1 + it.descendantCount }}건)", 13f, bold = true, color = purple)
+            w.text("이 조문을 인용했지만 위임받은 규정은 아닙니다.", 9f, color = Color.DKGRAY)
+            cited.forEach { n ->
+                nodeBlock(n, 0)
+                if (n.delegatedBy.isNotEmpty()) w.text("위임 근거: " + n.delegatedBy.joinToString(", ") { "${root.sourceName} ${it.heading}" }, 8.5f, color = Color.DKGRAY, indent = 0f)
+            }
+        }
+
         if (options.relatedArticles) {
             w.gap(8f)
             w.text("인용 조문 (${extras.relatedArticles.size}건)", 13f, bold = true, color = purple)
@@ -207,17 +225,22 @@ object PdfExporter {
     }
 
     /** 공유 시트용: 캐시에 저장한 뒤 다른 앱으로 보낸다. */
+    /** 한글(HWPX) 문서로 쓴다. 현행/비교표 선택과 포함 단계는 PDF와 같다. */
+    suspend fun writeHwpx(tree: DelegationTree, options: PdfOptions, out: OutputStream) = withContext(Dispatchers.IO) {
+        com.hdlee73.everylaw.core.domain.HwpxExporter.write(tree, options.compare, options.levels, out)
+    }
+
     suspend fun share(context: Context, tree: DelegationTree, options: PdfOptions, extras: PdfExtras) {
         val dir = File(context.cacheDir, "law_pdf").apply { mkdirs() }
-        val file = File(dir, fileName(tree))
-        file.outputStream().use { write(tree, options, extras, it) }
+        val file = File(dir, fileName(tree, options.format.ext))
+        file.outputStream().use { if (options.format == SaveFormat.HWPX) writeHwpx(tree, options, it) else write(tree, options, extras, it) }
         val uri: Uri = FileProvider.getUriForFile(context, "${context.packageName}.articlefiles", file)
         val send = Intent(Intent.ACTION_SEND)
-            .setType("application/pdf")
+            .setType(options.format.mime)
             .putExtra(Intent.EXTRA_STREAM, uri)
             .putExtra(Intent.EXTRA_SUBJECT, file.nameWithoutExtension)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        context.startActivity(Intent.createChooser(send, "PDF 공유").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        context.startActivity(Intent.createChooser(send, "${options.format.label} 공유").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     /** 문단을 줄 단위로 쪼개 페이지를 넘기며 그린다. */

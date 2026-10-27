@@ -146,7 +146,57 @@ private fun AccordionTreeView(
                 }
             }
         }
+        citedItems(state.tree, state.expanded, onToggle) { n, isLast -> StepNode(root, n, isLast, state.expanded, onToggle) }
         precedentItems(state.tree, onOpenPrecedent)
+    }
+}
+
+private const val CITED_ID = "cited:section"
+
+/** 질의한 조문을 인용만 했을 뿐 위임받지는 않은 하위 법규. 맨 아래에 건수만 보여 주고 사용자가 펼쳐 볼지 고른다. */
+private fun LazyListScope.citedItems(
+    tree: DelegationTree,
+    expanded: Set<String>,
+    onToggle: (String) -> Unit,
+    row: @Composable (LawNode, Boolean) -> Unit,
+) {
+    if (tree.cited.isEmpty()) return
+    val open = CITED_ID in expanded
+    item(key = "cited") {
+        CitedHeader(tree.cited, open) { onToggle(CITED_ID) }
+    }
+    if (open) {
+        item(key = "cited-body") {
+            ArticleCard {
+                Column {
+                    tree.cited.forEachIndexed { i, n -> row(n, i == tree.cited.lastIndex) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CitedHeader(cited: List<LawNode>, open: Boolean, onToggle: () -> Unit) {
+    val counts = cited.flatMap { it.flatten() }.groupingBy { it.level }.eachCount().toSortedMap()
+    val total = counts.values.sum()
+    val summary = counts.entries.joinToString(" · ") { "${it.key.label} ${it.value}건" }
+    Surface(
+        onClick = onToggle,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().semantics { stateDescription = if (open) "펼침" else "접힘" },
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("인용된 법규 ${total}건", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    "이 조문을 인용했지만 위임받은 규정은 아니에요 · $summary",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(if (open) "접기" else "보기", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 
@@ -360,6 +410,12 @@ private fun StepNode(root: LawNode, node: LawNode, isLast: Boolean, expanded: Se
                 Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp).rotate(rotation))
             }
             Text(node.sourceName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (node.delegatedBy.isNotEmpty()) {
+                Text(
+                    "위임 근거: " + node.delegatedBy.joinToString(", ") { "${root.sourceName} ${it.heading}" },
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
+                )
+            }
             if (open) {
                 CitationText(node.article.body, citationContext(root, node), style = LawBodyStyle, selectable = true)
                 Column(Modifier.padding(top = 8.dp)) {
@@ -402,6 +458,7 @@ private fun SplitTreeView(
                     }
                 }
             }
+            citedItems(state.tree, state.expanded, onToggle) { n, _ -> SplitNodeTree(n, 0, state.selectedId, onSelect) }
             item(key = "prec-entry") {
                 val selected = state.selectedId == SearchUiState.PRECEDENTS_PANE
                 Surface(
@@ -432,7 +489,7 @@ private fun SplitTreeView(
                     precedentItems(state.tree, onOpenPrecedent)
                 }
             } else {
-                val node = state.tree.root.find(state.selectedId) ?: state.tree.root
+                val node = state.tree.findNode(state.selectedId) ?: state.tree.root
                 NodeDetail(state.tree, node, onSelect)
             }
         }
@@ -504,7 +561,7 @@ private fun SplitTreeRow(node: LawNode, depth: Int, selected: Boolean, onClick: 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NodeDetail(tree: DelegationTree, node: LawNode, onSelect: (String) -> Unit) {
-    val path = tree.root.pathTo(node.id)
+    val path = tree.root.pathTo(node.id).ifEmpty { tree.cited.firstNotNullOfOrNull { c -> c.pathTo(node.id).takeIf { it.isNotEmpty() } }?.let { listOf(tree.root) + it }.orEmpty() }
     val parent = path.dropLast(1).lastOrNull()
     Column(
         Modifier
@@ -524,6 +581,9 @@ private fun NodeDetail(tree: DelegationTree, node: LawNode, onSelect: (String) -
         }
         Text(node.sourceName, style = MaterialTheme.typography.titleMedium)
         Text(node.displayHeading, style = MaterialTheme.typography.headlineSmall)
+        if (node.delegatedBy.isNotEmpty()) {
+            Text("위임 근거: " + node.delegatedBy.joinToString(", ") { "${tree.root.sourceName} ${it.heading}" }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        }
         CitationText(node.article.body, citationContext(tree.root, node), style = LawBodyStyle, selectable = true)
 
         if (node.children.isNotEmpty()) {

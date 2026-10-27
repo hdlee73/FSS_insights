@@ -39,13 +39,16 @@ fun PdfOptionsDialog(
     var related by remember { mutableStateOf(initial.relatedArticles) }
     var compare by remember { mutableStateOf(initial.compare) }
     var paper by remember { mutableStateOf(initial.paper) }
+    var format by remember { mutableStateOf(initial.format) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("PDF에 담을 범위") },
+        title = { Text("저장할 범위") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("보기 방식", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text("저장 형식", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                SaveFormat.entries.forEach { f -> ChoiceRow(f.label, selected = format == f) { format = f } }
+                Text("보기 방식", modifier = Modifier.padding(top = 10.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 listOf(
                     false to "현행 (조문 아래에 하위 규정을 이어서)",
                     true to "비교표 (고른 단계를 열로 나란히, 가로)",
@@ -59,8 +62,12 @@ fun PdfOptionsDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = if (columns.size >= 2) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                 )
-                Text("용지", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 10.dp))
-                PdfPaper.entries.forEach { p -> ChoiceRow(p.label, selected = paper == p) { paper = p } }
+                if (format == SaveFormat.PDF) {
+                    Text("용지", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 10.dp))
+                    PdfPaper.entries.forEach { p -> ChoiceRow(p.label, selected = paper == p) { paper = p } }
+                } else {
+                    Text("한글(HWPX)은 조문·하위 규정·비교표를 담고, 판례와 인용 조문은 PDF에서만 담깁니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
+                }
                 Text("법령", modifier = Modifier.padding(top = 10.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 OptionRow("법률 조문 (항상 포함)", checked = true, enabled = false) {}
                 LawLevel.entries.filter { it != LawLevel.LAW }.forEach { lv ->
@@ -83,7 +90,7 @@ fun PdfOptionsDialog(
         },
         confirmButton = {
             TextButton(enabled = !compare || levels.any { it != LawLevel.LAW }, onClick = {
-                onConfirm(PdfOptions(levels + LawLevel.LAW, precList, precBody, related, compare, paper))
+                onConfirm(PdfOptions(levels + LawLevel.LAW, precList, precBody, related, compare, paper, format))
             }) { Text(confirmLabel) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },

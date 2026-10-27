@@ -77,6 +77,30 @@ class DelegationTreeBuilder(
         return root.freeze()
     }
 
+    /** [build]의 결과를 위임 트리와 "인용된 법규"로 나눈 것. */
+    data class Split(val root: LawNode, val cited: List<LawNode>)
+
+    /**
+     * 법률 조문 바로 아래에 붙은 규정 중 법 조문을 인용만 하고 그 위치를 위임받지는 않은 것을 따로 뺀다.
+     * 인용한 위치(또는 그 아래)에 위임 문구가 없으면 인용된 법규다. 본문에 법 조문 인용이 없는데 3단비교가 연결해 준 것은 위임으로 믿는다.
+     * 빠진 규정에 딸린 하위 규정은 그대로 함께 간다.
+     */
+    fun buildSplit(input: Input): Split {
+        val tree = build(input)
+        val lawNo = input.lawArticle.number ?: return Split(tree, emptyList())
+        val (kept, cited) = tree.children.partition { c -> isDelegation(c.article, input.lawArticle, lawNo) }
+        return Split(tree.copy(children = kept), cited)
+    }
+
+    /** 항마다 인용한 법 조문 위치를 보아, 하나라도 위임 문구가 있는 위치를 인용했으면 위임. 법 조문 인용이 아예 없으면 3단비교를 믿는다. */
+    private fun isDelegation(sub: Article, lawArticle: Article, lawNo: ArticleNo): Boolean {
+        val parsed = sub.parsed
+        val texts = listOf(parsed.lead) + parsed.items.map { p -> p.flatten().joinToString("\n") { it.text } }
+        val cites = texts.mapNotNull { anchorOf(it, LAW_PREFIX, lawNo) }.ifEmpty { listOfNotNull(anchorOf(sub.content, LAW_PREFIX, lawNo)) }
+        if (cites.isEmpty()) return true
+        return cites.any { DelegationPhrase.delegatesAt(lawArticle, it) }
+    }
+
     private class MutableNode(
         val id: String,
         val level: LawLevel,

@@ -34,6 +34,9 @@ data class Quote(val price: Double, val previous: Double?, val timeSeconds: Long
     val changePercent: Double? get() = previous?.takeIf { it > 0 }?.let { (price - it) / it * 100 }
 }
 
+/** 투자자별 순매수(억원). 장중에는 잠정치이며 [bizdate]는 yyyyMMdd. */
+data class InvestorFlow(val bizdate: String, val personal: Double, val foreign: Double, val institutional: Double)
+
 /** 최근 1년 일별 종가와 기간 최고가·최저가. */
 data class PriceHistory(val closes: List<Double>, val high: Double, val low: Double)
 
@@ -362,6 +365,19 @@ class MarketClient(private val context: Context) {
                     .getOrElse { yahooQuote(symbol) }
             else -> yahooQuote(symbol)
         }
+    }
+
+    /** 코스피(^KS11)·코스닥(^KQ11) 투자자별 순매수 금액(억원, NAVER). */
+    suspend fun investors(raw: String): InvestorFlow = withContext(Dispatchers.IO) {
+        val symbol = checkedSymbol(raw)
+        require(symbol == "^KS11" || symbol == "^KQ11") { "투자자별 매매동향은 코스피·코스닥만 제공" }
+        val o = JSONObject(get("https://m.stock.naver.com/api/index/${if (symbol == "^KS11") "KOSPI" else "KOSDAQ"}/trend"))
+        InvestorFlow(
+            o.optString("bizdate"),
+            parseNumber(o.getString("personalValue")),
+            parseNumber(o.getString("foreignValue")),
+            parseNumber(o.getString("institutionalValue"))
+        )
     }
 
     private fun naverQuote(url: String): Quote {

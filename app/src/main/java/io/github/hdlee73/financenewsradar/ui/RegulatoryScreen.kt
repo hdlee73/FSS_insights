@@ -37,6 +37,9 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import io.github.hdlee73.financenewsradar.data.SummaryEngine
+import io.github.hdlee73.financenewsradar.data.SummaryStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -59,12 +62,20 @@ data class RegSourceState(
     /** 목록은 떴고 상세 내용(검색용)을 받는 중. */
     val loadingBodies: Boolean = false,
     val error: String? = null,
-    val loaded: Boolean = false
+    val loaded: Boolean = false,
+    /** 자료 링크 → 기기 내 Gemini Nano가 만든 핵심내용 요약(지원 기기에서만 채워진다). */
+    val summaries: Map<String, String> = emptyMap(),
+    /** 요약이 아직 없는 자료의 상태 문구(대기·진행·불가 사유). */
+    val summaryNotes: Map<String, String> = emptyMap()
 )
 
 class RegulatoryViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = RegulatoryRepository(application)
     private val jobs = mutableMapOf<RegSource, Job>()
+    private val summaryStore = SummaryStore(application, "summary_cache_regulatory")
+    private val summaryJobs = mutableMapOf<RegSource, Job>()
+    private val summarySkipped = mutableSetOf<String>()
+    private var allSummaries: Map<String, String> = summaryStore.load()
     private val _state = MutableStateFlow(RegSource.entries.associateWith { RegSourceState() })
     val state: StateFlow<Map<RegSource, RegSourceState>> = _state.asStateFlow()
 
@@ -79,7 +90,47 @@ class RegulatoryViewModel(application: Application) : AndroidViewModel(applicati
         refresh(source)
     }
 
+    /**
+     * Gemini Nano가 있는 기기에서만: 이미 읽어 둔 상세 내용으로 핵심내용 요약을 만들어 제목 아래에 보여 준다.
+     * 이미 만든 요약은 다시 만들지 않고, 기기가 지원하지 않으면 아무 것도 하지 않아 화면은 그대로다.
+     */
+    fun summarize(source: RegSource) {
+        if (source == RegSource.FSS_SANCTION) return
+        summaryJobs.filterKeys { it != source }.values.forEach { it.cancel() }
+        summaryJobs[source]?.cancel()
+        summaryJobs[source] = viewModelScope.launch {
+            if (!SummaryEngine.isAvailable()) return@launch
+            val items = _state.value.getValue(source).items
+            // 요약문 저장소는 링크별이라 보관해 둔 요약은 바로 보여 준다.
+            val known = items.filter { allSummaries.containsKey(it.link) }.associate { it.link to allSummaries.getValue(it.link) }
+            update(source) { it.copy(summaries = it.summaries + known) }
+            val todo = items.filter { !allSummaries.containsKey(it.link) && it.link !in summarySkipped && it.body.isNotEmpty() }
+            if (todo.isEmpty()) return@launch
+            try {
+                update(source) { s -> s.copy(summaryNotes = s.summaryNotes + todo.associate { it.link to "요약 대기 중" }) }
+                for (item in todo) {
+                    update(source) { s -> s.copy(summaryNotes = s.summaryNotes + (item.link to "요약 중…")) }
+                    val (kind, focus) = if (source.isGuidance) "행정지도 문서" to "행정지도의 목적과 핵심 내용(대상·조치 사항)"
+                    else "유권해석 또는 비조치의견서" to "질의 요지와 회신(결론)"
+                    val outcome = SummaryEngine.summarize(item.title, item.body, kind, focus)
+                    if (outcome.text != null) {
+                        allSummaries = allSummaries + (item.link to outcome.text)
+                        summaryStore.save(allSummaries)
+                        update(source) { s -> s.copy(summaries = s.summaries + (item.link to outcome.text), summaryNotes = s.summaryNotes - item.link) }
+                    } else {
+                        summarySkipped += item.link
+                        update(source) { s -> s.copy(summaryNotes = s.summaryNotes + (item.link to "요약 불가 · ${outcome.reason}")) }
+                    }
+                }
+            } finally {
+                // 중간에 멈췄다면(다른 탭으로 이동 등) 대기·진행 문구는 지운다. 실패 사유는 남긴다.
+                update(source) { s -> s.copy(summaryNotes = s.summaryNotes.filterValues { !it.startsWith("요약 대기") && !it.startsWith("요약 중") }) }
+            }
+        }
+    }
+
     fun refresh(source: RegSource) {
+        summarySkipped.clear()
         jobs[source]?.cancel()
         jobs[source] = viewModelScope.launch {
             update(source) { it.copy(loading = true, error = null) }
@@ -92,6 +143,7 @@ class RegulatoryViewModel(application: Application) : AndroidViewModel(applicati
                     update(source) { s -> s.copy(items = list.map { n -> s.items.firstOrNull { o -> o.link == n.link && o.body.isNotEmpty() } ?: n }, loadingBodies = true) }
                 }
                 update(source) { it.copy(items = items, loading = false, loadingBodies = false, loaded = true) }
+                summarize(source)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -125,7 +177,7 @@ fun RegulatoryScreen(
     var query by rememberSaveable { mutableStateOf("") }
     val source = sources[selected.coerceIn(0, sources.lastIndex)]
     val state = states.getValue(source)
-    LaunchedEffect(source) { viewModel.ensure(source) }
+    LaunchedEffect(source) { viewModel.ensure(source); if (state.loaded) viewModel.summarize(source) }
 
     val shown = remember(state.items, query) {
         if (query.isBlank()) state.items else state.items.filter { RegulatoryParser.matches(it, query) }
@@ -195,7 +247,7 @@ fun RegulatoryScreen(
                     CenterMessage(if (query.isBlank()) "표시할 항목이 없습니다." else "일치하는 항목이 없습니다.")
                 }
                 else -> itemsIndexed(shown, key = { i, it -> "${it.source.name}-$i" }) { _, item ->
-                    RegulatoryRow(item, query) { openExternal(context, item.link) }
+                    RegulatoryRow(item, query, state.summaries[item.link], state.summaryNotes[item.link]) { openExternal(context, item.link) }
                 }
             }
         }
@@ -204,7 +256,7 @@ fun RegulatoryScreen(
 }
 
 @Composable
-private fun RegulatoryRow(item: RegItem, query: String, onOpen: () -> Unit) {
+private fun RegulatoryRow(item: RegItem, query: String, summary: String?, summaryNote: String?, onOpen: () -> Unit) {
     val date = item.date?.format(regDateFormat)
     val snippet = if (query.isBlank()) null else RegulatoryParser.snippet(item, query)
     // 라벨 없이 값만 보여 준다(제재공시: 요구일 · 관련부서, 행정지도: 소관부서 · 시행일, 유권해석·비조치의견서: 일련번호).
@@ -231,6 +283,12 @@ private fun RegulatoryRow(item: RegItem, query: String, onOpen: () -> Unit) {
         return@ListCard
     }
         Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        // Gemini Nano가 만든 핵심내용 요약(지원 기기에서만 있음). 없으면 이 줄은 나타나지 않는다.
+        if (summary != null) {
+            Text("✦ $summary", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        } else if (summaryNote != null) {
+            Text("✦ $summaryNote", style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.outline, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (item.source.isGuidance) {
                 when (item.inForce) {
