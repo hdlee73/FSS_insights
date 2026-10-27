@@ -170,3 +170,43 @@ class CompareAnchorTest {
         assertTrue(row.lawText.substring(row.anchorStart).startsWith("③"))
     }
 }
+
+class HwpxExporterTest {
+    private val law = Article(
+        ArticleNo.of("34"), "건전경영",
+        "제34조(건전경영) ① 첫째 항이다.\n② 둘째 항은 대통령령으로 정한다.\n③ 셋째 항은 대통령령으로 정한다.",
+    )
+    private val decree = Article(ArticleNo.of("9"), "세부", "제9조(세부) 법 제34조제3항에 따라 정한다. & <기타>")
+
+    private fun tree(): com.hdlee73.everylaw.core.model.DelegationTree {
+        val root = DelegationTreeBuilder().build(
+            DelegationTreeBuilder.Input("은행법", law, "은행법 시행령", listOf(decree), null, emptyList(), emptyList(), emptyList()),
+        )
+        return com.hdlee73.everylaw.core.model.DelegationTree(
+            query = com.hdlee73.everylaw.core.model.LawQuery("은행법 제34조", "은행법", ArticleNo.of("34")),
+            law = com.hdlee73.everylaw.core.model.LawSummary("1", "1", "은행법", null, "법률", null),
+            root = root,
+        )
+    }
+
+    private fun entries(bytes: ByteArray) =
+        java.util.zip.ZipInputStream(bytes.inputStream()).use { z -> generateSequence { z.nextEntry }.associate { it.name to z.readBytes().toString(Charsets.UTF_8) } }
+
+    @Test fun writesValidPackageForBothModes() {
+        for (compare in listOf(false, true)) {
+            val out = java.io.ByteArrayOutputStream()
+            com.hdlee73.everylaw.core.domain.HwpxExporter.write(tree(), compare, setOf(LawLevel.DECREE), out)
+            val files = entries(out.toByteArray())
+            assertEquals("application/hwp+zip", files["mimetype"])
+            val section = files.getValue("Contents/section0.xml")
+            assertTrue(section.contains("셋째 항"))
+            assertTrue(section.contains("&amp; &lt;기타&gt;"))
+            assertEquals(compare, section.contains("<hp:tbl"))
+            // 모든 XML이 올바른 형식인지
+            files.filterKeys { it.endsWith(".xml") || it.endsWith(".hpf") || it.endsWith(".rdf") }.forEach { (_, xml) ->
+                javax.xml.parsers.DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }.newDocumentBuilder().parse(xml.byteInputStream())
+            }
+            java.io.File(System.getProperty("java.io.tmpdir"), "hwpx-test-${if (compare) "compare" else "seq"}.hwpx").writeBytes(out.toByteArray())
+        }
+    }
+}

@@ -96,6 +96,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import io.github.hdlee73.financenewsradar.law.tree.LawTreeView
 import io.github.hdlee73.financenewsradar.law.tree.PdfExporter
 import io.github.hdlee73.financenewsradar.law.tree.PdfOptions
+import io.github.hdlee73.financenewsradar.law.tree.SaveFormat
 import io.github.hdlee73.financenewsradar.law.tree.PdfOptionsDialog
 import io.github.hdlee73.financenewsradar.law.tree.PrecedentRow
 import kotlinx.coroutines.launch
@@ -360,6 +361,15 @@ private fun TreeActions(
                 .onFailure { Toast.makeText(context, "PDF 저장 실패: ${it.message}", Toast.LENGTH_LONG).show() }
         }
     }
+    val hwpxLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(SaveFormat.HWPX.mime)) { uri ->
+        if (uri != null) scope.launch {
+            Toast.makeText(context, "한글 문서를 만드는 중이에요", Toast.LENGTH_SHORT).show()
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { PdfExporter.writeHwpx(tree, options, it) } ?: error("파일을 열 수 없어요")
+            }.onSuccess { Toast.makeText(context, "한글(HWPX) 문서를 저장했어요", Toast.LENGTH_SHORT).show() }
+                .onFailure { Toast.makeText(context, "HWPX 저장 실패: ${it.message}", Toast.LENGTH_LONG).show() }
+        }
+    }
     chooseFor?.let { share ->
         PdfOptionsDialog(
             initial = options,
@@ -369,10 +379,11 @@ private fun TreeActions(
                 options = chosen
                 chooseFor = null
                 if (share) scope.launch {
-                    Toast.makeText(context, "PDF를 만드는 중이에요", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "${chosen.format.label} 문서를 만드는 중이에요", Toast.LENGTH_SHORT).show()
                     runCatching { PdfExporter.share(context, tree, chosen, buildExtras(chosen)) }
-                        .onFailure { Toast.makeText(context, "PDF 공유 실패: ${it.message}", Toast.LENGTH_LONG).show() }
-                } else saveLauncher.launch(PdfExporter.fileName(tree))
+                        .onFailure { Toast.makeText(context, "공유 실패: ${it.message}", Toast.LENGTH_LONG).show() }
+                } else if (chosen.format == SaveFormat.HWPX) hwpxLauncher.launch(PdfExporter.fileName(tree, "hwpx"))
+                else saveLauncher.launch(PdfExporter.fileName(tree))
             },
         )
     }
@@ -382,7 +393,7 @@ private fun TreeActions(
     var menuOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { chooseFor = false }) { Icon(Icons.Outlined.PictureAsPdf, "PDF 저장") }
+        IconButton(onClick = { chooseFor = false }) { Icon(Icons.Outlined.PictureAsPdf, "PDF·한글 저장") }
         IconButton(onClick = { chooseFor = true }) { Icon(Icons.Outlined.Share, "공유") }
         IconButton(onClick = { showCompare = true }) { Icon(Icons.Outlined.TableChart, "비교표 보기") }
         IconButton(onClick = { showFilter = !showFilter }) {
