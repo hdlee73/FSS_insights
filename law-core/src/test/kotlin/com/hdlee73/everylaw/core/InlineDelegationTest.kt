@@ -209,4 +209,70 @@ class HwpxExporterTest {
             java.io.File(System.getProperty("java.io.tmpdir"), "hwpx-test-${if (compare) "compare" else "seq"}.hwpx").writeBytes(out.toByteArray())
         }
     }
+
+    @Test fun fullOptionsMatchPdfContent() {
+        val extras = com.hdlee73.everylaw.core.model.PdfExtras(
+            precedents = listOf(
+                com.hdlee73.everylaw.core.model.PrecedentDetail(
+                    com.hdlee73.everylaw.core.model.PrecedentSummary("1", "은행 건전경영 사건", "2020다1", "20200101", "대법원", null, null),
+                    "판시사항 내용", "판결요지 내용", "은행법 제34조", "", "",
+                ),
+            ),
+            relatedArticles = listOf(Article(ArticleNo.of("35"), "대출", "제35조(대출) ① 인용 조문 본문이다.")),
+        )
+        for (compare in listOf(false, true)) {
+            val out = java.io.ByteArrayOutputStream()
+            com.hdlee73.everylaw.core.domain.HwpxExporter.write(
+                tree(),
+                com.hdlee73.everylaw.core.domain.HwpxOptions(
+                    compare = compare, levels = setOf(LawLevel.DECREE, LawLevel.RULE), paperLabel = "B4", paperWidthPt = 709, paperHeightPt = 1001,
+                    precedentBodies = true, relatedArticles = true, extras = extras, footer = "FSS Insights test",
+                ),
+                out,
+            )
+            val files = entries(out.toByteArray())
+            val section = files.getValue("Contents/section0.xml")
+            listOf("판례 본문 (1건)", "판시사항 내용", "인용 조문 (1건)", "인용 조문 본문이다", "FSS Insights test", "pageNum").forEach { assertTrue(it, section.contains(it)) }
+            assertEquals(compare, section.contains("""landscape="NARROWLY" width="100100" height="70900""""))
+            if (compare) {
+                // 제목 줄은 가운데 정렬(paraPr 20)과 단계 색 바탕을 쓴다
+                assertTrue(section.contains("""paraPrIDRef="20""""))
+                assertTrue(section.contains("""borderFillIDRef="5""""))
+            }
+            files.filterKeys { it.endsWith(".xml") || it.endsWith(".hpf") || it.endsWith(".rdf") }.forEach { (_, xml) ->
+                javax.xml.parsers.DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }.newDocumentBuilder().parse(xml.byteInputStream())
+            }
+            java.io.File(System.getProperty("java.io.tmpdir"), "hwpx-full-${if (compare) "compare" else "seq"}.hwpx").writeBytes(out.toByteArray())
+        }
+    }
+
+    @Test fun longCompareCellIsSplitIntoPageSizedRows() {
+        val longDecree = Article(
+            ArticleNo.of("9"), "세부",
+            "제9조(세부) 법 제34조제3항에 따라 정한다.\n" + (1..160).joinToString("\n") { "$it. 은행업 인가의 세부요건으로서 충분히 긴 문장을 반복해서 한 칸이 여러 쪽에 걸치도록 만든다 ($it)" },
+        )
+        val root = DelegationTreeBuilder().build(
+            DelegationTreeBuilder.Input("은행법", law, "은행법 시행령", listOf(longDecree), null, emptyList(), emptyList(), emptyList()),
+        )
+        val tree = com.hdlee73.everylaw.core.model.DelegationTree(
+            query = com.hdlee73.everylaw.core.model.LawQuery("은행법 제34조", "은행법", ArticleNo.of("34")),
+            law = com.hdlee73.everylaw.core.model.LawSummary("1", "1", "은행법", null, "법률", null),
+            root = root,
+        )
+        val out = java.io.ByteArrayOutputStream()
+        com.hdlee73.everylaw.core.domain.HwpxExporter.write(tree, true, setOf(LawLevel.DECREE, LawLevel.RULE), out)
+        val section = entries(out.toByteArray()).getValue("Contents/section0.xml")
+        val trs = Regex("<hp:tr>").findAll(section).count()
+        val rowCnt = Regex("""rowCnt="(\d+)"""").find(section)!!.groupValues[1].toInt()
+        assertEquals(trs, rowCnt)
+        // 글자처럼 취급하지 않아야 쪽 경계에서 표가 나뉜다
+        assertTrue(section.contains("""treatAsChar="0""""))
+        assertTrue(section.contains("""pageBreak="TABLE""""))
+        assertTrue("긴 칸은 여러 행으로 나뉘어야 해요: $trs", trs >= 4)
+        // 행마다 칸 높이(1/100pt)가 쪽 본문 높이(A4 가로 59500-9600)를 넘지 않는다
+        Regex("""<hp:cellSz width="\d+" height="(\d+)"/>""").findAll(section).forEach {
+            assertTrue("행 높이 ${it.groupValues[1]}", it.groupValues[1].toInt() < 49900)
+        }
+        java.io.File(System.getProperty("java.io.tmpdir"), "hwpx-long.hwpx").writeBytes(out.toByteArray())
+    }
 }

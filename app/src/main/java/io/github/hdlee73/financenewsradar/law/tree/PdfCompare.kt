@@ -37,7 +37,7 @@ internal object PdfCompare {
                 val x = PdfExporter.MARGIN + colW * i
                 val fill = Paint().apply { color = PdfExporter.levelColor.getValue(lv) }
                 c.drawRect(x, w.y, x + colW, w.y + 18f, fill)
-                c.drawText(lv.label, x + PAD, w.y + 12.5f, label)
+                c.drawText(lv.label, x + (colW - label.measureText(lv.label)) / 2f, w.y + 12.5f, label)
             }
             w.y += 18f
         }

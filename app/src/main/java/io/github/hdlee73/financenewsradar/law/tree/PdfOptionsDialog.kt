@@ -62,12 +62,8 @@ fun PdfOptionsDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = if (columns.size >= 2) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                 )
-                if (format == SaveFormat.PDF) {
-                    Text("용지", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 10.dp))
-                    PdfPaper.entries.forEach { p -> ChoiceRow(p.label, selected = paper == p) { paper = p } }
-                } else {
-                    Text("한글(HWPX)은 조문·하위 규정·비교표를 담고, 판례와 인용 조문은 PDF에서만 담깁니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
-                }
+                Text("용지", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 10.dp))
+                PdfPaper.entries.forEach { p -> ChoiceRow(p.label, selected = paper == p) { paper = p } }
                 Text("법령", modifier = Modifier.padding(top = 10.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 OptionRow("법률 조문 (항상 포함)", checked = true, enabled = false) {}
                 LawLevel.entries.filter { it != LawLevel.LAW }.forEach { lv ->
