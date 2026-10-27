@@ -72,7 +72,7 @@ object HwpxExporter {
         val landscape = options.compare && CompareTable.columns(levels).size >= 2
         val pageW = if (landscape) options.paperHeightPt * 100 else options.paperWidthPt * 100
         val pageH = if (landscape) options.paperWidthPt * 100 else options.paperHeightPt * 100
-        val body = Body()
+        val body = Body().also { it.pageTextWidth = pageW - MARGIN * 2 }
         body.paragraph("FSS Insights 위임 법령 조회 결과", C_TITLE)
         body.paragraph("${tree.law.name} ${tree.query.target}", C_SUBTITLE)
         body.paragraph(
@@ -95,7 +95,7 @@ object HwpxExporter {
         tree.warnings.forEach { body.paragraph("※ $it", C_GRAY) }
         body.paragraph("")
 
-        if (landscape) compareTable(body, tree.root, levels, pageW) else sequential(body, tree.root, levels)
+        if (landscape) compareTable(body, tree.root, levels, pageW, pageH) else sequential(body, tree.root, levels)
 
         val cited = keep(tree.cited, levels)
         if (cited.isNotEmpty()) {
@@ -221,8 +221,45 @@ object HwpxExporter {
 
     private class Line(val text: String, val char: Int, val para: Int = pIndent(0))
 
-    /** 비교표: 법률을 첫 열로, 고른 단계를 열로 놓는다. 하위 규정 칸은 위임받은 항·호가 시작하는 줄과 같은 줄에서 시작한다. */
-    private fun compareTable(body: Body, root: LawNode, levels: Set<LawLevel>, pageW: Int) {
+    /** 글자 모양 번호별 글자 크기(1/100 pt). header.xml 의 charPr 높이와 같아야 한다. */
+    private val charSize = mapOf(
+        0 to 1000, 2 to 900, 8 to 950, 9 to 1800, 10 to 1400, 11 to 900, 12 to 950, 13 to 1100, 14 to 1300,
+        15 to 850, 16 to 900, 17 to 900, 18 to 900, 19 to 900, 20 to 900, 21 to 900, 22 to 1000, 23 to 800, 24 to 850, 25 to 850,
+    )
+    private fun sizeOf(char: Int) = charSize[char] ?: 1000
+
+    /** 줄 간격 130%에 글꼴 여유를 더한 한 줄 높이(글자 크기의 배수) */
+    private const val LINE_FACTOR = 1.38
+    private const val CELL_PAD = 400
+
+    /** 한글·한자·전각 기호는 글자 크기만큼, 영문·숫자·공백은 그보다 좁게 어림해 [widthUnits] 안에서 줄을 나눈다. */
+    private fun wrap(text: String, widthUnits: Double, size: Int): List<String> {
+        if (text.isEmpty()) return listOf("")
+        val out = mutableListOf<String>()
+        val cur = StringBuilder()
+        var w = 0.0
+        for (ch in text) {
+            val cw = size * (if (ch.code >= 0x1100) 1.0 else 0.55)
+            if (cur.isNotEmpty() && w + cw > widthUnits) {
+                out += cur.toString()
+                cur.setLength(0); w = 0.0
+                if (ch == ' ') continue
+            }
+            cur.append(ch); w += cw
+        }
+        if (cur.isNotEmpty()) out += cur.toString()
+        return out
+    }
+
+    private fun visual(lines: List<Line>, widthUnits: Double): List<Line> =
+        lines.flatMap { l -> wrap(l.text, widthUnits, sizeOf(l.char)).map { Line(it, l.char, l.para) } }
+
+    /**
+     * 비교표: 법률을 첫 열로, 고른 단계를 열로 놓는다. 하위 규정 칸은 위임받은 항·호가 시작하는 줄과 같은 줄에서 시작한다.
+     * 한글은 한 칸이 쪽보다 길면 나누지 못해 표가 쪽 밖으로 넘치므로, 줄 수를 어림해 칸을 쪽 높이에 맞는 행으로 직접 나눈다.
+     * (PDF 비교표가 쪽마다 칸을 끊어 그리는 것과 같다.)
+     */
+    private fun compareTable(body: Body, root: LawNode, levels: Set<LawLevel>, pageW: Int, pageH: Int) {
         val cols = CompareTable.columns(levels)
         val rows = CompareTable.build(root, levels)
         val total = pageW - MARGIN * 2
@@ -230,39 +267,64 @@ object HwpxExporter {
         val cellChar = if (cols.size <= 3) 2 else 24
         val cellBold = if (cols.size <= 3) C_CELL_BOLD else 25
         val headH = 1800
+        val wrapW = (colW - CELL_PAD * 2) * 0.93
+        val lineH = sizeOf(cellChar) * LINE_FACTOR
+        val pageAvail = (pageH - MARGIN * 2) * 0.95
+
+        // 한 줄이 한 쪽 칸(행) 단위로 들어갈 조각들
+        class Chunk(val cells: List<List<Line>>)
+        val chunks = mutableListOf<Chunk>()
+        var y = body.usedHeight() % pageAvail + headH
+        rows.forEach { row ->
+            val lawLines = visual(row.lawText.lines().map { Line(it, cellChar) }, wrapW)
+            val leadLogical = row.lawText.take(row.anchorStart.coerceIn(0, row.lawText.length)).count { it == '\n' }
+            val lead = row.lawText.lines().take(leadLogical).sumOf { wrap(it, wrapW, sizeOf(cellChar)).size }
+            val colLines = listOf(lawLines) + cols.drop(1).map { lv ->
+                val lines = mutableListOf<Line>()
+                row.cells[lv].orEmpty().forEachIndexed { i, n ->
+                    if (i > 0) lines += Line("", cellChar)
+                    lines += Line(n.displayHeading.ifBlank { n.sourceName }, cellBold)
+                    if (lv.ordinal >= LawLevel.SUPERVISORY_REGULATION.ordinal) lines += Line(n.sourceName, C_GRAY)
+                    n.article.body.lines().forEach { lines += Line(it, cellChar) }
+                }
+                val vis = visual(lines, wrapW)
+                if (vis.isEmpty()) vis else List(lead) { Line("", cellChar) } + vis
+            }
+            val n = colLines.maxOf { it.size }
+            var idx = 0
+            while (idx < n) {
+                var k = ((pageAvail - y - CELL_PAD * 2) / lineH).toInt()
+                if (k < 3 && y > headH) { y = headH.toDouble(); k = ((pageAvail - y - CELL_PAD * 2) / lineH).toInt() }
+                val take = k.coerceAtLeast(1).coerceAtMost(n - idx)
+                chunks += Chunk(colLines.map { it.drop(idx).take(take) })
+                y += take * lineH + CELL_PAD * 2
+                idx += take
+                if (idx < n) y = headH.toDouble()
+            }
+        }
+        if (chunks.isEmpty()) chunks += Chunk(cols.map { emptyList() })
+
         val sb = StringBuilder()
-        sb.append("""<hp:tbl id="${body.nextId()}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="1" rowCnt="${rows.size + 1}" colCnt="${cols.size}" cellSpacing="0" borderFillIDRef="3" noAdjust="0">""")
-        sb.append("""<hp:sz width="${colW * cols.size}" widthRelTo="ABSOLUTE" height="${headH + 282 * rows.size}" heightRelTo="ABSOLUTE" protect="0"/>""")
+        sb.append("""<hp:tbl id="${body.nextId()}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="1" rowCnt="${chunks.size + 1}" colCnt="${cols.size}" cellSpacing="0" borderFillIDRef="3" noAdjust="0">""")
+        val tableH = headH + chunks.sumOf { c -> (c.cells.maxOf { it.size } * lineH + CELL_PAD * 2).toInt() }
+        sb.append("""<hp:sz width="${colW * cols.size}" widthRelTo="ABSOLUTE" height="$tableH" heightRelTo="ABSOLUTE" protect="0"/>""")
         sb.append("""<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>""")
-        sb.append("""<hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:inMargin left="400" right="400" top="400" bottom="400"/>""")
-        fun cell(row: Int, col: Int, lines: List<Line>, header: LawLevel?) {
+        sb.append("""<hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:inMargin left="$CELL_PAD" right="$CELL_PAD" top="$CELL_PAD" bottom="$CELL_PAD"/>""")
+        fun cell(row: Int, col: Int, lines: List<Line>, header: LawLevel?, height: Int) {
             if (col == 0) sb.append("<hp:tr>")
             val fill = if (header != null) 4 + header.ordinal else 3
             sb.append("""<hp:tc name="" header="${if (header != null) 1 else 0}" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="$fill">""")
             sb.append("""<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="${if (header != null) "CENTER" else "TOP"}" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">""")
             (lines.ifEmpty { listOf(Line("", cellChar)) }).forEach { sb.append(paragraphXml(body.nextId(), it.text, it.char, it.para)) }
             sb.append("</hp:subList>")
-            sb.append("""<hp:cellAddr colAddr="$col" rowAddr="$row"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="$colW" height="${if (header != null) headH else 282}"/><hp:cellMargin left="400" right="400" top="400" bottom="400"/></hp:tc>""")
+            sb.append("""<hp:cellAddr colAddr="$col" rowAddr="$row"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="$colW" height="$height"/><hp:cellMargin left="$CELL_PAD" right="$CELL_PAD" top="$CELL_PAD" bottom="$CELL_PAD"/></hp:tc>""")
             if (col == cols.size - 1) sb.append("</hp:tr>")
         }
         // 제목 줄: 단계 색 바탕에 흰 글씨, 가운데 정렬
-        cols.forEachIndexed { c, lv -> cell(0, c, listOf(Line(lv.label, C_HDR, P_CENTER)), lv) }
-        rows.forEachIndexed { r, row ->
-            val lead = row.lawText.take(row.anchorStart.coerceIn(0, row.lawText.length)).count { it == '\n' }
-            cols.forEachIndexed { c, lv ->
-                if (c == 0) cell(r + 1, 0, row.lawText.lines().map { Line(it, cellChar) }, null)
-                else {
-                    val lines = mutableListOf<Line>()
-                    repeat(lead) { lines += Line("", cellChar) }
-                    row.cells[lv].orEmpty().forEachIndexed { i, n ->
-                        if (i > 0) lines += Line("", cellChar)
-                        lines += Line(n.displayHeading.ifBlank { n.sourceName }, cellBold)
-                        if (lv.ordinal >= LawLevel.SUPERVISORY_REGULATION.ordinal) lines += Line(n.sourceName, C_GRAY)
-                        n.article.body.lines().forEach { lines += Line(it, cellChar) }
-                    }
-                    cell(r + 1, c, lines, null)
-                }
-            }
+        cols.forEachIndexed { c, lv -> cell(0, c, listOf(Line(lv.label, C_HDR, P_CENTER)), lv, headH) }
+        chunks.forEachIndexed { r, chunk ->
+            val h = (chunk.cells.maxOf { it.size } * lineH + CELL_PAD * 2).toInt()
+            cols.indices.forEach { c -> cell(r + 1, c, chunk.cells[c], null, h) }
         }
         sb.append("</hp:tbl>")
         body.raw("""<hp:p id="${body.nextId()}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0">$sb<hp:t/></hp:run></hp:p>""")
@@ -273,7 +335,14 @@ object HwpxExporter {
         private var id = 1000000
         fun nextId(): Int = id++
         /** [depth]는 들여쓰기 단계(한 단계 14pt) */
-        fun paragraph(text: String, char: Int = C_BODY, depth: Int = 0) { sb.append(paragraphXml(nextId(), text, char, pIndent(depth))) }
+        fun paragraph(text: String, char: Int = C_BODY, depth: Int = 0) {
+            sb.append(paragraphXml(nextId(), text, char, pIndent(depth)))
+            used += sizeOf(char) * 1.3 * wrap(text, (pageTextWidth - depth * 1400).toDouble(), sizeOf(char)).size
+        }
+        /** 표 앞에 이미 쓴 내용의 높이 어림(쪽 첫머리 채우기 계산용) */
+        private var used = 0.0
+        var pageTextWidth = 0
+        fun usedHeight(): Double = used
         fun raw(xml: String) { sb.append(xml) }
         fun xml(): String = sb.toString()
     }
