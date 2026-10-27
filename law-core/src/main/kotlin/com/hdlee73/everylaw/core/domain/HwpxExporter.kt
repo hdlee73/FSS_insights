@@ -256,14 +256,15 @@ object HwpxExporter {
 
     /**
      * 비교표: 법률을 첫 열로, 고른 단계를 열로 놓는다. 하위 규정 칸은 위임받은 항·호가 시작하는 줄과 같은 줄에서 시작한다.
-     * 한글은 한 칸이 쪽보다 길면 나누지 못해 표가 쪽 밖으로 넘치므로, 줄 수를 어림해 칸을 쪽 높이에 맞는 행으로 직접 나눈다.
+     * 표는 "글자처럼 취급"하지 않는다(글자처럼 취급한 표는 한 줄 안에 통째로 놓여 쪽을 넘기지 못하고 잘린다).
+     * 한글은 한 칸이 쪽보다 길면 나누지 못하므로, 줄 수를 어림해 칸을 쪽 높이에 맞는 행으로 직접 나눈다.
      * (PDF 비교표가 쪽마다 칸을 끊어 그리는 것과 같다.)
      */
     private fun compareTable(body: Body, root: LawNode, levels: Set<LawLevel>, pageW: Int, pageH: Int) {
         val cols = CompareTable.columns(levels)
         val rows = CompareTable.build(root, levels)
         val total = pageW - MARGIN * 2
-        val colW = total / cols.size
+        val colW = (total - 100) / cols.size
         val cellChar = if (cols.size <= 3) 2 else 24
         val cellBold = if (cols.size <= 3) C_CELL_BOLD else 25
         val headH = 1800
@@ -305,10 +306,10 @@ object HwpxExporter {
         if (chunks.isEmpty()) chunks += Chunk(cols.map { emptyList() })
 
         val sb = StringBuilder()
-        sb.append("""<hp:tbl id="${body.nextId()}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="1" rowCnt="${chunks.size + 1}" colCnt="${cols.size}" cellSpacing="0" borderFillIDRef="3" noAdjust="0">""")
+        sb.append("""<hp:tbl id="${body.nextId()}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="TABLE" repeatHeader="1" rowCnt="${chunks.size + 1}" colCnt="${cols.size}" cellSpacing="0" borderFillIDRef="3" noAdjust="0">""")
         val tableH = headH + chunks.sumOf { c -> (c.cells.maxOf { it.size } * lineH + CELL_PAD * 2).toInt() }
         sb.append("""<hp:sz width="${colW * cols.size}" widthRelTo="ABSOLUTE" height="$tableH" heightRelTo="ABSOLUTE" protect="0"/>""")
-        sb.append("""<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>""")
+        sb.append("""<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>""")
         sb.append("""<hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:inMargin left="$CELL_PAD" right="$CELL_PAD" top="$CELL_PAD" bottom="$CELL_PAD"/>""")
         fun cell(row: Int, col: Int, lines: List<Line>, header: LawLevel?, height: Int) {
             if (col == 0) sb.append("<hp:tr>")

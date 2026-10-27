@@ -265,6 +265,9 @@ class HwpxExporterTest {
         val trs = Regex("<hp:tr>").findAll(section).count()
         val rowCnt = Regex("""rowCnt="(\d+)"""").find(section)!!.groupValues[1].toInt()
         assertEquals(trs, rowCnt)
+        // 글자처럼 취급하지 않아야 쪽 경계에서 표가 나뉜다
+        assertTrue(section.contains("""treatAsChar="0""""))
+        assertTrue(section.contains("""pageBreak="TABLE""""))
         assertTrue("긴 칸은 여러 행으로 나뉘어야 해요: $trs", trs >= 4)
         // 행마다 칸 높이(1/100pt)가 쪽 본문 높이(A4 가로 59500-9600)를 넘지 않는다
         Regex("""<hp:cellSz width="\d+" height="(\d+)"/>""").findAll(section).forEach {
