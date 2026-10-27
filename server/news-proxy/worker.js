@@ -82,6 +82,11 @@ async function law(url, env, ctx) {
   if (hit) return hit;
   const res = await fetch(`${LAW_ORIGIN}${path}?${params}`);
   const body = await res.text();
+  // 법령 서버가 차단·인증 오류 때 200으로 HTML 안내 페이지를 보내기도 한다. XML이 아니면 캐시하지 않고 분명한 오류로 돌려준다.
+  if (!/^\s*(<\?xml|<[A-Za-z가-힣])/.test(body) || /^\s*<(!DOCTYPE html|html)/i.test(body)) {
+    const text = body.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+    return fail(502, `법령 서버가 XML이 아닌 응답을 보냈습니다(HTTP ${res.status}): ${text}`);
+  }
   const out = new Response(body, {
     status: res.status,
     headers: { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" },

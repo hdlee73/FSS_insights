@@ -66,10 +66,22 @@ class XmlNode(
                 runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
                 runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
             }
+            val text = xml.trimStart('\uFEFF', ' ', '\n', '\r', '\t')
+            val head = text.take(400)
+            if (!text.startsWith("<") || head.startsWith("<!DOCTYPE html", true) || head.startsWith("<html", true)) {
+                throw java.io.IOException("법령 서버가 XML이 아닌 응답을 보냈어요: ${snippet(text)}")
+            }
             val handler = TreeHandler()
-            factory.newSAXParser().parse(InputSource(StringReader(xml.trimStart('\uFEFF'))), handler)
+            try {
+                factory.newSAXParser().parse(InputSource(StringReader(text)), handler)
+            } catch (e: org.xml.sax.SAXException) {
+                throw java.io.IOException("법령 서버 응답을 읽지 못했어요(${e.message}): ${snippet(text)}", e)
+            }
             return handler.result ?: throw org.xml.sax.SAXException("빈 XML 문서")
         }
+
+        private fun snippet(text: String): String =
+            text.replace(Regex("<[^>]*>"), " ").replace(Regex("\\s+"), " ").trim().take(120).ifEmpty { text.take(120) }
 
         private class Frame(val name: String, val attrs: Map<String, String>) {
             val text = StringBuilder()
