@@ -1,11 +1,11 @@
-# FSS Insights v2.0.4
+# FSS Insights v2.0.5
 
 만든이: 이현덕 (hdlee73@gmail.com)
 
-## v2.0.4 변경 내용
+## v2.0.5 변경 내용
 
 **📥 새 APK 바로 받기 (누르면 휴대폰 다운로드 폴더에 저장됩니다)**
-https://github.com/hdlee73/FSS_insights/releases/download/v2.0.4/fss-insights-v2.0.4.apk
+https://github.com/hdlee73/FSS_insights/releases/download/v2.0.5/fss-insights-v2.0.5.apk
 
 최신 릴리스 페이지: https://github.com/hdlee73/FSS_insights/releases/latest
 
@@ -14,7 +14,7 @@ https://github.com/hdlee73/FSS_insights/releases/download/v2.0.4/fss-insights-v2
 **⚠️ 2.0.0 이전 버전에서 올라오려면 기존 앱을 삭제한 뒤 새로 설치해야 합니다.** 앱 보안을 위해 서명키를 교체해서 기존 앱 위에 바로 설치(업데이트)할 수 없습니다. 아래 순서대로 한 번만 하시면 되고, 이후 업데이트는 다시 앱에서 자동으로 설치됩니다.
 
 1. 설정 캡처: 삭제하면 관심종목·알림·키워드 설정이 사라집니다. 지우기 전에 설정 화면을 캡처하거나 적어 두세요.
-2. 새 APK 내려받기: 이 페이지 아래 Assets의 `fss-insights-v2.0.4.apk`를 눌러 내려받습니다.
+2. 새 APK 내려받기: 이 페이지 아래 Assets의 `fss-insights-v2.0.5.apk`를 눌러 내려받습니다.
 3. 기존 앱 삭제: 휴대폰 설정 > 앱 > FSS Insights > 삭제 (또는 앱 아이콘을 길게 눌러 '앱 삭제').
 4. 새 APK 설치: 내려받은 파일을 눌러 설치합니다. '출처를 알 수 없는 앱' 허용 창이 나오면 사용 중인 앱(Chrome, 내 파일 등)에 대해 허용한 뒤 설치합니다.
 5. 알림 허용 후 관심종목·알림 설정을 다시 맞춥니다.
@@ -22,14 +22,12 @@ https://github.com/hdlee73/FSS_insights/releases/download/v2.0.4/fss-insights-v2
 (앱에서 "지금 업데이트"를 눌렀을 때 "앱이 설치되지 않았습니다"가 나오면 정상이니 위 순서대로 삭제 후 설치해 주세요.)
 
 **이번 버전 변경**:
-- 한글(HWPX) 저장을 PDF와 같게: 저장 창 메뉴(용지 선택)와 담기는 내용(판례 본문·인용 조문), 색 제목·쪽 번호 등 서식 통일
-- HWPX 비교표가 쪽을 넘어 잘리던 문제 수정(쪽 경계에서 나뉘어 이어짐)
-- 비교표 제목줄(법률·시행령·시행규칙·감독규정·시행세칙) 가운데 정렬(PDF·HWPX)
+- 스마트 법령검색에서 "mismatched tag" 오류 대응 보강: 법령 서버가 일시적으로 엉뚱한 응답을 보내면 자동으로 다시 시도하고, 그래도 안 되면 원인을 알려 주는 안내를 표시
 (2.0.0 이전에서 오신 분만 위 삭제 후 재설치가 필요하고, 2.0.1 이상 사용자는 앱에서 바로 업데이트됩니다.)
 
 ## 처음 설치하는 분
 
-1. 휴대폰(Android 8.0 이상)에서 아래 Assets의 `fss-insights-v2.0.4.apk`를 내려받습니다.
+1. 휴대폰(Android 8.0 이상)에서 아래 Assets의 `fss-insights-v2.0.5.apk`를 내려받습니다.
 2. 내려받은 파일을 눌러 설치합니다. '출처를 알 수 없는 앱' 허용 창이 나오면 사용 중인 앱(Chrome, 내 파일 등)에 대해 허용한 뒤 다시 설치합니다.
 3. 앱을 열고 처음 안내 문구를 확인한 뒤, 알림을 허용합니다.
 4. 이후 새 버전은 앱을 열 때와 백그라운드 확인으로 알려 주며, 앱 안에서 바로 업데이트할 수 있습니다.
