@@ -1,9 +1,8 @@
-// 기업공시(DART, KIND, /dart): 금융감독원 전자공시(DART) Open API 중계와 KIND 공시 목록 읽기.
-// DART 인증키는 서버 비밀값(DART_API_KEY)으로만 존재한다. KIND는 키가 없는 공개 웹 목록을 읽는다.
+// 기업 개황 및 공시(DART, /dart): 금융감독원 전자공시(DART) Open API 중계.
+// DART 인증키는 서버 비밀값(DART_API_KEY)으로만 존재한다.
 import dartCorps from "./dart-corps.json";
 
 const DART = "https://opendart.fss.or.kr/api";
-const KIND = "https://kind.krx.co.kr";
 
 /** 오류 문구에 인증키가 섞여 나가지 않게 crtfc_key 값을 가린다. */
 export const redact = (text) => String(text || "").replace(/crtfc_key=[^&\s"'<>]*/gi, "crtfc_key=***");
@@ -20,7 +19,7 @@ function corpIndex() {
 }
 
 /** 회사명 또는 종목코드 검색. 이름이 일치할수록, 상장사일수록 앞에 둔다. */
-export function searchCorps(query, limit = 30) {
+export function searchCorps(query, limit = 15) {
   const q = norm(query);
   if (!q) return [];
   const isCode = /^\d{6}$/.test(q);
@@ -36,6 +35,18 @@ export function searchCorps(query, limit = 30) {
   }
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, limit).map(({ c }) => ({ corp: c.code, name: c.name, stock: c.stock, cls: c.cls }));
+}
+
+/** 검색 결과의 시장 구분을 DART 기업개황(corp_cls) 기준으로 맞춘다. 실패한 곳은 목록의 값을 그대로 둔다. */
+export async function withDartClass(items, lookup) {
+  return Promise.all(items.map(async (it) => {
+    try {
+      const c = await lookup(it.corp);
+      return { ...it, cls: c.cls, stock: c.stock || it.stock };
+    } catch {
+      return it;
+    }
+  }));
 }
 
 export const corpCount = () => corpIndex().length;
@@ -149,7 +160,7 @@ export async function holders(env, corp) {
   return { basis: "", items: [], totalCommon: null, totalPref: null };
 }
 
-const PBLNTF = { a: ["A"], f: ["F"], e: ["B", "D", "E", "I"] };
+const PBLNTF = { a: ["A"], m: ["B"], e: ["D", "E", "I"] };
 const DART_VIEW = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=";
 
 const ymdOk = (v) => /^\d{8}$/.test(String(v || ""));
@@ -165,12 +176,12 @@ export function dateRange(bgn, end) {
   return { from, to };
 }
 
-/** 공시 목록. type: a 정기보고서, f 감사보고서(외부감사관련), e 기타공시(주요사항·지분·기타·거래소공시). 최대 400건. */
+/** 공시 목록. type: a 정기보고서, m 주요사항보고서, e 기타공시(발행·지분·기타·거래소공시). 최대 400건. */
 export async function filings(env, corp, type, bgn, end) {
   const kinds = PBLNTF[type];
   if (!kinds) throw new Error("공시 종류가 올바르지 않습니다.");
   const { from, to } = dateRange(bgn, end);
-  const maxPages = type === "e" ? 3 : 2;
+  const maxPages = type === "a" ? 2 : 3;
   const page = (ty, n) => dartGet(env, "list", { corp_code: corp, bgn_de: from, end_de: to, pblntf_ty: ty, page_no: String(n), page_count: "100", sort: "date", sort_mth: "desc" });
   const parts = await Promise.all(
     kinds.map(async (ty) => {
@@ -188,52 +199,6 @@ export async function filings(env, corp, type, bgn, end) {
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
     .slice(0, 400);
   return { items, from, to };
-}
-
-const decode = (s) => s.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, " ").trim();
-
-/**
- * KIND(한국거래소) 공시 목록: 회사명으로 최근 2년을 찾는다. KIND는 인증키 방식의 공식 API가 없어 공개 웹 목록의 표를 읽는다.
- * 사이트 구조가 바뀌면 빈 목록을 돌려주며, 이때도 DART 공시는 그대로 쓸 수 있다.
- */
-export async function kindFilings(name, bgn, end) {
-  const { from, to } = dateRange(bgn, end);
-  const dash = (v) => v.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
-  const body = new URLSearchParams({
-    method: "searchDetailsSub",
-    currentPageSize: "100",
-    pageIndex: "1",
-    orderMode: "1",
-    orderStat: "D",
-    forward: "details_sub",
-    searchCodeType: "",
-    searchCorpName: name,
-    reportNm: "",
-    bfrDsclsType: "on",
-    fromDate: dash(from),
-    toDate: dash(to),
-  });
-  const res = await fetch(`${KIND}/disclosure/details.do`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": DART_HEADERS["User-Agent"], Referer: `${KIND}/disclosure/details.do?method=searchDetailsMain` },
-    body,
-  });
-  if (!res.ok) throw new Error(`KIND 응답 ${res.status}`);
-  const html = await res.text();
-  const items = [];
-  for (const row of html.split(/<tr[\s>]/i).slice(1)) {
-    const acpt = /openDisclsViewer\(\s*'(\d{8,})'/.exec(row);
-    if (!acpt) continue;
-    const date = /(\d{4}-\d{2}-\d{2})/.exec(row);
-    const link = new RegExp(`<a[^>]*openDisclsViewer\\(\\s*'${acpt[1]}'[^>]*>([\\s\\S]*?)</a>`, "i").exec(row);
-    const corp = /<a[^>]*id="companysum"[^>]*>([\s\S]*?)<\/a>/i.exec(row);
-    const title = link ? decode(link[1]) : "";
-    if (!title) continue;
-    const who = corp ? decode(corp[1]) : "";
-    if (who && norm(who) !== norm(name)) continue; // 비슷한 이름의 다른 회사 제외
-    items.push({ id: acpt[1], title, date: date ? date[1].replace(/-/g, "") : "", by: who, note: "", url: `${KIND}/common/disclsviewer.do?method=search&acptno=${acpt[1]}`, src: "KIND" });
-  }
-  return { items: items.slice(0, 200) };
 }
 
 // ───────── 재무손익 현황 ─────────

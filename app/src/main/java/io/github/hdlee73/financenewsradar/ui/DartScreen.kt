@@ -134,7 +134,6 @@ data class DartUiState(
     /** 키는 "회사코드|a·f·e|시작|끝". */
     val filings: Map<String, DartLoad<DartFilings>> = emptyMap(),
     /** 키는 "회사코드|시작|끝". */
-    val kind: Map<String, DartLoad<DartFilings>> = emptyMap(),
     val stocks: Map<String, DartLoad<DartStock>> = emptyMap(),
     val intraday: Map<String, DartLoad<IntradaySeries>> = emptyMap()
 )
@@ -306,18 +305,6 @@ class DartViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun ensureKind(corp: DartCorp, period: DartPeriodArg, force: Boolean = false) {
-        if (corp.stock.isBlank()) return
-        val key = "${corp.corp}|${period.from}|${period.to}"
-        if (!force && _state.value.kind[key].let { it is DartLoad.Done || it is DartLoad.Loading }) return
-        _state.update { it.copy(kind = it.kind + (key to DartLoad.Loading)) }
-        viewModelScope.launch {
-            runCatching { api.kind(corp.name, period.from, period.to) }
-                .onSuccess { f -> _state.update { it.copy(kind = it.kind + (key to DartLoad.Done(f))) } }
-                .onFailure { e -> _state.update { it.copy(kind = it.kind + (key to DartLoad.Failed(e.message ?: "불러오지 못했습니다."))) } }
-        }
-    }
-
     /** 이 회사의 공시를 확인했다고 기록한다(새 공시 표시 해제). */
     private fun markSeen(corp: DartCorp) {
         store.setSeen(corp.corp, today())
@@ -338,8 +325,9 @@ class DartViewModel(application: Application) : AndroidViewModel(application) {
                     watch.map { corp ->
                         async {
                             val a = runCatching { api.filings(corp.corp, "a", from, to).items }.getOrDefault(emptyList())
+                            val m = runCatching { api.filings(corp.corp, "m", daysAgo(60), to).items }.getOrDefault(emptyList())
                             val e = runCatching { api.filings(corp.corp, "e", daysAgo(60), to).items }.getOrDefault(emptyList())
-                            (a + e).map { DartFeedItem(corp, it) }
+                            (a + m + e).map { DartFeedItem(corp, it) }
                         }
                     }.awaitAll().flatten()
                 }
@@ -380,8 +368,6 @@ private fun dartChangeColor(change: Double?): Color = when {
     else -> DownBlue
 }
 
-private fun filingTag(f: DartFiling, fallback: String): String = if (f.src == "KIND") "KIND" else fallback
-
 /** 시장 단위 이름표(유가증권·코스닥·코넥스·기타법인)를 색으로 구분해 보여 준다. */
 @Composable
 private fun MarketChip(cls: String, modifier: Modifier = Modifier) {
@@ -391,7 +377,7 @@ private fun MarketChip(cls: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** 기업공시(DART, KIND): 회사를 검색해 개황·최대주주·재무손익·정기/감사/기타 공시와 주가를 보고, 관심기업을 모아 새 공시를 확인한다. */
+/** 기업 개황 및 공시(DART): 회사를 검색해 개황·최대주주·재무손익·정기/주요사항/기타 공시와 주가를 보고, 관심기업을 모아 새 공시를 확인한다. */
 @Composable
 fun DartScreen(viewModel: DartViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -399,7 +385,7 @@ fun DartScreen(viewModel: DartViewModel, modifier: Modifier = Modifier) {
     BackHandler(enabled = selected != null) { viewModel.back() }
     Column(modifier.fillMaxSize()) {
         if (selected == null) {
-            LargeTitle("기업공시(DART, KIND)", subtitle = "회사명·종목코드로 검색 · 관심기업의 새 공시 모아 보기")
+            LargeTitle("기업 개황 및 공시(DART)", subtitle = "회사명·종목코드로 검색 · 관심기업의 새 공시 모아 보기")
             if (!viewModel.isConfigured) CenterMessage("서버가 연결되지 않아 공시를 불러올 수 없습니다.")
             else DartHome(state, viewModel)
         } else {
@@ -478,12 +464,12 @@ private fun DartHome(state: DartUiState, viewModel: DartViewModel) {
                     state.recent.forEach { word -> PillChip(word, onClick = { query = word; viewModel.search(word) }, onPanel = true) }
                 }
             }
-            Text("DART(금융감독원 전자공시)와 KIND(한국거래소) 자료이며 주가는 지연될 수 있습니다.", Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("DART(금융감독원 전자공시) 자료이며 주가는 지연될 수 있습니다.", Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
-private val DART_TABS = listOf("개황", "최대주주", "재무손익", "정기보고서", "감사보고서", "기타공시")
+private val DART_TABS = listOf("개황", "최대주주", "재무손익", "정기보고서", "주요사항보고서", "기타공시")
 
 @Composable
 private fun DartDetail(corp: DartCorp, state: DartUiState, viewModel: DartViewModel) {
@@ -516,11 +502,16 @@ private fun DartDetail(corp: DartCorp, state: DartUiState, viewModel: DartViewMo
             1 -> HoldersTab(state.holders[corp.corp], onRetry = { viewModel.ensureHolders(corp.corp, force = true) })
             2 -> FinanceTab(state.finance[corp.corp], onRetry = { viewModel.ensureFinance(effective, force = true) })
             3 -> FilingsTab(effective, "a", "정기", "기간 안에 정기보고서(사업·반기·분기)가 없습니다.", state, viewModel)
-            4 -> FilingsTab(effective, "f", "감사", "기간 안에 감사보고서가 없습니다.", state, viewModel)
+            4 -> FilingsTab(effective, "m", "주요", "기간 안에 주요사항보고서가 없습니다.", state, viewModel)
             else -> OtherTab(effective, state, viewModel)
         }
     }
 }
+
+private fun monthsAgo(n: Int): String = DAY.format(Calendar.getInstance().apply { add(Calendar.MONTH, -n) }.time)
+
+/** 기간별 차트 시작 날짜(달력 기준, 휴장일이면 그 뒤 첫 거래일부터라 며칠 차이날 수 있다). */
+private val STOCK_START: List<() -> String> = listOf({ today() }, { daysAgo(7) }, { monthsAgo(1) }, { monthsAgo(3) }, { yearsAgo(1) })
 
 private val STOCK_PERIODS = listOf("1일" to 1, "1주" to 5, "1개월" to 21, "3개월" to 63, "1년" to 260)
 
@@ -564,6 +555,12 @@ private fun StockCard(corp: DartCorp, state: DartUiState, viewModel: DartViewMod
                     val slice = s.closes.takeLast(count)
                     if (slice.size >= 2) PriceLine(slice, if (slice.last() >= slice.first()) UpRed else DownBlue, Modifier.fillMaxWidth().height(64.dp))
                 }
+                val startText: String? = if (period == 0) {
+                    (state.intraday[corp.corp] as? DartLoad.Done)?.value?.points?.firstOrNull()?.let { "시작 시가 ${grouped(it)}" }
+                } else {
+                    s.closes.takeLast(count).takeIf { it.size >= 2 }?.let { "시작 ${dateText(STOCK_START[period]())} · ${grouped(it.first())}" }
+                }
+                if (startText != null) Text(startText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     STOCK_PERIODS.forEachIndexed { i, (name, _) -> PillChip(name, onClick = { period = i }, selected = i == period, onPanel = true) }
                 }
@@ -882,7 +879,7 @@ private fun FilingList(items: List<DartFiling>, tagFallback: String) {
     items.take(shown).forEach { f ->
         ListCard(onClick = { runCatching { uri.openUri(f.url) } }) {
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TagLabel(filingTag(f, tagFallback), accent = f.src == "KIND")
+                TagLabel(tagFallback, accent = false)
                 Text(f.title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
             }
             Text(listOf(dateText(f.date), f.by, f.note).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -909,9 +906,9 @@ private fun PeriodBar(period: DartPeriod, onChange: (DartPeriod) -> Unit) {
         val now = nowYm()
         AlertDialog(
             onDismissRequest = { dialog = false },
-            title = { Text("기간 선택 (최대 10년)") },
+            title = { Text("기간 선택", fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     YmStepper("시작", from) { v ->
                         val nf = minOf(v, now)
                         from = nf
@@ -924,7 +921,7 @@ private fun PeriodBar(period: DartPeriod, onChange: (DartPeriod) -> Unit) {
                         if (from > nt) from = nt
                         if (from < addMonths(nt, -120)) from = addMonths(nt, -120)
                     }
-                    Text("시작·종료가 10년을 넘으면 자동으로 맞춥니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("« ‹ › »  1년 / 1개월 단위로 움직입니다. 최대 10년까지 조회할 수 있습니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             confirmButton = { TextButton(onClick = { onChange(DartPeriod(3, from, to)); dialog = false }) { Text("적용") } },
@@ -935,13 +932,28 @@ private fun PeriodBar(period: DartPeriod, onChange: (DartPeriod) -> Unit) {
 
 @Composable
 private fun YmStepper(label: String, ym: Int, onChange: (Int) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.width(44.dp), style = MaterialTheme.typography.bodyMedium)
-        TextButton(onClick = { onChange(addMonths(ym, -12)) }) { Text("−1년") }
-        TextButton(onClick = { onChange(addMonths(ym, -1)) }) { Text("◀") }
-        Text("${ym / 100}년 ${ym % 100}월", Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-        TextButton(onClick = { onChange(addMonths(ym, 1)) }) { Text("▶") }
-        TextButton(onClick = { onChange(addMonths(ym, 12)) }) { Text("+1년") }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                StepButton("«") { onChange(addMonths(ym, -12)) }
+                StepButton("‹") { onChange(addMonths(ym, -1)) }
+                Text(
+                    "${ym / 100}.${String.format(Locale.US, "%02d", ym % 100)}",
+                    Modifier.weight(1f), textAlign = TextAlign.Center, maxLines = 1, softWrap = false,
+                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold
+                )
+                StepButton("›") { onChange(addMonths(ym, 1)) }
+                StepButton("»") { onChange(addMonths(ym, 12)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StepButton(text: String, onClick: () -> Unit) {
+    Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Text(text, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, softWrap = false)
     }
 }
 
@@ -970,37 +982,5 @@ private fun FilingsTab(corp: DartCorp, type: String, tag: String, empty: String,
 
 @Composable
 private fun OtherTab(corp: DartCorp, state: DartUiState, viewModel: DartViewModel) {
-    val (period, setPeriod) = rememberPeriod("${corp.corp}|e")
-    val arg = DartPeriodArg(period.from, period.to)
-    var filter by rememberSaveable { mutableIntStateOf(0) }
-    LaunchedEffect(corp.corp, arg) {
-        viewModel.ensureFilings(corp.corp, "e", arg)
-        viewModel.ensureKind(corp, arg)
-    }
-    PeriodBar(period, setPeriod)
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("전체", "DART", "KIND").forEachIndexed { i, label -> PillChip(label, onClick = { filter = i }, selected = i == filter, onPanel = true) }
-    }
-    val dart = state.filings["${corp.corp}|e|${arg.from}|${arg.to}"]
-    val kind = state.kind["${corp.corp}|${arg.from}|${arg.to}"]
-    val dartItems = (dart as? DartLoad.Done)?.value?.items.orEmpty()
-    val kindDone = (kind as? DartLoad.Done)?.value
-    val kindItems = kindDone?.items.orEmpty()
-    val merged = when (filter) {
-        1 -> dartItems
-        2 -> kindItems
-        else -> (dartItems + kindItems).sortedByDescending { it.date }
-    }
-    val loading = (filter != 2 && (dart == null || dart == DartLoad.Loading)) || (filter != 1 && corp.stock.isNotBlank() && (kind == null || kind == DartLoad.Loading))
-    if (loading && merged.isEmpty()) Box(Modifier.fillMaxWidth().height(120.dp)) { CircularProgressIndicator(Modifier.align(Alignment.Center)) }
-    else if (merged.isEmpty()) {
-        val err = (dart as? DartLoad.Failed)?.message ?: if (filter == 2) (kind as? DartLoad.Failed)?.message ?: kindDone?.error else null
-        CenterMessage(err ?: if (filter == 2 && corp.stock.isBlank()) "비상장사는 KIND 공시가 없습니다." else "기간 안에 기타공시가 없습니다.", isError = err != null, modifier = Modifier.fillMaxWidth().height(180.dp))
-    } else FilingList(merged, "기타")
-    val note = when {
-        filter != 1 && corp.stock.isNotBlank() && ((kind as? DartLoad.Failed) != null || kindDone?.error != null) -> "KIND 공시를 읽지 못해 DART 공시만 보여 줍니다."
-        filter != 1 && corp.stock.isBlank() -> "비상장사는 DART 공시만 있습니다."
-        else -> "DART 주요사항·지분·기타·거래소공시와 KIND 공시 목록입니다. (${dateText(arg.from)} ~ ${dateText(arg.to)})"
-    }
-    Text(note, Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    FilingsTab(corp, "e", "기타", "기간 안에 기타공시가 없습니다.", state, viewModel)
 }

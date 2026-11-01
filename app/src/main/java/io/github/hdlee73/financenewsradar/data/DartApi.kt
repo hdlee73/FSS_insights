@@ -39,7 +39,7 @@ data class DartShare(val shares: Double?, val ratio: Double?)
 data class DartHolder(val name: String, val relation: String, val common: DartShare?, val pref: DartShare?)
 data class DartHolders(val basis: String, val items: List<DartHolder>, val totalCommon: Double?, val totalPref: Double?)
 
-/** [src]는 DART 또는 KIND, [date]는 yyyyMMdd. */
+/** [src]는 출처(DART), [date]는 yyyyMMdd. */
 data class DartFiling(val id: String, val title: String, val date: String, val by: String, val note: String, val url: String, val src: String)
 data class DartFilings(val items: List<DartFiling>, val error: String? = null)
 
@@ -115,7 +115,7 @@ internal fun parseDartFilings(body: String): DartFilings {
     return DartFilings(items, o.optString("error").ifBlank { null })
 }
 
-/** 서버(/dart)로 DART Open API와 KIND 공시를 조회한다. 인증키는 서버에만 있다. */
+/** 서버(/dart)로 DART Open API를 조회한다. 인증키는 서버에만 있다. */
 class DartApi {
     val isConfigured: Boolean get() = NewsProxy.isConfigured
 
@@ -146,13 +146,9 @@ class DartApi {
 
     suspend fun finance(corp: String): DartFinance = withContext(Dispatchers.IO) { parseDartFinance(get("/dart/finance?corp=${enc(corp)}")) }
 
-    /** [type]: a 정기보고서, f 감사보고서, e 기타공시(DART). [from]·[to]는 yyyyMMdd(최대 10년). */
+    /** [type]: a 정기보고서, m 주요사항보고서, e 기타공시. [from]·[to]는 yyyyMMdd(최대 10년). */
     suspend fun filings(corp: String, type: String, from: String, to: String): DartFilings = withContext(Dispatchers.IO) {
         parseDartFilings(get("/dart/filings?corp=${enc(corp)}&type=$type&from=$from&to=$to"))
-    }
-
-    suspend fun kind(name: String, from: String, to: String): DartFilings = withContext(Dispatchers.IO) {
-        parseDartFilings(get("/dart/kind?name=${enc(name)}&from=$from&to=$to"))
     }
 
     /** 연도별 마지막 종가(네이버 연봉). 현재 연도는 진행 중이라 마지막 거래일 종가다. 실패하면 빈 값. */

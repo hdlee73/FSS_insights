@@ -24,18 +24,6 @@ try {
   const dir = mkdtempSync(join(tmpdir(), "dart-"));
   writeFileSync(join(dir, "c.zip"), zip);
   const xml = execFileSync("unzip", ["-p", join(dir, "c.zip")], { maxBuffer: 256 * 1024 * 1024 }).toString("utf8");
-  // 시장 구분: KIND 상장법인 목록에서 시장별(유가증권 Y·코스닥 K·코넥스 N) 종목코드를 받는다. 실패하면 상장사는 유가증권(Y)으로 둔다.
-  const markets = new Map();
-  for (const [type, cls] of [["stockMkt", "Y"], ["kosdaqMkt", "K"], ["konexMkt", "N"]]) {
-    try {
-      const r = await fetch(`https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=${type}`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; FSSInsights/2.1)" } });
-      const html = Buffer.from(await r.arrayBuffer()).toString("latin1");
-      for (const m of html.matchAll(/<td[^>]*>\s*(\d{6})\s*<\/td>/g)) markets.set(m[1], cls);
-    } catch (e) {
-      console.log(`KIND ${type} 목록을 받지 못했습니다:`, e.message);
-    }
-  }
-  console.log(`시장 구분: ${markets.size}종목`);
   const text = (block, tag) => {
     const m = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(block);
     return m ? m[1].trim() : "";
@@ -50,7 +38,7 @@ try {
     const stock = text(block, "stock_code");
     const modified = text(block, "modify_date");
     if (!code || !name) continue;
-    if (stock || modified >= SINCE) corps.push([code, name, stock, stock ? markets.get(stock) || "Y" : "E"]);
+    if (stock || modified >= SINCE) corps.push([code, name, stock, stock ? "Y" : "E"]);
   }
   if (corps.length < 1000) throw new Error(`회사 수가 너무 적습니다(${corps.length}).`);
   writeFileSync(OUT, JSON.stringify({ built: new Date().toISOString().slice(0, 10), corps }));

@@ -3,10 +3,10 @@
 //  - /library : 자료실. 구글 드라이브의 공유 폴더 목록·파일을 읽기 전용으로 중계한다.
 //  - /stats   : 국내 금융 통계(한국은행 ECOS). 키는 이 서버의 비밀값(ECOS_API_KEY)으로만 존재한다.
 //  - /law     : 국가법령정보 Open API(DRF) 중계. 인증값(LAW_OC)은 이 서버의 비밀값으로만 존재한다.
-//  - /dart    : 기업공시(DART, KIND). DART Open API(개황·최대주주·정기/감사/기타 공시)와 KIND 공시 목록을 중계한다. 인증키는 이 서버의 비밀값(DART_API_KEY)으로만 존재한다.
+//  - /dart    : 기업 개황 및 공시(DART). DART Open API(개황·최대주주·재무·정기/주요사항/기타 공시)를 중계한다. 인증키는 이 서버의 비밀값(DART_API_KEY)으로만 존재한다.
 //  - /fisis   : 금융통계정보시스템(FISIS) Open API 중계(금융회사 목록·총자산 순위·주요 경영정보). 인증키는 이 서버의 비밀값(FISIS_API_KEY)으로만 존재한다.
 import fisisData from "./fisis-data.json";
-import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, kindFilings, redact as dartRedact, searchCorps } from "./dart-lib.js";
+import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, withDartClass } from "./dart-lib.js";
 import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos } from "./fisis-lib.js";
 
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
@@ -491,7 +491,7 @@ async function fisisProfile(env, data, finance) {
   return { name: result.name || companyName, term: result.term, basisOptions: result.basisOptions, metrics: result.metrics };
 }
 
-/** 기업공시(DART, KIND): /dart/search, /dart/company, /dart/holders, /dart/filings, /dart/kind */
+/** 기업 개황 및 공시(DART): /dart/search, /dart/company, /dart/holders, /dart/filings, /dart/finance */
 async function dart(url, env) {
   const action = url.pathname.slice("/dart/".length);
   const corp = url.searchParams.get("corp") || "";
@@ -501,7 +501,8 @@ async function dart(url, env) {
   if (action === "search") {
     const q = (url.searchParams.get("q") || "").trim().slice(0, 40);
     if (corpCount() === 0) return fail(503, "회사 목록이 아직 만들어지지 않았습니다. 관리자가 DART_API_KEY를 등록하고 Deploy news proxy를 다시 실행해야 합니다.");
-    return json({ items: searchCorps(q) });
+    const lookup = (c) => memo(`dart/company/${c}`, 21600, () => dartCompany(env, c));
+    return json({ items: await withDartClass(searchCorps(q), lookup) });
   }
   if (action === "company") {
     needCorp();
@@ -524,17 +525,6 @@ async function dart(url, env) {
       const c = await memo(`dart/company/${corp}`, 21600, () => dartCompany(env, corp));
       return dartFinance(env, corp, c.accountMonth);
     }));
-  }
-  if (action === "kind") {
-    const name = (url.searchParams.get("name") || "").trim().slice(0, 40);
-    if (!name) return fail(400, "회사명이 필요합니다.");
-    const from = url.searchParams.get("from") || "";
-    const to = url.searchParams.get("to") || "";
-    try {
-      return json(await memo(`dart/kind/${name}/${from}/${to}`, 600, () => kindFilings(name, from, to)));
-    } catch (e) {
-      return json({ items: [], error: `KIND 공시를 읽지 못했습니다(${dartRedact(e.message)}).` }); // DART 공시는 그대로 쓸 수 있게 오류로 끝내지 않는다
-    }
   }
   return new Response("Not found", { status: 404 });
 }
