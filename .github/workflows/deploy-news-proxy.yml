@@ -13,6 +13,11 @@ jobs:
         env:
           FISIS_API_KEY: ${{ secrets.FISIS_API_KEY }}
         run: node server/news-proxy/build-fisis-data.mjs || echo "FISIS 자료를 만들지 않았습니다."
+      - name: Build DART corp list
+        # DART에는 회사명 검색 API가 없어, 배포할 때 고유번호 목록을 받아 서버에 함께 올린다.
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: node server/news-proxy/build-dart-data.mjs || echo "DART 회사 목록을 만들지 않았습니다."
       - name: Deploy Cloudflare Worker
         id: deploy
         uses: cloudflare/wrangler-action@v3
@@ -29,6 +34,7 @@ jobs:
             FISIS_API_KEY
             LAW_OC
             ECOS_API_KEY
+            DART_API_KEY
         env:
           APP_TOKEN: ${{ secrets.NEWS_PROXY_TOKEN }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
@@ -38,5 +44,6 @@ jobs:
           FISIS_API_KEY: ${{ secrets.FISIS_API_KEY }}
           LAW_OC: ${{ secrets.LAW_OC }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
       - name: Show URL
         run: echo "NEWS_PROXY_URL = ${{ steps.deploy.outputs.deployment-url }}" >> "$GITHUB_STEP_SUMMARY"

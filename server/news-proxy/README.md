@@ -74,3 +74,12 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 2. GitHub Secrets에 `LAW_OC`로 저장하고 Actions → **Deploy news proxy**를 다시 실행합니다.
 
 `LAW_OC`가 없으면 `/law`는 503을 돌려주고 앱은 오류를 표시합니다(서버 주소가 없는 빌드는 데모 데이터로 동작).
+
+## 기업현황 및 공시(DART·KIND)
+앱의 **기업현황 및 공시** 화면은 DART 전자공시 Open API(기업개황, 최대주주 및 특수관계인, 정기보고서, 감사보고서, 기타공시)와 KIND 공시 목록을 서버(`/dart/*`)로 중계합니다. 주가는 앱이 시장지표와 같은 시세 제공처에서 직접 받습니다.
+
+1. [DART Open API](https://opendart.fss.or.kr)에서 인증키를 발급받습니다(무료).
+2. GitHub Secrets에 `DART_API_KEY`로 저장하고 Actions → **Deploy news proxy**를 다시 실행합니다.
+- DART에는 회사명으로 고유번호를 찾는 API가 없어서, **배포할 때** `build-dart-data.mjs`가 고유번호 목록(corpCode.xml)을 받아 상장사와 2023년 이후 이력이 있는 비상장사만 추려 `dart-corps.json`으로 만들어 서버에 함께 올립니다. 회사 검색은 이 목록으로 합니다.
+- 최대주주 및 특수관계인은 가장 최근 정기보고서(분기·반기·사업) 기준으로 찾습니다. 공시 목록은 정기(A)·감사(F)·기타(주요사항 B, 지분 D, 기타 E, 거래소 I)로 나누어 최근 것부터 40건까지 보여 줍니다.
+- KIND는 인증키 방식의 공식 API가 없어 공개 웹 목록의 표를 읽습니다(키 불필요). 사이트 구조가 바뀌거나 접속이 막히면 KIND 항목만 비고 DART 공시는 그대로 나옵니다. 읽기 규칙은 `dart-lib.js`의 `kindFilings`에 모여 있습니다.
