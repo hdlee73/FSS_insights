@@ -6,7 +6,7 @@
 //  - /dart    : 기업현황 및 공시. DART Open API(개황·최대주주·정기/감사/기타 공시)와 KIND 공시 목록을 중계한다. 인증키는 이 서버의 비밀값(DART_API_KEY)으로만 존재한다.
 //  - /fisis   : 금융통계정보시스템(FISIS) Open API 중계(금융회사 목록·총자산 순위·주요 경영정보). 인증키는 이 서버의 비밀값(FISIS_API_KEY)으로만 존재한다.
 import fisisData from "./fisis-data.json";
-import { company as dartCompany, corpCount, filings as dartFilings, holders as dartHolders, kindFilings, searchCorps } from "./dart-lib.js";
+import { company as dartCompany, corpCount, filings as dartFilings, holders as dartHolders, kindFilings, redact as dartRedact, searchCorps } from "./dart-lib.js";
 import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos } from "./fisis-lib.js";
 
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
@@ -54,7 +54,7 @@ export default {
       try {
         return await dart(url, env);
       } catch (e) {
-        return fail(e.status || 502, e.message || "DART 서버 오류");
+        return fail(e.status || 502, dartRedact(e.message) || "DART 서버 오류");
       }
     }
     if (url.pathname.startsWith("/law/") && request.method === "GET") {
@@ -522,7 +522,7 @@ async function dart(url, env) {
     try {
       return json(await memo(`dart/kind/${name}`, 600, () => kindFilings(name)));
     } catch (e) {
-      return json({ items: [], error: `KIND 공시를 읽지 못했습니다(${e.message}).` }); // DART 공시는 그대로 쓸 수 있게 오류로 끝내지 않는다
+      return json({ items: [], error: `KIND 공시를 읽지 못했습니다(${dartRedact(e.message)}).` }); // DART 공시는 그대로 쓸 수 있게 오류로 끝내지 않는다
     }
   }
   return new Response("Not found", { status: 404 });

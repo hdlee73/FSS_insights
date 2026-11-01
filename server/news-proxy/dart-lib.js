@@ -5,6 +5,12 @@ import dartCorps from "./dart-corps.json";
 const DART = "https://opendart.fss.or.kr/api";
 const KIND = "https://kind.krx.co.kr";
 
+/** 오류 문구에 인증키가 섞여 나가지 않게 crtfc_key 값을 가린다. */
+export const redact = (text) => String(text || "").replace(/crtfc_key=[^&\s"'<>]*/gi, "crtfc_key=***");
+
+// DART는 User-Agent가 없는 요청을 오류 페이지(error1.html)로 되돌려 보내므로(무한 리다이렉트) 항상 보낸다.
+const DART_HEADERS = { "User-Agent": "Mozilla/5.0 (compatible; FSSInsights/2.1; +https://github.com/hdlee73/FSS_insights)", Accept: "application/json", "Accept-Language": "ko-KR,ko;q=0.9" };
+
 const norm = (s) => String(s || "").replace(/\(\s*주\s*\)|㈜|주식회사|\s+/g, "").toLowerCase();
 
 let index = null;
@@ -41,12 +47,17 @@ async function dartGet(env, name, params) {
     throw e;
   }
   const qs = new URLSearchParams({ crtfc_key: env.DART_API_KEY, ...params });
-  const res = await fetch(`${DART}/${name}.json?${qs}`, { headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`DART 서버 응답 ${res.status}`);
-  const body = await res.json();
+  let body;
+  try {
+    const res = await fetch(`${DART}/${name}.json?${qs}`, { headers: DART_HEADERS });
+    if (!res.ok) throw new Error(`DART 서버 응답 ${res.status}`);
+    body = await res.json();
+  } catch (e) {
+    throw new Error(redact(e.message || "DART 서버에 연결하지 못했습니다."));
+  }
   // 000 정상, 013 조회된 데이터 없음. 그 밖은 오류(020 사용한도 초과 등).
   if (body.status === "000" || body.status === "013") return body;
-  throw new Error(`DART 오류 ${body.status}: ${body.message || ""}`);
+  throw new Error(redact(`DART 오류 ${body.status}: ${body.message || ""}`));
 }
 
 const ymd = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
@@ -166,7 +177,7 @@ export async function kindFilings(name) {
   });
   const res = await fetch(`${KIND}/disclosure/details.do`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "Mozilla/5.0 FSSInsights/1.0", Referer: `${KIND}/disclosure/details.do?method=searchDetailsMain` },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": DART_HEADERS["User-Agent"], Referer: `${KIND}/disclosure/details.do?method=searchDetailsMain` },
     body,
   });
   if (!res.ok) throw new Error(`KIND 응답 ${res.status}`);

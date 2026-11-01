@@ -28,6 +28,11 @@ data class DartHolders(val basis: String, val items: List<DartHolder>)
 data class DartFiling(val id: String, val title: String, val date: String, val by: String, val note: String, val url: String, val src: String)
 data class DartFilings(val items: List<DartFiling>, val error: String? = null)
 
+private val KEY_PARAM = Regex("crtfc_key=[^&\\s\"'<>]*", RegexOption.IGNORE_CASE)
+
+/** 오류 문구에서 DART 인증키(crtfc_key=…) 값을 가린다. */
+internal fun redactKey(text: String): String = text.replace(KEY_PARAM, "crtfc_key=***")
+
 internal fun parseDartCorps(body: String): List<DartCorp> {
     val array = JSONObject(body).optJSONArray("items") ?: return emptyList()
     return (0 until array.length()).map { array.getJSONObject(it) }
@@ -83,6 +88,9 @@ class DartApi {
             val text = c.errorStream?.use { String(it.readBytes(), Charsets.UTF_8) }.orEmpty()
             val message = runCatching { JSONObject(text).optString("error") }.getOrNull().orEmpty()
             error(message.ifBlank { "서버 오류 ($code)" })
+        } catch (e: Exception) {
+            // 연결 오류 문구에 주소가 섞여 들어와도 인증키가 화면에 나오지 않게 가린다.
+            throw IllegalStateException(redactKey(e.message ?: "서버에 연결하지 못했습니다."))
         } finally {
             c.disconnect()
         }
