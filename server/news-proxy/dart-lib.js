@@ -1,4 +1,4 @@
-// 기업현황 및 공시(/dart): 금융감독원 전자공시(DART) Open API 중계와 KIND 공시 목록 읽기.
+// 기업공시(DART, KIND, /dart): 금융감독원 전자공시(DART) Open API 중계와 KIND 공시 목록 읽기.
 // DART 인증키는 서버 비밀값(DART_API_KEY)으로만 존재한다. KIND는 키가 없는 공개 웹 목록을 읽는다.
 import dartCorps from "./dart-corps.json";
 
@@ -15,7 +15,7 @@ const norm = (s) => String(s || "").replace(/\(\s*주\s*\)|㈜|주식회사|\s+/
 
 let index = null;
 function corpIndex() {
-  if (!index) index = (dartCorps.corps || []).map(([code, name, stock]) => ({ code, name, stock: stock || "", key: norm(name) }));
+  if (!index) index = (dartCorps.corps || []).map(([code, name, stock, cls]) => ({ code, name, stock: stock || "", cls: cls || (stock ? "Y" : "E"), key: norm(name) }));
   return index;
 }
 
@@ -35,7 +35,7 @@ export function searchCorps(query, limit = 30) {
     scored.push({ c, score: score + (c.stock ? 5 : 0) - Math.min(c.key.length, 30) / 100 });
   }
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, limit).map(({ c }) => ({ corp: c.code, name: c.name, stock: c.stock }));
+  return scored.slice(0, limit).map(({ c }) => ({ corp: c.code, name: c.name, stock: c.stock, cls: c.cls }));
 }
 
 export const corpCount = () => corpIndex().length;
@@ -67,7 +67,7 @@ const yearsAgo = (n) => {
   return ymd(d);
 };
 
-const CLS = { Y: "유가증권", K: "코스닥", N: "코넥스", E: "기타(비상장)" };
+const CLS = { Y: "유가증권", K: "코스닥", N: "코넥스", E: "기타법인" };
 
 /** 기업개황. 종목코드가 있으면 주가를 붙일 수 있도록 시장(KS/KQ)도 돌려준다. */
 export async function company(env, corp) {
@@ -79,8 +79,8 @@ export async function company(env, corp) {
     name: r.corp_name,
     nameEn: r.corp_name_eng || "",
     stock,
-    market: r.corp_cls === "Y" ? "KS" : r.corp_cls === "K" ? "KQ" : "",
-    marketName: CLS[r.corp_cls] || "",
+    cls: CLS[r.corp_cls] ? r.corp_cls : "E",
+    marketName: CLS[r.corp_cls] || CLS.E,
     ceo: r.ceo_nm || "",
     corpNo: r.jurir_no || "",
     bizNo: r.bizr_no || "",
@@ -101,7 +101,7 @@ const REPORTS = [
   ["11013", "1분기보고서"],
 ];
 
-/** 최대주주 및 특수관계인 지분. 가장 최근에 제출된 정기보고서 기준으로 찾는다(최대 6번 조회). */
+/** 최대주주 및 특수관계인 지분. 같은 사람의 보통주·우선주는 한 줄로 묶는다. 가장 최근에 제출된 정기보고서 기준(최대 7번 조회). */
 export async function holders(env, corp) {
   const now = new Date().getUTCFullYear();
   const tries = [];
@@ -119,37 +119,75 @@ export async function holders(env, corp) {
       const n = parseFloat(String(v || "").replace(/,/g, ""));
       return Number.isFinite(n) ? n : null;
     };
-    const items = rows.map((x) => ({
-      name: String(x.nm || "").trim(),
-      relation: String(x.relate || "").trim(),
-      kind: String(x.stock_knd || "").trim(),
-      shares: num(x.trmend_posesn_stock_co),
-      ratio: num(x.trmend_posesn_stock_qota_rt),
-    }));
-    return { basis: `${year} ${label}`, items };
+    const slot = (x) => ({ shares: num(x.trmend_posesn_stock_co), ratio: num(x.trmend_posesn_stock_qota_rt) });
+    const isPref = (x) => /우선/.test(String(x.stock_knd || ""));
+    const totals = { common: null, pref: null };
+    const byKey = new Map();
+    for (const x of rows) {
+      const name = String(x.nm || "").trim();
+      if (name === "계" || name === "합계") {
+        totals[isPref(x) ? "pref" : "common"] = slot(x).ratio;
+        continue;
+      }
+      const relation = String(x.relate || "").trim();
+      const key = `${name}|${relation}`;
+      if (!byKey.has(key)) byKey.set(key, { name, relation, common: null, pref: null });
+      byKey.get(key)[isPref(x) ? "pref" : "common"] = slot(x);
+    }
+    const items = [...byKey.values()];
+    const sum = (k) => {
+      const v = items.map((i) => (i[k] && i[k].ratio) || 0).reduce((p, q) => p + q, 0);
+      return Math.round(v * 100) / 100;
+    };
+    return {
+      basis: `${year} ${label}`,
+      items,
+      totalCommon: totals.common ?? (items.some((i) => i.common) ? sum("common") : null),
+      totalPref: totals.pref ?? (items.some((i) => i.pref) ? sum("pref") : null),
+    };
   }
-  return { basis: "", items: [] };
+  return { basis: "", items: [], totalCommon: null, totalPref: null };
 }
 
 const PBLNTF = { a: ["A"], f: ["F"], e: ["B", "D", "E", "I"] };
 const DART_VIEW = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=";
 
-/** 공시 목록. type: a 정기보고서, f 감사보고서(외부감사관련), e 기타공시(주요사항·지분·기타·거래소공시). */
-export async function filings(env, corp, type) {
+const ymdOk = (v) => /^\d{8}$/.test(String(v || ""));
+
+/** 조회 기간(yyyymmdd)을 확인하고, 시작이 끝보다 10년 넘게 앞서면 10년으로 줄인다. */
+export function dateRange(bgn, end) {
+  const today = ymd(new Date());
+  const to = ymdOk(end) && end <= today ? end : today;
+  const earliest = String(Number(to.slice(0, 4)) - 10) + to.slice(4);
+  let from = ymdOk(bgn) ? bgn : yearsAgo(1);
+  if (from > to) from = to;
+  if (from < earliest) from = earliest;
+  return { from, to };
+}
+
+/** 공시 목록. type: a 정기보고서, f 감사보고서(외부감사관련), e 기타공시(주요사항·지분·기타·거래소공시). 최대 400건. */
+export async function filings(env, corp, type, bgn, end) {
   const kinds = PBLNTF[type];
   if (!kinds) throw new Error("공시 종류가 올바르지 않습니다.");
-  const bgn = yearsAgo(type === "e" ? 2 : 5);
+  const { from, to } = dateRange(bgn, end);
+  const maxPages = type === "e" ? 3 : 2;
+  const page = (ty, n) => dartGet(env, "list", { corp_code: corp, bgn_de: from, end_de: to, pblntf_ty: ty, page_no: String(n), page_count: "100", sort: "date", sort_mth: "desc" });
   const parts = await Promise.all(
-    kinds.map((ty) => dartGet(env, "list", { corp_code: corp, bgn_de: bgn, pblntf_ty: ty, page_count: "40", sort: "date", sort_mth: "desc" }))
+    kinds.map(async (ty) => {
+      const first = await page(ty, 1);
+      const total = Math.min(Number(first.total_page) || 1, maxPages);
+      const rest = await Promise.all(Array.from({ length: total - 1 }, (_, i) => page(ty, i + 2)));
+      return [first, ...rest].flatMap((p) => p.list || []);
+    })
   );
   const seen = new Set();
   const items = parts
-    .flatMap((p) => p.list || [])
+    .flat()
     .filter((x) => (seen.has(x.rcept_no) ? false : seen.add(x.rcept_no)))
     .map((x) => ({ id: x.rcept_no, title: String(x.report_nm || "").trim(), date: x.rcept_dt, by: String(x.flr_nm || "").trim(), note: String(x.rm || "").trim(), url: DART_VIEW + x.rcept_no, src: "DART" }))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
-    .slice(0, 40);
-  return { items };
+    .slice(0, 400);
+  return { items, from, to };
 }
 
 const decode = (s) => s.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, " ").trim();
@@ -158,12 +196,12 @@ const decode = (s) => s.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(
  * KIND(한국거래소) 공시 목록: 회사명으로 최근 2년을 찾는다. KIND는 인증키 방식의 공식 API가 없어 공개 웹 목록의 표를 읽는다.
  * 사이트 구조가 바뀌면 빈 목록을 돌려주며, 이때도 DART 공시는 그대로 쓸 수 있다.
  */
-export async function kindFilings(name) {
-  const to = new Date();
-  const fmt = (d) => d.toISOString().slice(0, 10);
+export async function kindFilings(name, bgn, end) {
+  const { from, to } = dateRange(bgn, end);
+  const dash = (v) => v.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
   const body = new URLSearchParams({
     method: "searchDetailsSub",
-    currentPageSize: "40",
+    currentPageSize: "100",
     pageIndex: "1",
     orderMode: "1",
     orderStat: "D",
@@ -172,8 +210,8 @@ export async function kindFilings(name) {
     searchCorpName: name,
     reportNm: "",
     bfrDsclsType: "on",
-    fromDate: yearsAgo(2).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"),
-    toDate: fmt(to),
+    fromDate: dash(from),
+    toDate: dash(to),
   });
   const res = await fetch(`${KIND}/disclosure/details.do`, {
     method: "POST",
@@ -195,5 +233,139 @@ export async function kindFilings(name) {
     if (who && norm(who) !== norm(name)) continue; // 비슷한 이름의 다른 회사 제외
     items.push({ id: acpt[1], title, date: date ? date[1].replace(/-/g, "") : "", by: who, note: "", url: `${KIND}/common/disclsviewer.do?method=search&acptno=${acpt[1]}`, src: "KIND" });
   }
-  return { items: items.slice(0, 40) };
+  return { items: items.slice(0, 200) };
+}
+
+// ───────── 재무손익 현황 ─────────
+
+const amt = (v) => {
+  const n = parseFloat(String(v ?? "").replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+};
+const toEok = (n) => (n == null ? null : Math.round(n / 1e6) / 100); // 원 → 억원(소수 둘째 자리)
+const squash = (s) => String(s || "").replace(/\s+/g, "");
+
+const ACCOUNTS = {
+  assets: [/^자산총계$/],
+  liab: [/^부채총계$/],
+  equity: [/^자본총계$/],
+  revenue: [/^매출액$/, /^수익\(매출액\)$/, /^영업수익$/, /^매출$/, /^순영업수익$/, /^보험수익$/, /^수익$/],
+  op: [/^영업이익/, /^영업손익/],
+  net: [/^당기순이익/, /^당기순손익/, /^(분기|반기)순이익/, /^(분기|반기)순손익/],
+};
+
+/** 주요계정(fnlttSinglAcnt) 한 보고서. 없으면 빈 목록. */
+async function acnt(env, corp, year, code) {
+  const r = await dartGet(env, "fnlttSinglAcnt", { corp_code: corp, bsns_year: String(year), reprt_code: code });
+  return r.list || [];
+}
+
+/** 연결(CFS)·별도(OFS)·재무제표 구분(BS/IS)에서 계정 이름이 맞는 첫 행. */
+function pick(rows, fs, sj, key) {
+  const inSj = rows.filter((x) => x.fs_div === fs && (x.sj_div === sj || (sj === "IS" && x.sj_div === "CIS")));
+  for (const re of ACCOUNTS[key]) {
+    const hit = inSj.find((x) => re.test(squash(x.account_nm)));
+    if (hit) return hit;
+  }
+  return null;
+}
+const field = (row, f) => (row ? toEok(amt(row[f])) : null);
+
+const QUARTER = { "11013": ["1분기", "01", "03", "01"], "11012": ["반기", "04", "06", "01"], "11014": ["3분기", "07", "09", "01"] };
+
+/** 기업의 재무상태·손익·5개년 추이·주당이익. 단위는 억원. accMonth는 결산월(12가 아니면 월 표기를 생략). */
+export async function finance(env, corp, accMonth) {
+  const now = new Date().getUTCFullYear();
+  const dec = !accMonth || String(accMonth) === "12";
+  const [q3, half, q1, a1, a2] = await Promise.all([
+    acnt(env, corp, now, "11014"),
+    acnt(env, corp, now, "11012"),
+    acnt(env, corp, now, "11013"),
+    acnt(env, corp, now - 1, "11011"),
+    acnt(env, corp, now - 2, "11011"),
+  ]);
+  const annualRows = a1.length ? a1 : a2;
+  const A = a1.length ? now - 1 : now - 2;
+  if (!annualRows.length) return { basis: "", unit: "억원", balance: [], income: [], trend: [], eps: {}, note: "사업보고서 재무 자료를 찾지 못했습니다." };
+  const older = await acnt(env, corp, A - 3, "11011");
+  const quarter = q3.length ? ["11014", q3] : half.length ? ["11012", half] : q1.length ? ["11013", q1] : null;
+  const fs = annualRows.some((x) => x.fs_div === "CFS") ? "CFS" : "OFS";
+  const basis = fs === "CFS" ? "연결" : "별도";
+
+  const bs = (rows, f) => ({ assets: field(pick(rows, fs, "BS", "assets"), f), liab: field(pick(rows, fs, "BS", "liab"), f), equity: field(pick(rows, fs, "BS", "equity"), f) });
+  const is = (rows, f) => ({ revenue: field(pick(rows, fs, "IS", "revenue"), f), op: field(pick(rows, fs, "IS", "op"), f), net: field(pick(rows, fs, "IS", "net"), f) });
+  const yearEnd = (y) => (dec ? `${y}.12` : `${y}`);
+
+  const balance = [];
+  const income = [];
+  if (quarter) {
+    const [code, rows] = quarter;
+    const [qName, m1, m2, mStart] = QUARTER[code];
+    const label = dec ? `${now}.${m2} ${qName}말` : `${now} ${qName}말`;
+    balance.push({ label, ...bs(rows, "thstrm_amount") });
+    const cur = is(rows, "thstrm_amount");
+    const cum = is(rows, "thstrm_add_amount");
+    const useCum = cum.revenue != null || cum.op != null || cum.net != null ? cum : cur;
+    income.push({ label: "분기", sub: dec ? `${now}.${m1}~${m2}` : qName, ...cur });
+    income.push({ label: "누적", sub: dec ? `${now}.${mStart}~${m2}` : `${qName}까지`, ...useCum });
+    income.push({ label: `${A}년 연간`, sub: "전년", ...is(annualRows, "thstrm_amount") });
+    income.push({ label: `${A - 1}년 연간`, sub: "전전년", ...is(annualRows, "frmtrm_amount") });
+    balance.push({ label: yearEnd(A), ...bs(annualRows, "thstrm_amount") });
+    balance.push({ label: yearEnd(A - 1), ...bs(annualRows, "frmtrm_amount") });
+    balance.push({ label: yearEnd(A - 2), ...bs(annualRows, "bfefrmtrm_amount") });
+  } else {
+    balance.push({ label: yearEnd(A), ...bs(annualRows, "thstrm_amount") });
+    balance.push({ label: yearEnd(A - 1), ...bs(annualRows, "frmtrm_amount") });
+    balance.push({ label: yearEnd(A - 2), ...bs(annualRows, "bfefrmtrm_amount") });
+    if (older.length) balance.push({ label: yearEnd(A - 3), ...bs(older, "thstrm_amount") });
+    income.push({ label: `${A}년 연간`, sub: "", ...is(annualRows, "thstrm_amount") });
+    income.push({ label: `${A - 1}년 연간`, sub: "", ...is(annualRows, "frmtrm_amount") });
+    income.push({ label: `${A - 2}년 연간`, sub: "", ...is(annualRows, "bfefrmtrm_amount") });
+  }
+
+  // 5개년 추이: 사업보고서 두 개(A, A-3)가 각각 3개 연도를 담고 있다.
+  const points = new Map();
+  const put = (y, rows, f) => {
+    const b = bs(rows, f);
+    const i = is(rows, f);
+    points.set(y, { year: y, ...i, debt: b.equity ? Math.round((b.liab / b.equity) * 1000) / 10 : null });
+  };
+  put(A, annualRows, "thstrm_amount");
+  put(A - 1, annualRows, "frmtrm_amount");
+  put(A - 2, annualRows, "bfefrmtrm_amount");
+  if (older.length) {
+    put(A - 3, older, "thstrm_amount");
+    put(A - 4, older, "frmtrm_amount");
+  }
+  const trend = [...points.values()].sort((x, y) => x.year - y.year).slice(-5);
+
+  // 주당이익(EPS): 전체 재무제표의 손익계산서에서 "기본주당이익"류 계정을 찾는다. 실패해도 나머지는 그대로 돌려준다.
+  const eps = {};
+  const epsOf = async (year) => {
+    const r = await dartGet(env, "fnlttSinglAcntAll", { corp_code: corp, bsns_year: String(year), reprt_code: "11011", fs_div: fs });
+    const rows = (r.list || []).filter((x) => x.sj_div === "IS" || x.sj_div === "CIS");
+    const cands = rows.filter((x) => /주당(순)?(이익|손익)|주당순이익/.test(squash(x.account_nm)));
+    const hit = cands.find((x) => /기본/.test(squash(x.account_nm))) || cands[0];
+    if (!hit) return;
+    const set = (y, v) => {
+      const n = amt(v);
+      if (n != null && eps[y] == null) eps[y] = n;
+    };
+    set(year, hit.thstrm_amount);
+    set(year - 1, hit.frmtrm_amount);
+    set(year - 2, hit.bfefrmtrm_amount);
+  };
+  await Promise.all([epsOf(A), older.length ? epsOf(A - 3) : Promise.resolve()]).catch(() => {});
+
+  return {
+    basis,
+    unit: "억원",
+    annualYear: A,
+    quarterLabel: quarter ? `${now} ${QUARTER[quarter[0]][0]}` : "",
+    balance,
+    income,
+    trend,
+    eps,
+    note: "",
+  };
 }

@@ -122,7 +122,7 @@ private val appScreens = listOf(
     AppScreen("유권해석·비조치의견서·행정지도", Icons.Filled.Gavel),
     AppScreen("금융회사 제재공시", Icons.Filled.Gavel),
     AppScreen("스마트 법령검색", Icons.Filled.AccountTree),
-    AppScreen("기업현황 및 공시", Icons.Filled.Apartment)
+    AppScreen("기업공시(DART, KIND)", Icons.Filled.Apartment)
 )
 
 // 서랍 메뉴의 묶음: 소제목과 그 아래 화면 번호.

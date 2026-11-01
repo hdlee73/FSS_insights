@@ -75,8 +75,8 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 
 `LAW_OC`가 없으면 `/law`는 503을 돌려주고 앱은 오류를 표시합니다(서버 주소가 없는 빌드는 데모 데이터로 동작).
 
-## 기업현황 및 공시(DART·KIND)
-앱의 **기업현황 및 공시** 화면은 DART 전자공시 Open API(기업개황, 최대주주 및 특수관계인, 정기보고서, 감사보고서, 기타공시)와 KIND 공시 목록을 서버(`/dart/*`)로 중계합니다. 주가는 앱이 시장지표와 같은 시세 제공처에서 직접 받습니다.
+## 기업공시(DART, KIND)
+앱의 **기업공시(DART, KIND)** 화면은 DART 전자공시 Open API(기업개황, 최대주주 및 특수관계인, 정기보고서, 감사보고서, 기타공시)와 KIND 공시 목록을 서버(`/dart/*`)로 중계합니다. 주가는 앱이 시장지표와 같은 시세 제공처에서 직접 받습니다.
 
 1. [DART Open API](https://opendart.fss.or.kr)에서 인증키를 발급받습니다(무료).
 2. GitHub Secrets에 `DART_API_KEY`로 저장하고 Actions → **Deploy news proxy**를 다시 실행합니다.

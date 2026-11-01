@@ -17,18 +17,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -52,17 +56,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.DartApi
 import io.github.hdlee73.financenewsradar.data.DartCompany
 import io.github.hdlee73.financenewsradar.data.DartCorp
-import io.github.hdlee73.financenewsradar.data.DartFiling
 import io.github.hdlee73.financenewsradar.data.DartFilings
+import io.github.hdlee73.financenewsradar.data.DartFiling
+import io.github.hdlee73.financenewsradar.data.DartFinance
+import io.github.hdlee73.financenewsradar.data.DartHolder
 import io.github.hdlee73.financenewsradar.data.DartHolders
+import io.github.hdlee73.financenewsradar.data.DartShare
 import io.github.hdlee73.financenewsradar.data.DartStore
+import io.github.hdlee73.financenewsradar.data.IntradaySeries
 import io.github.hdlee73.financenewsradar.data.MarketClient
+import io.github.hdlee73.financenewsradar.data.dartMarketLabel
 import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -79,6 +89,16 @@ import java.util.Locale
 private val UpRed = Color(0xFFDC5C60)
 private val DownBlue = Color(0xFF4B7BC8)
 
+/** 시장 단위(법인구분)별 색. */
+private fun marketColor(cls: String): Color = when (cls) {
+    "Y" -> Color(0xFF2A7DE1)
+    "K" -> Color(0xFF2E9E6B)
+    "N" -> Color(0xFF7B57C9)
+    else -> Color(0xFF8A94A6)
+}
+
+private fun clsOf(corp: DartCorp): String = corp.cls.ifBlank { if (corp.stock.isBlank()) "E" else "Y" }
+
 /** 불러오는 중 / 완료 / 실패. */
 sealed interface DartLoad<out T> {
     data object Loading : DartLoad<Nothing>
@@ -91,6 +111,9 @@ data class DartStock(val price: Double, val previous: Double?, val closes: List<
     val change: Double? get() = previous?.takeIf { it > 0 }?.let { price - it }
     val percent: Double? get() = previous?.takeIf { it > 0 }?.let { (price - it) / it * 100 }
 }
+
+/** 재무손익 탭에 보여 줄 값: 재무 자료와 연말 종가(PER 계산용). */
+data class DartFinView(val finance: DartFinance, val closes: Map<Int, Double>)
 
 /** 관심기업 새 공시 한 줄. */
 data class DartFeedItem(val corp: DartCorp, val filing: DartFiling)
@@ -107,17 +130,44 @@ data class DartUiState(
     val selected: DartCorp? = null,
     val company: Map<String, DartLoad<DartCompany>> = emptyMap(),
     val holders: Map<String, DartLoad<DartHolders>> = emptyMap(),
-    /** 키는 "회사코드|a·f·e". */
+    val finance: Map<String, DartLoad<DartFinView>> = emptyMap(),
+    /** 키는 "회사코드|a·f·e|시작|끝". */
     val filings: Map<String, DartLoad<DartFilings>> = emptyMap(),
+    /** 키는 "회사코드|시작|끝". */
     val kind: Map<String, DartLoad<DartFilings>> = emptyMap(),
-    val stocks: Map<String, DartLoad<DartStock>> = emptyMap()
+    val stocks: Map<String, DartLoad<DartStock>> = emptyMap(),
+    val intraday: Map<String, DartLoad<IntradaySeries>> = emptyMap()
 )
 
 private const val MAX_WATCH = 12
 private const val MAX_RECENT = 8
 
-private fun today(): String = SimpleDateFormat("yyyyMMdd", Locale.US).format(Calendar.getInstance().time)
-private fun daysAgo(n: Int): String = SimpleDateFormat("yyyyMMdd", Locale.US).format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -n) }.time)
+private val DAY = SimpleDateFormat("yyyyMMdd", Locale.US)
+private fun today(): String = DAY.format(Calendar.getInstance().time)
+private fun daysAgo(n: Int): String = DAY.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -n) }.time)
+private fun yearsAgo(n: Int): String = DAY.format(Calendar.getInstance().apply { add(Calendar.YEAR, -n) }.time)
+
+/** yyyyMM 값을 월 단위로 더한다. */
+private fun addMonths(ym: Int, delta: Int): Int {
+    val total = (ym / 100) * 12 + (ym % 100 - 1) + delta
+    return (total / 12) * 100 + total % 12 + 1
+}
+
+private fun nowYm(): Int = Calendar.getInstance().let { it.get(Calendar.YEAR) * 100 + it.get(Calendar.MONTH) + 1 }
+
+/** 월 마지막 날을 포함한 yyyyMMdd. */
+private fun monthEnd(ym: Int): String {
+    val c = Calendar.getInstance().apply { clear(); set(ym / 100, ym % 100 - 1, 1) }
+    return String.format(Locale.US, "%d%02d%02d", ym / 100, ym % 100, c.getActualMaximum(Calendar.DAY_OF_MONTH))
+}
+
+private fun monthStart(ym: Int): String = String.format(Locale.US, "%d%02d01", ym / 100, ym % 100)
+
+/** 조회 기간: 0 = 1년, 1 = 3년, 2 = 5년, 3 = 직접 선택(최대 10년). */
+private data class DartPeriod(val index: Int, val fromYm: Int, val toYm: Int) {
+    val from: String get() = when (index) { 0 -> yearsAgo(1); 1 -> yearsAgo(3); 2 -> yearsAgo(5); else -> monthStart(fromYm) }
+    val to: String get() = if (index == 3) minOf(monthEnd(toYm), today()) else today()
+}
 
 class DartViewModel(application: Application) : AndroidViewModel(application) {
     private val api = DartApi()
@@ -159,8 +209,6 @@ class DartViewModel(application: Application) : AndroidViewModel(application) {
 
     fun back() = _state.update { it.copy(selected = null) }
 
-    fun isWatched(corp: String) = _state.value.watch.any { it.corp == corp }
-
     fun toggleWatch(corp: DartCorp) {
         val current = _state.value.watch
         val next = if (current.any { it.corp == corp.corp }) current.filter { it.corp != corp.corp }
@@ -178,8 +226,8 @@ class DartViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { api.company(corp.corp) }
                 .onSuccess { c ->
                     _state.update { it.copy(company = it.company + (corp.corp to DartLoad.Done(c))) }
-                    val full = corp.copy(name = c.name.ifBlank { corp.name }, stock = c.stock, market = c.market)
-                    if (_state.value.watch.any { it.corp == corp.corp && it.market != c.market }) {
+                    val full = corp.copy(name = c.name.ifBlank { corp.name }, stock = c.stock, cls = c.cls)
+                    if (_state.value.watch.any { it.corp == corp.corp && it.cls != c.cls }) {
                         val next = _state.value.watch.map { if (it.corp == corp.corp) full else it }
                         store.saveWatch(next)
                         _state.update { it.copy(watch = next) }
@@ -209,6 +257,18 @@ class DartViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** 당일(장이 끝났으면 가장 최근 거래일) 분봉. */
+    fun ensureIntraday(corp: DartCorp, previous: Double?, force: Boolean = false) {
+        val symbol = corp.symbol ?: return
+        if (!force && _state.value.intraday[corp.corp].let { it is DartLoad.Done || it is DartLoad.Loading }) return
+        _state.update { it.copy(intraday = it.intraday + (corp.corp to DartLoad.Loading)) }
+        viewModelScope.launch {
+            runCatching { market.intraday(symbol, previous) }
+                .onSuccess { s -> _state.update { it.copy(intraday = it.intraday + (corp.corp to DartLoad.Done(s))) } }
+                .onFailure { e -> _state.update { it.copy(intraday = it.intraday + (corp.corp to DartLoad.Failed(e.message ?: "당일 시세를 불러오지 못했습니다."))) } }
+        }
+    }
+
     fun ensureHolders(corp: String, force: Boolean = false) {
         if (!force && _state.value.holders[corp] is DartLoad.Done) return
         _state.update { it.copy(holders = it.holders + (corp to DartLoad.Loading)) }
@@ -219,29 +279,46 @@ class DartViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun ensureFilings(corp: String, type: String, force: Boolean = false) {
-        val key = "$corp|$type"
-        if (!force && _state.value.filings[key] is DartLoad.Done) return
+    fun ensureFinance(corp: DartCorp, force: Boolean = false) {
+        if (!force && _state.value.finance[corp.corp] is DartLoad.Done) return
+        _state.update { it.copy(finance = it.finance + (corp.corp to DartLoad.Loading)) }
+        viewModelScope.launch {
+            runCatching {
+                coroutineScope {
+                    val closes = async { if (corp.stock.length == 6) api.yearEndCloses(corp.stock) else emptyMap() }
+                    val finance = api.finance(corp.corp)
+                    DartFinView(finance, closes.await())
+                }
+            }
+                .onSuccess { v -> _state.update { it.copy(finance = it.finance + (corp.corp to DartLoad.Done(v))) } }
+                .onFailure { e -> _state.update { it.copy(finance = it.finance + (corp.corp to DartLoad.Failed(e.message ?: "불러오지 못했습니다."))) } }
+        }
+    }
+
+    fun ensureFilings(corp: String, type: String, period: DartPeriodArg, force: Boolean = false) {
+        val key = "$corp|$type|${period.from}|${period.to}"
+        if (!force && _state.value.filings[key].let { it is DartLoad.Done || it is DartLoad.Loading }) return
         _state.update { it.copy(filings = it.filings + (key to DartLoad.Loading)) }
         viewModelScope.launch {
-            runCatching { api.filings(corp, type) }
+            runCatching { api.filings(corp, type, period.from, period.to) }
                 .onSuccess { f -> _state.update { it.copy(filings = it.filings + (key to DartLoad.Done(f))) } }
                 .onFailure { e -> _state.update { it.copy(filings = it.filings + (key to DartLoad.Failed(e.message ?: "불러오지 못했습니다."))) } }
         }
     }
 
-    fun ensureKind(corp: DartCorp, force: Boolean = false) {
+    fun ensureKind(corp: DartCorp, period: DartPeriodArg, force: Boolean = false) {
         if (corp.stock.isBlank()) return
-        if (!force && _state.value.kind[corp.corp] is DartLoad.Done) return
-        _state.update { it.copy(kind = it.kind + (corp.corp to DartLoad.Loading)) }
+        val key = "${corp.corp}|${period.from}|${period.to}"
+        if (!force && _state.value.kind[key].let { it is DartLoad.Done || it is DartLoad.Loading }) return
+        _state.update { it.copy(kind = it.kind + (key to DartLoad.Loading)) }
         viewModelScope.launch {
-            runCatching { api.kind(corp.name) }
-                .onSuccess { f -> _state.update { it.copy(kind = it.kind + (corp.corp to DartLoad.Done(f))) } }
-                .onFailure { e -> _state.update { it.copy(kind = it.kind + (corp.corp to DartLoad.Failed(e.message ?: "불러오지 못했습니다."))) } }
+            runCatching { api.kind(corp.name, period.from, period.to) }
+                .onSuccess { f -> _state.update { it.copy(kind = it.kind + (key to DartLoad.Done(f))) } }
+                .onFailure { e -> _state.update { it.copy(kind = it.kind + (key to DartLoad.Failed(e.message ?: "불러오지 못했습니다."))) } }
         }
     }
 
-    /** 이 회사의 가장 최근 공시일까지 봤다고 기록한다(새 공시 표시 해제). */
+    /** 이 회사의 공시를 확인했다고 기록한다(새 공시 표시 해제). */
     private fun markSeen(corp: DartCorp) {
         store.setSeen(corp.corp, today())
         _state.update { it.copy(newCount = it.newCount - corp.corp) }
@@ -254,12 +331,14 @@ class DartViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(feedLoading = true) }
         viewModelScope.launch {
             val since = daysAgo(7)
+            val from = yearsAgo(1)
+            val to = today()
             val collected = runCatching {
                 coroutineScope {
                     watch.map { corp ->
                         async {
-                            val a = runCatching { api.filings(corp.corp, "a").items }.getOrDefault(emptyList())
-                            val e = runCatching { api.filings(corp.corp, "e").items }.getOrDefault(emptyList())
+                            val a = runCatching { api.filings(corp.corp, "a", from, to).items }.getOrDefault(emptyList())
+                            val e = runCatching { api.filings(corp.corp, "e", daysAgo(60), to).items }.getOrDefault(emptyList())
                             (a + e).map { DartFeedItem(corp, it) }
                         }
                     }.awaitAll().flatten()
@@ -276,6 +355,9 @@ class DartViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
+/** 화면에서 ViewModel로 넘기는 조회 기간(yyyyMMdd). */
+data class DartPeriodArg(val from: String, val to: String)
+
 private fun dateText(yyyymmdd: String): String =
     if (yyyymmdd.length == 8) "${yyyymmdd.substring(0, 4)}.${yyyymmdd.substring(4, 6)}.${yyyymmdd.substring(6, 8)}" else yyyymmdd
 
@@ -283,18 +365,33 @@ private fun grouped(value: Double, digits: Int = 0): String = String.format(Loca
 
 private fun signText(value: Double, digits: Int = 0): String = (if (value > 0) "▲" else if (value < 0) "▼" else "") + grouped(kotlin.math.abs(value), digits)
 
+/** 억원 값: 100억 이상은 정수, 그보다 작으면 소수 한 자리. */
+private fun eokText(v: Double?): String = when {
+    v == null -> "-"
+    kotlin.math.abs(v) >= 100 -> grouped(v, 0)
+    else -> grouped(v, 1)
+}
+
+private fun percentText(v: Double?, digits: Int = 1): String = if (v == null) "-" else String.format(Locale.US, "%,.${digits}f%%", v)
+
 private fun dartChangeColor(change: Double?): Color = when {
     change == null || change == 0.0 -> Color.Unspecified
     change > 0 -> UpRed
     else -> DownBlue
 }
 
-private fun filingTag(f: DartFiling, fallback: String): String = when {
-    f.src == "KIND" -> "KIND"
-    else -> fallback
+private fun filingTag(f: DartFiling, fallback: String): String = if (f.src == "KIND") "KIND" else fallback
+
+/** 시장 단위 이름표(유가증권·코스닥·코넥스·기타법인)를 색으로 구분해 보여 준다. */
+@Composable
+private fun MarketChip(cls: String, modifier: Modifier = Modifier) {
+    val color = marketColor(cls)
+    Surface(modifier = modifier, shape = RoundedCornerShape(6.dp), color = color.copy(alpha = 0.16f)) {
+        Text(dartMarketLabel(cls), Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelMedium, color = color, fontWeight = FontWeight.Bold, maxLines = 1)
+    }
 }
 
-/** 기업현황 및 공시: 회사를 검색해 개황·최대주주·정기/감사/기타 공시와 주가를 보고, 관심기업을 모아 새 공시를 확인한다. */
+/** 기업공시(DART, KIND): 회사를 검색해 개황·최대주주·재무손익·정기/감사/기타 공시와 주가를 보고, 관심기업을 모아 새 공시를 확인한다. */
 @Composable
 fun DartScreen(viewModel: DartViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -302,7 +399,7 @@ fun DartScreen(viewModel: DartViewModel, modifier: Modifier = Modifier) {
     BackHandler(enabled = selected != null) { viewModel.back() }
     Column(modifier.fillMaxSize()) {
         if (selected == null) {
-            LargeTitle("기업현황 및 공시", subtitle = "회사명·종목코드로 검색 · 관심기업의 새 공시 모아 보기")
+            LargeTitle("기업공시(DART, KIND)", subtitle = "회사명·종목코드로 검색 · 관심기업의 새 공시 모아 보기")
             if (!viewModel.isConfigured) CenterMessage("서버가 연결되지 않아 공시를 불러올 수 없습니다.")
             else DartHome(state, viewModel)
         } else {
@@ -331,10 +428,13 @@ private fun DartHome(state: DartUiState, viewModel: DartViewModel) {
                     items(results.value, key = { it.corp }) { corp ->
                         ListCard(onClick = { viewModel.open(corp) }) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                InitialAvatar(corp.name, AppColors.heroEnd)
-                                Column(Modifier.weight(1f)) {
+                                InitialAvatar(corp.name, marketColor(clsOf(corp)))
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     Text(corp.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                                    Text(if (corp.stock.isBlank()) "비상장" else "${corp.stock} · 상장", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        MarketChip(clsOf(corp))
+                                        if (corp.stock.isNotBlank()) Text(corp.stock, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                                 IconButton(onClick = { viewModel.toggleWatch(corp) }) {
                                     val on = state.watch.any { it.corp == corp.corp }
@@ -383,7 +483,7 @@ private fun DartHome(state: DartUiState, viewModel: DartViewModel) {
     }
 }
 
-private val DART_TABS = listOf("개황", "최대주주", "정기보고서", "감사보고서", "기타공시")
+private val DART_TABS = listOf("개황", "최대주주", "재무손익", "정기보고서", "감사보고서", "기타공시")
 
 @Composable
 private fun DartDetail(corp: DartCorp, state: DartUiState, viewModel: DartViewModel) {
@@ -392,7 +492,7 @@ private fun DartDetail(corp: DartCorp, state: DartUiState, viewModel: DartViewMo
     val watched = state.watch.any { it.corp == corp.corp }
     val companyLoad = state.company[corp.corp]
     val company = (companyLoad as? DartLoad.Done)?.value
-    val effective = if (company != null) corp.copy(name = company.name.ifBlank { corp.name }, stock = company.stock, market = company.market) else corp
+    val effective = if (company != null) corp.copy(name = company.name.ifBlank { corp.name }, stock = company.stock, cls = company.cls) else corp
     BackHeader(corp.name, onBack = viewModel::back) {
         IconButton(onClick = { viewModel.toggleWatch(effective) }) {
             Icon(if (watched) Icons.Filled.Star else Icons.Filled.StarBorder, contentDescription = if (watched) "관심기업 해제" else "관심기업 추가")
@@ -401,38 +501,40 @@ private fun DartDetail(corp: DartCorp, state: DartUiState, viewModel: DartViewMo
     LaunchedEffect(tab, corp.corp) {
         when (tab) {
             1 -> viewModel.ensureHolders(corp.corp)
-            2 -> viewModel.ensureFilings(corp.corp, "a")
-            3 -> viewModel.ensureFilings(corp.corp, "f")
-            4 -> {
-                viewModel.ensureFilings(corp.corp, "e")
-                viewModel.ensureKind(effective)
-            }
+            2 -> viewModel.ensureFinance(effective)
         }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        if (effective.stock.isNotBlank()) StockCard(effective, state.stocks[corp.corp], onRetry = { viewModel.ensureStock(effective, force = true) })
+        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MarketChip(clsOf(effective))
+            if (effective.stock.isNotBlank()) Text(effective.stock, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (effective.stock.isNotBlank()) StockCard(effective, state, viewModel)
         UnderlineTabs(DART_TABS, tab, { tab = it })
         when (tab) {
             0 -> OverviewTab(companyLoad, onRetry = { viewModel.ensureCompany(corp) })
             1 -> HoldersTab(state.holders[corp.corp], onRetry = { viewModel.ensureHolders(corp.corp, force = true) })
-            2 -> FilingsTab(state.filings["${corp.corp}|a"], "정기", "최근 정기보고서(사업·반기·분기)가 없습니다.", onRetry = { viewModel.ensureFilings(corp.corp, "a", force = true) })
-            3 -> FilingsTab(state.filings["${corp.corp}|f"], "감사", "최근 감사보고서가 없습니다.", onRetry = { viewModel.ensureFilings(corp.corp, "f", force = true) })
-            else -> OtherTab(effective, state.filings["${corp.corp}|e"], state.kind[corp.corp], viewModel)
+            2 -> FinanceTab(state.finance[corp.corp], onRetry = { viewModel.ensureFinance(effective, force = true) })
+            3 -> FilingsTab(effective, "a", "정기", "기간 안에 정기보고서(사업·반기·분기)가 없습니다.", state, viewModel)
+            4 -> FilingsTab(effective, "f", "감사", "기간 안에 감사보고서가 없습니다.", state, viewModel)
+            else -> OtherTab(effective, state, viewModel)
         }
     }
 }
 
+private val STOCK_PERIODS = listOf("1일" to 1, "1주" to 5, "1개월" to 21, "3개월" to 63, "1년" to 260)
+
 @Composable
-private fun StockCard(corp: DartCorp, load: DartLoad<DartStock>?, onRetry: () -> Unit) {
-    var period by rememberSaveable { mutableIntStateOf(2) }
-    val periods = listOf("1주" to 5, "1개월" to 21, "3개월" to 63, "1년" to 260)
+private fun StockCard(corp: DartCorp, state: DartUiState, viewModel: DartViewModel) {
+    var period by rememberSaveable { mutableIntStateOf(3) }
+    val load = state.stocks[corp.corp]
     ListCard {
         Text("주가", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         when (load) {
             null, DartLoad.Loading -> Box(Modifier.fillMaxWidth().height(70.dp)) { CircularProgressIndicator(Modifier.align(Alignment.Center)) }
             is DartLoad.Failed -> Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("시세를 불러오지 못했습니다.", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = onRetry) { Text("다시 시도") }
+                TextButton(onClick = { viewModel.ensureStock(corp, force = true) }) { Text("다시 시도") }
             }
             is DartLoad.Done -> {
                 val s = load.value
@@ -443,21 +545,37 @@ private fun StockCard(corp: DartCorp, load: DartLoad<DartStock>?, onRetry: () ->
                         Text("${signText(s.change!!)} (${if (s.percent!! > 0) "+" else ""}${String.format(Locale.US, "%.2f", s.percent)}%)", color = tint, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     }
                 }
-                val (label, count) = periods[period]
-                val slice = s.closes.takeLast(count)
-                if (slice.size >= 2) {
-                    val up = slice.last() >= slice.first()
-                    PriceLine(slice, if (up) UpRed else DownBlue, Modifier.fillMaxWidth().height(64.dp))
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        periods.forEachIndexed { i, (name, _) -> PillChip(name, onClick = { period = i }, selected = i == period, onPanel = true) }
+                val (label, count) = STOCK_PERIODS[period]
+                if (period == 0) {
+                    LaunchedEffect(corp.corp) { viewModel.ensureIntraday(corp, s.previous) }
+                    when (val d = state.intraday[corp.corp]) {
+                        null, DartLoad.Loading -> Box(Modifier.fillMaxWidth().height(64.dp)) { CircularProgressIndicator(Modifier.align(Alignment.Center).size(24.dp), strokeWidth = 2.dp) }
+                        is DartLoad.Failed -> Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(d.message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            TextButton(onClick = { viewModel.ensureIntraday(corp, s.previous, force = true) }) { Text("다시 시도") }
+                        }
+                        is DartLoad.Done -> {
+                            val pts = d.value.points
+                            val up = pts.last() >= (d.value.previous ?: pts.first())
+                            IntradayChart(d.value, if (up) UpRed else DownBlue, Modifier.fillMaxWidth().height(80.dp))
+                        }
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("52주 최저 ${grouped(s.low)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("$label ${String.format(Locale.US, "%+.1f", (slice.last() / slice.first() - 1) * 100)}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("52주 최고 ${grouped(s.high)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                } else {
+                    val slice = s.closes.takeLast(count)
+                    if (slice.size >= 2) PriceLine(slice, if (slice.last() >= slice.first()) UpRed else DownBlue, Modifier.fillMaxWidth().height(64.dp))
                 }
-                Text("${corp.stock} · 시세 제공처 기준, 지연될 수 있음", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    STOCK_PERIODS.forEachIndexed { i, (name, _) -> PillChip(name, onClick = { period = i }, selected = i == period, onPanel = true) }
+                }
+                val slice = s.closes.takeLast(count)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("52주 최저 ${grouped(s.low)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (period != 0 && slice.size >= 2) {
+                        Text("$label ${String.format(Locale.US, "%+.1f", (slice.last() / slice.first() - 1) * 100)}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text("52주 최고 ${grouped(s.high)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text("${corp.stock} · 시세 제공처 기준, 지연될 수 있음" + if (period == 0) " · 1일은 장이 끝났으면 가장 최근 거래일 흐름" else "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -505,8 +623,8 @@ private fun OverviewTab(load: DartLoad<DartCompany>?, onRetry: () -> Unit) {
         ListCard {
             InfoLine("회사명", c.name)
             InfoLine("영문명", c.nameEn)
-            InfoLine("종목코드", c.stock.ifBlank { "비상장" })
-            InfoLine("시장", c.marketName)
+            InfoLine("종목코드", c.stock.ifBlank { "-" })
+            InfoLine("시장", dartMarketLabel(c.cls.ifBlank { "E" }))
             InfoLine("대표이사", c.ceo)
             InfoLine("법인등록번호", c.corpNo)
             InfoLine("사업자등록번호", c.bizNo)
@@ -525,47 +643,243 @@ private fun OverviewTab(load: DartLoad<DartCompany>?, onRetry: () -> Unit) {
 }
 
 @Composable
+private fun ShareCell(share: DartShare?, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.End) {
+        Text(share?.ratio?.let { String.format(Locale.US, "%.2f%%", it) } ?: "-", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text(share?.shares?.let { grouped(it) + "주" } ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
 private fun HoldersTab(load: DartLoad<DartHolders>?, onRetry: () -> Unit) {
     LoadBox(load, onRetry) { h ->
         if (h.items.isEmpty()) {
             CenterMessage("최근 정기보고서에서 최대주주 현황을 찾지 못했습니다. 정기보고서 제출 대상이 아닌 회사일 수 있습니다.", modifier = Modifier.fillMaxWidth().height(180.dp))
             return@LoadBox
         }
-        val total = h.items.sumOf { it.ratio ?: 0.0 }
         ListCard {
             Text("${h.basis} 기준", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("최대주주 및 특수관계인 합계 ${String.format(Locale.US, "%.2f", total)}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("최대주주 및 특수관계인 합계", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("보통주 ${percentText(h.totalCommon, 2)}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                if (h.totalPref != null) Text("우선주 ${percentText(h.totalPref, 2)}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            }
         }
-        h.items.forEach { it ->
+        Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("주주", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("보통주", Modifier.width(104.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
+            Text("우선주", Modifier.width(104.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
+        }
+        h.items.forEach { holder: DartHolder ->
             ListCard {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(it.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                        Text(listOf(it.relation, it.kind).filter { s -> s.isNotBlank() && s != "-" }.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(holder.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                        if (holder.relation.isNotBlank() && holder.relation != "-") Text(holder.relation, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(it.ratio?.let { r -> String.format(Locale.US, "%.2f%%", r) } ?: "-", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        it.shares?.let { s -> Text(grouped(s) + "주", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    }
+                    ShareCell(holder.common, Modifier.width(104.dp))
+                    ShareCell(holder.pref, Modifier.width(104.dp))
                 }
-                val ratio = (it.ratio ?: 0.0).coerceIn(0.0, 100.0)
+                val ratio = (holder.common?.ratio ?: 0.0).coerceIn(0.0, 100.0)
                 Box(Modifier.fillMaxWidth().height(6.dp).clipBar(MaterialTheme.colorScheme.surfaceVariant)) {
                     Box(Modifier.fillMaxWidth((ratio / 100.0).toFloat().coerceAtLeast(0.01f)).height(6.dp).clipBar(AppColors.heroEnd))
                 }
             }
         }
-        Text("출처: DART 최대주주 현황(정기보고서). 특수관계인은 보고서에 기재된 범위입니다.", Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("출처: DART 최대주주 현황(정기보고서). 같은 주주의 보통주·우선주는 한 줄로 합쳐 보여 줍니다. 막대는 보통주 지분입니다.", Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 private fun Modifier.clipBar(color: Color): Modifier = this
-    .clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
+    .clip(RoundedCornerShape(3.dp))
     .background(color)
+
+// ───────── 재무손익 현황 ─────────
+
+private val BarRevenue = Color(0xFF2A7DE1)
+private val BarOp = Color(0xFFF08A4B)
+private val BarNet = Color(0xFF3F5A82)
+
+@Composable
+private fun TableHeader(cols: List<Pair<String, String>>) {
+    Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("구분", Modifier.weight(0.9f), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        cols.forEach { (label, sub) ->
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.End, fontSize = 12.sp, lineHeight = 14.sp)
+                if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, fontSize = 10.sp, lineHeight = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableRow(label: String, values: List<String>) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(0.9f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        values.forEach { Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, textAlign = TextAlign.End, maxLines = 1, softWrap = false, fontSize = 13.sp) }
+    }
+}
+
+@Composable
+private fun FinanceTab(load: DartLoad<DartFinView>?, onRetry: () -> Unit) {
+    LoadBox(load, onRetry) { view ->
+        val f = view.finance
+        if (f.balance.isEmpty() && f.income.isEmpty()) {
+            CenterMessage(f.note.ifBlank { "재무 자료를 찾지 못했습니다. 정기보고서 제출 대상이 아닌 회사일 수 있습니다." }, modifier = Modifier.fillMaxWidth().height(180.dp))
+            return@LoadBox
+        }
+        ListCard {
+            BlockTitle("재무상태 비교")
+            Text("${f.basis}재무제표 · 단위 억원", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TableHeader(f.balance.map { it.label to "" })
+            TableRow("자산총계", f.balance.map { eokText(it.assets) })
+            TableRow("부채총계", f.balance.map { eokText(it.liab) })
+            TableRow("자본총계", f.balance.map { eokText(it.equity) })
+            TableRow("부채비율", f.balance.map { c -> percentText(if (c.equity != null && c.equity != 0.0 && c.liab != null) c.liab / c.equity * 100 else null) })
+            Text("부채비율 = 부채총계 ÷ 자본총계", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        ListCard {
+            BlockTitle("손익현황")
+            Text("출처: DART 정기보고서 · 단위 억원", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TableHeader(f.income.map { it.label to it.sub })
+            TableRow("매출액", f.income.map { eokText(it.revenue) })
+            TableRow("영업이익", f.income.map { eokText(it.op) })
+            TableRow("당기순이익", f.income.map { eokText(it.net) })
+            Text("금융회사는 영업수익 등 업종별 계정을 매출액 줄에 보여 주며, 해당 계정이 없으면 -로 표시됩니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        TrendCard(view)
+        PerShareCard(view)
+        Text("출처: DART 주요계정·전체 재무제표. 연말 종가는 시세 제공처 기준입니다.", Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun BlockTitle(text: String) {
+    Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+}
+
+@Composable
+private fun TrendCard(view: DartFinView) {
+    val trend = view.finance.trend
+    if (trend.size < 2) return
+    var selected by rememberSaveable { mutableIntStateOf(trend.lastIndex) }
+    val sel = trend[selected.coerceIn(0, trend.lastIndex)]
+    ListCard {
+        BlockTitle("최근 ${trend.size}개년 추이")
+        Text("출처: DART 사업보고서 · ${view.finance.basis}재무제표 · 단위 억원 · 연도를 누르면 수치 표시", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            LegendDot(BarRevenue, "매출액")
+            LegendDot(BarOp, "영업이익")
+            LegendDot(BarNet, "당기순이익")
+        }
+        Text("${sel.year}년 매출액 ${eokText(sel.revenue)}억 · 영업이익 ${eokText(sel.op)}억 · 당기순이익 ${eokText(sel.net)}억", style = MaterialTheme.typography.bodySmall)
+        BarChart(trend, selected, Modifier.fillMaxWidth().height(130.dp))
+        YearRow(trend.map { it.year }, selected) { selected = it }
+        Text("${sel.year}년 부채비율(%) ${percentText(sel.debt)}", style = MaterialTheme.typography.bodySmall)
+        DebtLine(trend, selected, Modifier.fillMaxWidth().height(70.dp))
+        YearRow(trend.map { it.year }, selected) { selected = it }
+    }
+}
+
+@Composable
+private fun LegendDot(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(Modifier.size(10.dp).background(color))
+        Text(label, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+@Composable
+private fun YearRow(years: List<Int>, selected: Int, onSelect: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth()) {
+        years.forEachIndexed { i, y ->
+            Text(
+                "$y", Modifier.weight(1f).clickable { onSelect(i) }.padding(vertical = 4.dp), textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.labelMedium, fontWeight = if (i == selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (i == selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun BarChart(points: List<io.github.hdlee73.financenewsradar.data.DartTrendPoint>, selected: Int, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val all = points.flatMap { listOfNotNull(it.revenue, it.op, it.net) }
+        if (all.isEmpty()) return@Canvas
+        val hi = maxOf(all.max(), 0.0)
+        val lo = minOf(all.min(), 0.0)
+        val span = (hi - lo).takeIf { it > 0 } ?: 1.0
+        fun yOf(v: Double) = ((hi - v) / span).toFloat() * size.height
+        val zero = yOf(0.0)
+        val groupW = size.width / points.size
+        val barW = groupW * 0.22f
+        points.forEachIndexed { i, p ->
+            val left = i * groupW + groupW * 0.5f - barW * 1.5f
+            listOf(p.revenue to BarRevenue, p.op to BarOp, p.net to BarNet).forEachIndexed { j, (v, color) ->
+                if (v == null) return@forEachIndexed
+                val y = yOf(v)
+                val top = minOf(y, zero)
+                val h = kotlin.math.abs(y - zero).coerceAtLeast(1f)
+                drawRect(color.copy(alpha = if (i == selected) 1f else 0.45f), Offset(left + j * barW, top), Size(barW * 0.92f, h))
+            }
+        }
+        drawLine(Color(0x33000000), Offset(0f, zero), Offset(size.width, zero), strokeWidth = 1.dp.toPx())
+    }
+}
+
+@Composable
+private fun DebtLine(points: List<io.github.hdlee73.financenewsradar.data.DartTrendPoint>, selected: Int, modifier: Modifier = Modifier) {
+    val line = MaterialTheme.colorScheme.primary
+    Canvas(modifier) {
+        val vals = points.map { it.debt }
+        val known = vals.filterNotNull()
+        if (known.size < 2) return@Canvas
+        val lo = known.min()
+        val span = (known.max() - lo).takeIf { it > 0 } ?: 1.0
+        val groupW = size.width / points.size
+        fun xOf(i: Int) = i * groupW + groupW / 2
+        fun yOf(v: Double) = size.height - ((v - lo) / span).toFloat() * size.height * 0.8f - size.height * 0.1f
+        val path = Path()
+        var started = false
+        vals.forEachIndexed { i, v ->
+            if (v == null) return@forEachIndexed
+            if (!started) { path.moveTo(xOf(i), yOf(v)); started = true } else path.lineTo(xOf(i), yOf(v))
+        }
+        drawPath(path, line, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+        vals.forEachIndexed { i, v -> if (v != null) drawCircle(line, radius = if (i == selected) 5.dp.toPx() else 3.dp.toPx(), center = Offset(xOf(i), yOf(v))) }
+    }
+}
+
+@Composable
+private fun PerShareCard(view: DartFinView) {
+    val eps = view.finance.eps
+    val years = view.finance.trend.map { it.year }.filter { eps.containsKey(it) }.takeLast(4)
+    if (years.isEmpty()) return
+    ListCard {
+        BlockTitle("주당·배수 지표")
+        TableHeader(years.map { "${it}년" to "" })
+        TableRow("EPS(원)", years.map { grouped(eps.getValue(it)) })
+        if (view.closes.isNotEmpty()) {
+            TableRow("연말 종가(원)", years.map { y -> view.closes[y]?.let { grouped(it) } ?: "-" })
+            TableRow("PER(배)", years.map { y ->
+                val close = view.closes[y]
+                val e = eps[y]
+                if (close != null && e != null && e > 0) String.format(Locale.US, "%.2f", close / e) else "-"
+            })
+        }
+        Text("EPS는 DART 공시값입니다. PER = 연말 종가 ÷ EPS로 직접 계산한 추정치라 증권사 표시값과 다를 수 있습니다. 적자(EPS 0 이하)는 -로 표시합니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+// ───────── 공시 목록(기간 선택) ─────────
 
 @Composable
 private fun FilingList(items: List<DartFiling>, tagFallback: String) {
     val uri = LocalUriHandler.current
-    items.forEach { f ->
+    var shown by rememberSaveable { mutableIntStateOf(50) }
+    items.take(shown).forEach { f ->
         ListCard(onClick = { runCatching { uri.openUri(f.url) } }) {
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TagLabel(filingTag(f, tagFallback), accent = f.src == "KIND")
@@ -574,25 +888,101 @@ private fun FilingList(items: List<DartFiling>, tagFallback: String) {
             Text(listOf(dateText(f.date), f.by, f.note).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+    if (items.size > shown) TextButton(onClick = { shown += 50 }, modifier = Modifier.fillMaxWidth()) { Text("더 보기 (${items.size - shown}건 남음)") }
+}
+
+private val PERIOD_LABELS = listOf("1년", "3년", "5년", "기간선택")
+
+/** 기간 칩(1년·3년·5년·기간선택). 기간선택을 누르면 시작·종료 연월을 고르는 창이 열린다(최대 10년). */
+@Composable
+private fun PeriodBar(period: DartPeriod, onChange: (DartPeriod) -> Unit) {
+    var dialog by rememberSaveable { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        PERIOD_LABELS.forEachIndexed { i, label ->
+            val text = if (i == 3 && period.index == 3) "${period.fromYm / 100}.${String.format(Locale.US, "%02d", period.fromYm % 100)}~${period.toYm / 100}.${String.format(Locale.US, "%02d", period.toYm % 100)}" else label
+            PillChip(text, onClick = { if (i == 3) dialog = true else onChange(period.copy(index = i)) }, selected = i == period.index, onPanel = true)
+        }
+    }
+    if (dialog) {
+        var from by rememberSaveable { mutableIntStateOf(if (period.index == 3) period.fromYm else addMonths(nowYm(), -24)) }
+        var to by rememberSaveable { mutableIntStateOf(if (period.index == 3) period.toYm else nowYm()) }
+        val now = nowYm()
+        AlertDialog(
+            onDismissRequest = { dialog = false },
+            title = { Text("기간 선택 (최대 10년)") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    YmStepper("시작", from) { v ->
+                        val nf = minOf(v, now)
+                        from = nf
+                        if (to < nf) to = nf
+                        if (to > addMonths(nf, 120)) to = addMonths(nf, 120)
+                    }
+                    YmStepper("종료", to) { v ->
+                        val nt = minOf(v, now)
+                        to = nt
+                        if (from > nt) from = nt
+                        if (from < addMonths(nt, -120)) from = addMonths(nt, -120)
+                    }
+                    Text("시작·종료가 10년을 넘으면 자동으로 맞춥니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = { TextButton(onClick = { onChange(DartPeriod(3, from, to)); dialog = false }) { Text("적용") } },
+            dismissButton = { TextButton(onClick = { dialog = false }) { Text("취소") } }
+        )
+    }
 }
 
 @Composable
-private fun FilingsTab(load: DartLoad<DartFilings>?, tag: String, empty: String, onRetry: () -> Unit) {
-    LoadBox(load, onRetry) { f ->
+private fun YmStepper(label: String, ym: Int, onChange: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.width(44.dp), style = MaterialTheme.typography.bodyMedium)
+        TextButton(onClick = { onChange(addMonths(ym, -12)) }) { Text("−1년") }
+        TextButton(onClick = { onChange(addMonths(ym, -1)) }) { Text("◀") }
+        Text("${ym / 100}년 ${ym % 100}월", Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+        TextButton(onClick = { onChange(addMonths(ym, 1)) }) { Text("▶") }
+        TextButton(onClick = { onChange(addMonths(ym, 12)) }) { Text("+1년") }
+    }
+}
+
+@Composable
+private fun rememberPeriod(key: String): Pair<DartPeriod, (DartPeriod) -> Unit> {
+    var index by rememberSaveable(key) { mutableIntStateOf(0) }
+    var from by rememberSaveable(key) { mutableIntStateOf(addMonths(nowYm(), -24)) }
+    var to by rememberSaveable(key) { mutableIntStateOf(nowYm()) }
+    return DartPeriod(index, from, to) to { p -> index = p.index; from = p.fromYm; to = p.toYm }
+}
+
+@Composable
+private fun FilingsTab(corp: DartCorp, type: String, tag: String, empty: String, state: DartUiState, viewModel: DartViewModel) {
+    val (period, setPeriod) = rememberPeriod("${corp.corp}|$type")
+    val arg = DartPeriodArg(period.from, period.to)
+    LaunchedEffect(corp.corp, type, arg) { viewModel.ensureFilings(corp.corp, type, arg) }
+    PeriodBar(period, setPeriod)
+    LoadBox(state.filings["${corp.corp}|$type|${arg.from}|${arg.to}"], onRetry = { viewModel.ensureFilings(corp.corp, type, arg, force = true) }) { f ->
         if (f.items.isEmpty()) CenterMessage(empty, modifier = Modifier.fillMaxWidth().height(180.dp))
         else {
             FilingList(f.items, tag)
-            Text("출처: DART · 누르면 원문 공시가 열립니다.", Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("출처: DART · ${dateText(arg.from)} ~ ${dateText(arg.to)} · 누르면 원문 공시가 열립니다.", Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-private fun OtherTab(corp: DartCorp, dart: DartLoad<DartFilings>?, kind: DartLoad<DartFilings>?, viewModel: DartViewModel) {
-    var filter by rememberSaveable(corp.corp) { mutableIntStateOf(0) }
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun OtherTab(corp: DartCorp, state: DartUiState, viewModel: DartViewModel) {
+    val (period, setPeriod) = rememberPeriod("${corp.corp}|e")
+    val arg = DartPeriodArg(period.from, period.to)
+    var filter by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(corp.corp, arg) {
+        viewModel.ensureFilings(corp.corp, "e", arg)
+        viewModel.ensureKind(corp, arg)
+    }
+    PeriodBar(period, setPeriod)
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf("전체", "DART", "KIND").forEachIndexed { i, label -> PillChip(label, onClick = { filter = i }, selected = i == filter, onPanel = true) }
     }
+    val dart = state.filings["${corp.corp}|e|${arg.from}|${arg.to}"]
+    val kind = state.kind["${corp.corp}|${arg.from}|${arg.to}"]
     val dartItems = (dart as? DartLoad.Done)?.value?.items.orEmpty()
     val kindDone = (kind as? DartLoad.Done)?.value
     val kindItems = kindDone?.items.orEmpty()
@@ -605,12 +995,12 @@ private fun OtherTab(corp: DartCorp, dart: DartLoad<DartFilings>?, kind: DartLoa
     if (loading && merged.isEmpty()) Box(Modifier.fillMaxWidth().height(120.dp)) { CircularProgressIndicator(Modifier.align(Alignment.Center)) }
     else if (merged.isEmpty()) {
         val err = (dart as? DartLoad.Failed)?.message ?: if (filter == 2) (kind as? DartLoad.Failed)?.message ?: kindDone?.error else null
-        CenterMessage(err ?: if (filter == 2 && corp.stock.isBlank()) "비상장사는 KIND 공시가 없습니다." else "최근 기타공시가 없습니다.", isError = err != null, modifier = Modifier.fillMaxWidth().height(180.dp))
+        CenterMessage(err ?: if (filter == 2 && corp.stock.isBlank()) "비상장사는 KIND 공시가 없습니다." else "기간 안에 기타공시가 없습니다.", isError = err != null, modifier = Modifier.fillMaxWidth().height(180.dp))
     } else FilingList(merged, "기타")
     val note = when {
         filter != 1 && corp.stock.isNotBlank() && ((kind as? DartLoad.Failed) != null || kindDone?.error != null) -> "KIND 공시를 읽지 못해 DART 공시만 보여 줍니다."
         filter != 1 && corp.stock.isBlank() -> "비상장사는 DART 공시만 있습니다."
-        else -> "DART 주요사항·지분·기타·거래소공시와 KIND 공시 목록입니다."
+        else -> "DART 주요사항·지분·기타·거래소공시와 KIND 공시 목록입니다. (${dateText(arg.from)} ~ ${dateText(arg.to)})"
     }
     Text(note, Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
