@@ -53,6 +53,11 @@ data class DartFinance(
     val balance: List<DartBalanceCol>, val income: List<DartIncomeCol>, val trend: List<DartTrendPoint>, val eps: Map<Int, Double>
 )
 
+private val KEY_PARAM = Regex("crtfc_key=[^&\\s\"'<>]*", RegexOption.IGNORE_CASE)
+
+/** 오류 문구에서 DART 인증키(crtfc_key=…) 값을 가린다. */
+internal fun redactKey(text: String): String = text.replace(KEY_PARAM, "crtfc_key=***")
+
 internal fun parseDartCorps(body: String): List<DartCorp> {
     val array = JSONObject(body).optJSONArray("items") ?: return emptyList()
     return (0 until array.length()).map { array.getJSONObject(it) }
