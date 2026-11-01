@@ -283,7 +283,7 @@ private fun grouped(value: Double, digits: Int = 0): String = String.format(Loca
 
 private fun signText(value: Double, digits: Int = 0): String = (if (value > 0) "▲" else if (value < 0) "▼" else "") + grouped(kotlin.math.abs(value), digits)
 
-private fun changeColor(change: Double?): Color = when {
+private fun dartChangeColor(change: Double?): Color = when {
     change == null || change == 0.0 -> Color.Unspecified
     change > 0 -> UpRed
     else -> DownBlue
@@ -436,7 +436,7 @@ private fun StockCard(corp: DartCorp, load: DartLoad<DartStock>?, onRetry: () ->
             }
             is DartLoad.Done -> {
                 val s = load.value
-                val tint = changeColor(s.change).takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface
+                val tint = dartChangeColor(s.change).takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                     Text(grouped(s.price) + "원", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     if (s.change != null && s.percent != null) {
