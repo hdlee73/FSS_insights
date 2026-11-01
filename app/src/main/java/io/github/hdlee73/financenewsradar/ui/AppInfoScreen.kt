@@ -31,6 +31,8 @@ import io.github.hdlee73.financenewsradar.data.UpdateInfo
 import io.github.hdlee73.financenewsradar.data.UpdateInstaller
 import java.io.File
 import kotlinx.coroutines.launch
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +41,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hdlee73.financenewsradar.BuildConfig
 import io.github.hdlee73.financenewsradar.data.UpdateChecker
 import io.github.hdlee73.financenewsradar.data.UpdateStatus
+
+private const val USAGE_GUIDE =
+    "• 왼쪽 위 ☰ 버튼(또는 화면 왼쪽 가장자리 밀기)으로 메뉴를 열고 닫습니다. 뒤로가기는 앱을 끄지 않고 직전 화면으로 돌아갑니다.\n" +
+        "• 오늘의 브리핑: 관심 키워드 뉴스·보도자료·시장지표를 한눈에 봅니다.\n" +
+        "• 뉴스 검색: 키워드·회사명으로 검색하고 AND, OR, 따옴표, -제외어를 쓸 수 있습니다.\n" +
+        "• 금융회사 주요 현황: 권역별 금융회사의 경영지표를 보고 2~3곳을 비교합니다.\n" +
+        "• 기업 개황 및 공시(DART): 회사명·종목코드로 검색해 개황·최대주주·재무손익·정기/주요사항/기타 공시와 주가(당일 포함)를 봅니다. 공시는 1년·3년·5년·기간선택(최대 10년)으로 조회하고, 별(★)로 관심기업에 담으면 첫 화면에서 새 공시를 모아 봅니다.\n" +
+        "• 스마트 법령검색·제재공시·유권해석: 법령 비교표와 제재·해석 자료를 찾고 PDF·한글(HWPX)로 저장합니다.\n" +
+        "• 알림: 키워드·자료별 알림을 켜고 끕니다. 새 버전은 이 화면에서 바로 업데이트할 수 있습니다."
 
 /** 앱 이름·버전·만든이와 업데이트 확인(릴리스 노트 표시, 새 버전 자동 내려받기·설치). */
 @Composable
@@ -55,7 +66,16 @@ fun AppInfoScreen(modifier: Modifier = Modifier) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         InfoRow("앱 이름", "FSS Insights")
         InfoRow("버전", BuildConfig.VERSION_NAME)
-        InfoRow("만든이", "이현덕 (hdlee73@gmail.com)")
+        InfoRow("만든이", "이현덕 with Claude")
+        InfoRow("이메일", "hdlee73@gmail.com")
+        val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("홈페이지", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = { runCatching { uriHandler.openUri("https://hdlee73.github.io/Home/") } }) { Text("hdlee73.github.io/Home") }
+        }
+
+        Text("사용 방법", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+        Text(USAGE_GUIDE, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
 
         Text("면책 안내", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
         Text(DISCLAIMER_SHORT, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)

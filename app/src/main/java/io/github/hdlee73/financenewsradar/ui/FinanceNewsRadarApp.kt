@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.outlined.WbSunny
@@ -104,6 +105,7 @@ private const val SCREEN_FISIS = 9
 private const val SCREEN_REGULATORY = 10
 private const val SCREEN_SANCTION = 11
 private const val SCREEN_LAW = 12
+private const val SCREEN_DART = 13
 
 // 왼쪽 서랍 메뉴에 나오는 모든 화면(순서 = 화면 번호). 오늘의 브리핑·뉴스·시장동향의 번호는 브리핑 화면의 바로가기와 같다.
 private val appScreens = listOf(
@@ -119,12 +121,13 @@ private val appScreens = listOf(
     AppScreen("금융회사 주요 현황", Icons.Filled.Business),
     AppScreen("유권해석·비조치의견서·행정지도", Icons.Filled.Gavel),
     AppScreen("금융회사 제재공시", Icons.Filled.Gavel),
-    AppScreen("스마트 법령검색", Icons.Filled.AccountTree)
+    AppScreen("스마트 법령검색", Icons.Filled.AccountTree),
+    AppScreen("기업 개황 및 공시(DART)", Icons.Filled.Apartment)
 )
 
 // 서랍 메뉴의 묶음: 소제목과 그 아래 화면 번호.
 private val drawerSections = listOf(
-    null to listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_FISIS, SCREEN_SANCTION, SCREEN_LAW),
+    null to listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_FISIS, SCREEN_DART, SCREEN_SANCTION, SCREEN_LAW),
     "자료" to listOf(SCREEN_PRESS, SCREEN_REGULATORY, SCREEN_RESEARCH, SCREEN_LIBRARY),
     "더보기" to listOf(SCREEN_SITES, SCREEN_ALERTS, SCREEN_INFO)
 )
@@ -137,6 +140,7 @@ fun FinanceNewsRadarApp(
     libraryViewModel: LibraryViewModel = viewModel(),
     marketViewModel: MarketViewModel = viewModel(),
     fisisViewModel: FisisViewModel = viewModel(),
+    dartViewModel: DartViewModel = viewModel(),
     regulatoryViewModel: RegulatoryViewModel = viewModel()
 ) {
     val newsState by newsViewModel.state.collectAsStateWithLifecycle()
@@ -236,6 +240,7 @@ fun FinanceNewsRadarApp(
             SCREEN_SITES -> HeroPalettes.Slate
             SCREEN_ALERTS -> HeroPalettes.Rose
             SCREEN_FISIS -> HeroPalettes.Green
+            SCREEN_DART -> HeroPalettes.Teal
             SCREEN_REGULATORY -> HeroPalettes.Indigo
             SCREEN_SANCTION -> HeroPalettes.Coral
             SCREEN_LAW -> HeroPalettes.Violet
@@ -259,6 +264,7 @@ fun FinanceNewsRadarApp(
                     SCREEN_NEWS -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     SCREEN_MARKET -> MarketScreen(marketViewModel)
                     SCREEN_FISIS -> FisisScreen(fisisViewModel)
+                    SCREEN_DART -> DartScreen(dartViewModel)
                     SCREEN_REGULATORY -> RegulatoryScreen(regulatoryViewModel)
                     SCREEN_SANCTION -> RegulatoryScreen(regulatoryViewModel, title = "금융회사 제재공시", sources = RegulatoryMenus.sanction)
                     SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen()

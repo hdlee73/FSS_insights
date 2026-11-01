@@ -74,3 +74,11 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 2. GitHub Secrets에 `LAW_OC`로 저장하고 Actions → **Deploy news proxy**를 다시 실행합니다.
 
 `LAW_OC`가 없으면 `/law`는 503을 돌려주고 앱은 오류를 표시합니다(서버 주소가 없는 빌드는 데모 데이터로 동작).
+
+## 기업 개황 및 공시(DART)
+앱의 **기업 개황 및 공시(DART)** 화면은 DART 전자공시 Open API(기업개황, 최대주주 및 특수관계인, 재무손익, 정기보고서, 주요사항보고서, 기타공시)를 서버(`/dart/*`)로 중계합니다. 주가는 앱이 시장지표와 같은 시세 제공처에서 직접 받습니다.
+
+1. [DART Open API](https://opendart.fss.or.kr)에서 인증키를 발급받습니다(무료).
+2. GitHub Secrets에 `DART_API_KEY`로 저장하고 Actions → **Deploy news proxy**를 다시 실행합니다.
+- DART에는 회사명으로 고유번호를 찾는 API가 없어서, **배포할 때** `build-dart-data.mjs`가 고유번호 목록(corpCode.xml)을 받아 상장사와 2023년 이후 이력이 있는 비상장사만 추려 `dart-corps.json`으로 만들어 서버에 함께 올립니다. 회사 검색은 이 목록으로 합니다.
+- 최대주주 및 특수관계인은 가장 최근 정기보고서(분기·반기·사업) 기준으로 찾습니다. 공시 목록은 정기(A)·주요사항(B)·기타(발행 D, 지분 E 등, 거래소 I)로 나누어 최근 것부터 보여 줍니다. 시장 구분(유가증권·코스닥·코넥스·기타법인)은 검색할 때 DART 기업개황의 법인구분으로 정합니다.
