@@ -80,13 +80,11 @@ jobs:
       - name: Prepare release files
         run: |
           cp app/build/outputs/apk/release/app-release.apk fss-insights-v$VERSION.apk
-          sha256sum fss-insights-v$VERSION.apk > fss-insights-v$VERSION.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: fss-insights-apk
           path: |
             fss-insights-v${{ env.VERSION }}.apk
-            fss-insights-v${{ env.VERSION }}.apk.sha256
       - name: Publish GitHub release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -96,12 +94,10 @@ jobs:
             gh release edit v$VERSION --notes-file RELEASE_NOTES.md
             gh release upload v$VERSION \
               fss-insights-v$VERSION.apk \
-              fss-insights-v$VERSION.apk.sha256 \
               --clobber
           else
             gh release create v$VERSION \
               fss-insights-v$VERSION.apk \
-              fss-insights-v$VERSION.apk.sha256 \
               --target "$GITHUB_SHA" \
               --title "FSS Insights v$VERSION" \
               --notes-file RELEASE_NOTES.md
