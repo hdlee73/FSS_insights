@@ -114,6 +114,21 @@ class SettingsStore(context: Context) {
             }
             preferences.edit().putBoolean(LINKS_MIGRATED_EDGAR, true).apply()
         }
+        if (!preferences.getBoolean(LINKS_MIGRATED_V210, false)) {
+            // 새 기본 사이트: KIND는 DART 바로 아래, 회계기준원·회계위키는 그 아래(EDGAR가 있으면 EDGAR 아래)에 한 번만 추가. 이후 지우면 다시 넣지 않는다.
+            fun insertAfter(anchor: String, site: UsefulLink) {
+                if (links.any { it.url.contains(site.url.removePrefix("https://").removePrefix("www.").substringBefore('/')) }) return
+                val at = links.indexOfFirst { it.url.contains(anchor) }.let { if (it >= 0) it + 1 else links.size }
+                links = links.take(at) + site + links.drop(at)
+            }
+            fun defaultSite(host: String) = UsefulLink.DEFAULTS.first { it.url.contains(host) }
+            insertAfter("dart.fss.or.kr", defaultSite("kind.krx.co.kr"))
+            val tail = if (links.any { it.url.contains("sec.gov") }) "sec.gov" else "kind.krx.co.kr"
+            insertAfter(tail, defaultSite("kasb.or.kr"))
+            insertAfter("kasb.or.kr", defaultSite("accountingwiki.co.kr"))
+            saveLinks(links)
+            preferences.edit().putBoolean(LINKS_MIGRATED_V210, true).apply()
+        }
         if (links.any { it.url.contains("krx.or.kr") }) {
             // 한국거래소 주소 오류(krx.or.kr → krx.co.kr) 정정.
             links = links.map { if (it.url.contains("krx.or.kr")) it.copy(url = "https://www.krx.co.kr") else it }
@@ -250,6 +265,7 @@ class SettingsStore(context: Context) {
         private const val BOOKMARKS = "bookmarks"
         private const val LINKS_MIGRATED_V051 = "links_migrated_v051"
         private const val LINKS_MIGRATED_EDGAR = "links_migrated_edgar"
+        private const val LINKS_MIGRATED_V210 = "links_migrated_v210"
         const val LINKS = "useful_links"
         private const val SAVED_RELEASES = "saved_releases"
         private const val KEYWORD_ALERTS = "keyword_alerts_enabled"   // v0.20 이하의 전체 스위치(새 설정의 기본값 판단에만 쓴다)
