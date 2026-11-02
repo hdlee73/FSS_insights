@@ -312,7 +312,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
             coroutineScope {
                 chunk.map { symbol ->
                     async {
-                        runCatching { client.intraday(symbol, _state.value.quotes[symbol]?.previous) }
+                        runCatching { client.intraday(symbol, _state.value.quotes[symbol]?.previous, _state.value.quotes[symbol]?.price) }
                             .onSuccess { series -> _state.update { it.copy(intraday = it.intraday + (symbol to series)) } }
                     }
                 }.awaitAll()

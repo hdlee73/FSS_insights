@@ -428,10 +428,13 @@ class MarketClient(private val context: Context) {
     }
 
     /**
-     * 당일 흐름 그래프용 5분봉. 최근 5일치를 받아 거래소 현지 날짜별로 묶은 뒤, 점이 충분한 가장 최근 날짜를 쓴다
-     * (장 시작 전·휴장이면 자연히 전 거래일이 된다). 기준선은 그 전 거래일 마지막 종가, 없으면 [fallbackPrevious].
+     * 당일 흐름 그래프용 5분봉. 최근 5일치를 받아 거래소 현지 날짜별로 묶는다.
+     * 헤더의 등락(전일 대비)과 그래프가 어긋나지 않도록 다음 원칙을 지킨다.
+     *  - 가장 최근 거래일 점이 2개만 있어도 그 날을 쓴다(장 시작 직후 전 거래일 그래프가 보이지 않게).
+     *  - 기준선은 그래프가 보여 주는 날의 전 거래일 종가다. 헤더 기준 [fallbackPrevious]는 그래프가 가장 최근 거래일일 때만 쓴다.
+     *  - 시세([price])가 같은 날 것이면 마지막 점을 시세로 맞춰, 출처(NAVER·Yahoo)가 달라도 끝점이 헤더 값과 같게 한다.
      */
-    suspend fun intraday(raw: String, fallbackPrevious: Double?): IntradaySeries = withContext(Dispatchers.IO) {
+    suspend fun intraday(raw: String, fallbackPrevious: Double?, price: Double? = null): IntradaySeries = withContext(Dispatchers.IO) {
         val symbol = checkedSymbol(raw)
         val chart = yahooChart(symbol, "5d", "5m")
         val meta = chart.getJSONObject("meta")
@@ -446,11 +449,14 @@ class MarketClient(private val context: Context) {
             byDay.getOrPut(day) { ArrayList() } += close
         }
         val days = byDay.keys.toList()
-        val pick = days.lastOrNull { (byDay[it]?.size ?: 0) >= MIN_INTRADAY_POINTS } ?: days.lastOrNull() ?: error("분봉 자료 없음")
-        val points = byDay.getValue(pick)
+        val latest = days.lastOrNull() ?: error("분봉 자료 없음")
+        val pick = if ((byDay[latest]?.size ?: 0) >= MIN_INTRADAY_POINTS_OPEN) latest
+            else days.lastOrNull { (byDay[it]?.size ?: 0) >= MIN_INTRADAY_POINTS } ?: latest
+        val points = byDay.getValue(pick).toMutableList()
         if (points.size < 2) error("분봉 자료 부족")
         val before = days.lastOrNull { it.isBefore(pick) }?.let { byDay[it]?.last() }
-        IntradaySeries(points, fallbackPrevious ?: before)
+        if (pick == latest && price != null && price.isFinite() && price > 0) points[points.lastIndex] = price
+        IntradaySeries(points, if (pick == latest) fallbackPrevious ?: before else before ?: fallbackPrevious)
     }
 
     /** 최근 1년 일별 종가. 1시간 동안은 캐시 파일을 쓴다. */
@@ -603,6 +609,7 @@ class MarketClient(private val context: Context) {
 
     private companion object {
         const val MIN_INTRADAY_POINTS = 6
+        const val MIN_INTRADAY_POINTS_OPEN = 2
         val US_EXCHANGES = setOf("NMS", "NYQ", "NGM", "NCM", "ASE", "PCX", "BTS", "NASDAQ", "NYSE", "NYSEArca")
     }
 }
