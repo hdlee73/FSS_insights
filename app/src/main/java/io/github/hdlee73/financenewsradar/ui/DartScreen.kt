@@ -548,7 +548,7 @@ private fun StockCard(corp: DartCorp, state: DartUiState, viewModel: DartViewMod
                         is DartLoad.Done -> {
                             val pts = d.value.points
                             val up = pts.last() >= (d.value.previous ?: pts.first())
-                            IntradayChart(d.value, if (up) UpRed else DownBlue, Modifier.fillMaxWidth().height(80.dp))
+                            IntradayChart(d.value, if (up) UpRed else DownBlue, Modifier.fillMaxWidth().height(80.dp), compare = false)
                         }
                     }
                 } else {

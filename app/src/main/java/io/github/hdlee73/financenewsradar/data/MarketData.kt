@@ -41,7 +41,51 @@ data class InvestorFlow(val bizdate: String, val personal: Double, val foreign: 
 data class PriceHistory(val closes: List<Double>, val high: Double, val low: Double)
 
 /** 당일(장이 끝났으면 가장 최근 거래일)의 분봉 종가. [previous]는 그래프 기준선(전일 종가). */
-data class IntradaySeries(val points: List<Double>, val previous: Double?)
+/**
+ * 당일 흐름 그래프 자료. [points]는 가장 최근 거래일(오늘 또는 마지막 거래일)의 분봉, [previous]는 그날의 전일 종가(기준선).
+ * 전일 비교 모드에서는 [prevPoints](전 거래일 분봉), [open](그날 시가), [status](장중·마감·휴장·개장 전 배지),
+ * [sessionBars](하루 전체 분봉 개수, 장중 그래프의 가로 비율에 사용), [live](장중 여부)를 함께 담는다.
+ */
+data class IntradaySeries(
+    val points: List<Double>,
+    val previous: Double?,
+    val prevPoints: List<Double> = emptyList(),
+    val open: Double? = null,
+    val status: String? = null,
+    val sessionBars: Int = 0,
+    val live: Boolean = true
+)
+
+/** 전일 비교 그래프 자료와 상황 배지를 만든다. [nowSec]는 테스트에서 시각을 고정하려는 용도. */
+internal fun buildCompare(
+    days: List<SessionDay>, zone: ZoneId, lastEpoch: Long, bars: Int, h24: Boolean, kr: Boolean,
+    fallbackPrevious: Double?, price: Double?, nowSec: Long = System.currentTimeMillis() / 1000
+): IntradaySeries {
+    val last = days.last()
+    val prev = days[days.size - 2]
+    val now = java.time.Instant.ofEpochSecond(nowSec).atZone(zone)
+    val today = now.toLocalDate()
+    val live = h24 || (last.date == today && (nowSec - lastEpoch) <= 15 * 60)
+    val points = last.closes.toMutableList()
+    if (live && price != null && price.isFinite() && price > 0) points[points.lastIndex] = price
+    fun md(d: java.time.LocalDate) = "${d.monthValue}/${d.dayOfMonth}"
+    val weekday = today.dayOfWeek.value in 1..5
+    val status = when {
+        h24 -> null
+        live -> "장중"
+        last.date == today -> "마감"
+        kr && weekday && now.toLocalTime() < java.time.LocalTime.of(9, 10) -> "개장 전"
+        kr -> "휴장 · ${md(last.date)} 마감"
+        else -> "마감 ${md(last.date)}(미국)"
+    }
+    return IntradaySeries(
+        points, fallbackPrevious ?: prev.closes.last(), prev.closes,
+        last.open ?: points.first(), status, bars, live
+    )
+}
+
+/** 거래일 하나의 분봉 종가와 시가. */
+internal data class SessionDay(val date: java.time.LocalDate, val closes: List<Double>, val open: Double?)
 
 /** 로컬에 저장하는 관심종목. 저장된 값이 없을 때만 기본 종목을 보여 준다. */
 class WatchlistStore(context: Context) {
@@ -428,11 +472,17 @@ class MarketClient(private val context: Context) {
     }
 
     /**
-     * 당일 흐름 그래프용 5분봉. 최근 5일치를 받아 거래소 현지 날짜별로 묶은 뒤, 점이 충분한 가장 최근 날짜를 쓴다
-     * (장 시작 전·휴장이면 자연히 전 거래일이 된다). 기준선은 그 전 거래일 마지막 종가, 없으면 [fallbackPrevious].
+     * 당일 흐름 그래프용 5분봉. 최근 5일치를 받아 거래소 현지 날짜별로 묶는다.
+     * 헤더의 등락(전일 대비)과 그래프가 어긋나지 않도록 다음 원칙을 지킨다.
+     *  - 가장 최근 거래일 점이 2개만 있어도 그 날을 쓴다(장 시작 직후 전 거래일 그래프가 보이지 않게).
+     *  - 기준선은 그래프가 보여 주는 날의 전 거래일 종가다. 헤더 기준 [fallbackPrevious]는 그래프가 가장 최근 거래일일 때만 쓴다.
+     *  - 시세([price])가 같은 날 것이면 마지막 점을 시세로 맞춰, 출처(NAVER·Yahoo)가 달라도 끝점이 헤더 값과 같게 한다.
      */
-    suspend fun intraday(raw: String, fallbackPrevious: Double?): IntradaySeries = withContext(Dispatchers.IO) {
+    suspend fun intraday(raw: String, fallbackPrevious: Double?, price: Double? = null, compare: Boolean = false): IntradaySeries = withContext(Dispatchers.IO) {
         val symbol = checkedSymbol(raw)
+        if (compare) runCatching { compareSeries(symbol, fallbackPrevious, price) }.getOrNull()?.let { return@withContext it }
+        // 국내 지수·종목은 헤더 시세와 같은 NAVER 5분봉을 우선 쓴다(출처가 같아 끝점·기준선이 어긋나지 않는다).
+        if (fallbackPrevious != null) runCatching { naverIntraday(symbol, fallbackPrevious, price) }.getOrNull()?.let { return@withContext it }
         val chart = yahooChart(symbol, "5d", "5m")
         val meta = chart.getJSONObject("meta")
         val zone = ZoneId.of(meta.optString("exchangeTimezoneName", "UTC"))
@@ -446,11 +496,111 @@ class MarketClient(private val context: Context) {
             byDay.getOrPut(day) { ArrayList() } += close
         }
         val days = byDay.keys.toList()
-        val pick = days.lastOrNull { (byDay[it]?.size ?: 0) >= MIN_INTRADAY_POINTS } ?: days.lastOrNull() ?: error("분봉 자료 없음")
-        val points = byDay.getValue(pick)
+        val latest = days.lastOrNull() ?: error("분봉 자료 없음")
+        val pick = if ((byDay[latest]?.size ?: 0) >= MIN_INTRADAY_POINTS_OPEN) latest
+            else days.lastOrNull { (byDay[it]?.size ?: 0) >= MIN_INTRADAY_POINTS } ?: latest
+        val points = byDay.getValue(pick).toMutableList()
         if (points.size < 2) error("분봉 자료 부족")
         val before = days.lastOrNull { it.isBefore(pick) }?.let { byDay[it]?.last() }
-        IntradaySeries(points, fallbackPrevious ?: before)
+        if (pick == latest && price != null && price.isFinite() && price > 0) points[points.lastIndex] = price
+        IntradaySeries(points, if (pick == latest) fallbackPrevious ?: before else before ?: fallbackPrevious)
+    }
+
+    /** 오늘(KST) 5분봉. 국내 지수·종목이 아니거나 오늘 점이 2개 미만이면 null(→ Yahoo로 대체). */
+    private fun naverIntraday(symbol: String, previous: Double, price: Double?): IntradaySeries? {
+        val path = when {
+            symbol == "^KS11" -> "index/KOSPI"
+            symbol == "^KQ11" -> "index/KOSDAQ"
+            Regex("[A-Z0-9]{6}\\.(KS|KQ)").matches(symbol) -> "item/${symbol.substring(0, 6)}"
+            else -> return null
+        }
+        val day = java.time.LocalDate.now(ZoneId.of("Asia/Seoul")).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+        val rows = JSONArray(get("https://api.stock.naver.com/chart/domestic/$path/minute5?startDateTime=${day}0900&endDateTime=${day}1600"))
+        val points = (0 until rows.length()).map { rows.getJSONObject(it).optDouble("currentPrice", Double.NaN) }
+            .filter { it.isFinite() && it > 0 }.toMutableList()
+        if (points.size < 2) return null
+        if (price != null && price.isFinite() && price > 0) points[points.lastIndex] = price
+        return IntradaySeries(points, previous)
+    }
+
+    /**
+     * 전일 비교용 1분봉(24시간 지표는 5분봉). 국내 지수·종목은 NAVER, 그 밖은 Yahoo.
+     * 장중이면 오늘 흐름, 마감 후·휴장·개장 전이면 마지막 거래일 하루를 보여 주고 [IntradaySeries.status]로 상황을 알린다.
+     */
+    private fun compareSeries(symbol: String, fallbackPrevious: Double?, price: Double?): IntradaySeries? {
+        val kst = ZoneId.of("Asia/Seoul")
+        val naver = naverSessions(symbol)
+        val zone: ZoneId
+        val days: List<SessionDay>
+        val lastEpoch: Long
+        val bars: Int
+        val h24 = symbol.endsWith("=X") || symbol.endsWith("=F")
+        val kr: Boolean
+        if (naver != null) {
+            zone = kst; days = naver.first; lastEpoch = naver.second; bars = 391; kr = true
+        } else {
+            val interval = if (h24) "5m" else "1m"
+            val chart = yahooChart(symbol, if (h24) "3d" else "5d", interval)
+            zone = ZoneId.of(chart.getJSONObject("meta").optString("exchangeTimezoneName", "UTC"))
+            val ts = chart.optJSONArray("timestamp") ?: return null
+            val quote = chart.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0)
+            val cl = quote.getJSONArray("close")
+            val op = quote.optJSONArray("open")
+            val closes = java.util.TreeMap<java.time.LocalDate, MutableList<Double>>()
+            val opens = HashMap<java.time.LocalDate, Double>()
+            var last = 0L
+            for (i in 0 until ts.length()) {
+                val c = cl.optDouble(i, Double.NaN)
+                if (!c.isFinite() || c <= 0) continue
+                val day = java.time.Instant.ofEpochSecond(ts.getLong(i)).atZone(zone).toLocalDate()
+                closes.getOrPut(day) { ArrayList() } += c
+                val o = op?.optDouble(i, Double.NaN) ?: Double.NaN
+                if (o.isFinite() && o > 0) opens.putIfAbsent(day, o)
+                last = ts.getLong(i)
+            }
+            days = closes.entries.filter { it.value.size >= 2 }.map { SessionDay(it.key, it.value, opens[it.key]) }
+            lastEpoch = last; bars = if (h24) 288 else 390; kr = false
+        }
+        if (days.size < 2) return null
+        return buildCompare(days, zone, lastEpoch, bars, h24, kr, fallbackPrevious, price)
+    }
+
+    /** NAVER 1분봉(09:00~15:30)을 최근 거래일별로 묶어 최소 2거래일을 돌려준다. 국내 지수·종목이 아니면 null. */
+    private fun naverSessions(symbol: String): Pair<List<SessionDay>, Long>? {
+        val path = when {
+            symbol == "^KS11" -> "index/KOSPI"
+            symbol == "^KQ11" -> "index/KOSDAQ"
+            Regex("[A-Z0-9]{6}\\.(KS|KQ)").matches(symbol) -> "item/${symbol.substring(0, 6)}"
+            else -> return null
+        }
+        val kst = ZoneId.of("Asia/Seoul")
+        val fmt = java.time.format.DateTimeFormatter.BASIC_ISO_DATE
+        val today = java.time.LocalDate.now(kst)
+        for (span in listOf(4L, 12L)) {
+            val rows = JSONArray(get("https://api.stock.naver.com/chart/domestic/$path/minute?startDateTime=${today.minusDays(span).format(fmt)}0900&endDateTime=${today.format(fmt)}1600"))
+            val closes = java.util.TreeMap<String, MutableList<Double>>()
+            val opens = HashMap<String, Double>()
+            var lastKey = ""
+            for (i in 0 until rows.length()) {
+                val row = rows.getJSONObject(i)
+                val dt = row.optString("localDateTime")
+                if (dt.length < 12) continue
+                val hhmm = dt.substring(8, 12).toIntOrNull() ?: continue
+                val c = row.optDouble("currentPrice", Double.NaN)
+                if (hhmm < 900 || hhmm > 1530 || !c.isFinite() || c <= 0) continue
+                closes.getOrPut(dt.substring(0, 8)) { ArrayList() } += c
+                val o = row.optDouble("openPrice", Double.NaN)
+                if (o.isFinite() && o > 0) opens.putIfAbsent(dt.substring(0, 8), o)
+                lastKey = dt
+            }
+            val days = closes.entries.filter { it.value.size >= 2 }
+                .map { SessionDay(java.time.LocalDate.parse(it.key, fmt), it.value, opens[it.key]) }
+            if (days.size >= 2) {
+                val lastEpoch = java.time.LocalDateTime.parse(lastKey, java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss")).atZone(kst).toEpochSecond()
+                return days to lastEpoch
+            }
+        }
+        return null
     }
 
     /** 최근 1년 일별 종가. 1시간 동안은 캐시 파일을 쓴다. */
@@ -603,6 +753,7 @@ class MarketClient(private val context: Context) {
 
     private companion object {
         const val MIN_INTRADAY_POINTS = 6
+        const val MIN_INTRADAY_POINTS_OPEN = 2
         val US_EXCHANGES = setOf("NMS", "NYQ", "NGM", "NCM", "ASE", "PCX", "BTS", "NASDAQ", "NYSE", "NYSEArca")
     }
 }

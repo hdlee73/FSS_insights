@@ -312,7 +312,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
             coroutineScope {
                 chunk.map { symbol ->
                     async {
-                        runCatching { client.intraday(symbol, _state.value.quotes[symbol]?.previous) }
+                        runCatching { client.intraday(symbol, _state.value.quotes[symbol]?.previous, _state.value.quotes[symbol]?.price, compare = true) }
                             .onSuccess { series -> _state.update { it.copy(intraday = it.intraday + (symbol to series)) } }
                     }
                 }.awaitAll()
@@ -627,7 +627,10 @@ private fun IndexTile(
         if (wide) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {
-                    Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+                        if (showIntraday) StatusTag(series?.status)
+                    }
                     Text(price, Modifier.padding(top = 2.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
                 }
                 if (showIntraday) IntradayChart(series, color, Modifier.weight(0.8f).height(30.dp))
@@ -637,7 +640,10 @@ private fun IndexTile(
             Text(delta, Modifier.padding(top = 2.dp), style = deltaStyle, color = color, maxLines = 1)
             if (showInvestors) InvestorRow(investors)
         } else {
-            Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(item.name, Modifier.weight(1f, fill = false), style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (showIntraday) StatusTag(series?.status)
+            }
             // 코스피·코스닥 이외 칸은 수치를 오른쪽 끝에 맞춘다.
             Text(price, Modifier.fillMaxWidth().padding(top = 1.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
             Text(delta, Modifier.fillMaxWidth().padding(top = 1.dp), style = deltaStyle, color = color, maxLines = 1, textAlign = TextAlign.End)
@@ -771,20 +777,51 @@ private fun StatPickerDialog(current: StatSelection, onDismiss: () -> Unit, onSa
     )
 }
 
-/** 전일 종가 기준선(점선)과 당일 흐름선, 기준선과 흐름선 사이 옅은 면, 마지막 점. */
+/**
+ * 전일 종가 기준선(점선)과 당일 흐름선, 마지막 점.
+ * [compare]이고 전 거래일 분봉이 있으면 왼쪽에 전일(회색)·세로 구분선·전일 종가→오늘 시가 연결선(갭 방향 색)·오른쪽에 오늘을 그린다.
+ * 장중에는 오늘 선이 거래 시간 비율만큼만 채워지고, 마감·휴장 후에는 끝까지 채워진다.
+ */
 @Composable
-internal fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modifier = Modifier) {
+internal fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modifier = Modifier, compare: Boolean = true) {
+    val gray = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+    val gapColor = series?.let { changeColor((it.open ?: it.points.firstOrNull() ?: 0.0) - (it.previous ?: it.prevPoints.lastOrNull() ?: 0.0)) } ?: color
     Canvas(modifier) {
         val data = series ?: return@Canvas
         val pts = data.points
         if (pts.size < 2) return@Canvas
         val base = data.previous?.takeIf { it > 0 }
+        val prev = if (compare) data.prevPoints else emptyList()
         var lo = pts.min()
         var hi = pts.max()
         if (base != null) { lo = minOf(lo, base); hi = maxOf(hi, base) }
+        if (prev.size >= 2) { lo = minOf(lo, prev.min()); hi = maxOf(hi, prev.max()) }
+        val open = data.open
+        if (prev.size >= 2 && open != null) { lo = minOf(lo, open); hi = maxOf(hi, open) }
         val span = (hi - lo).takeIf { it > 0 } ?: 1.0
         val pad = 3.dp.toPx()
         fun yOf(v: Double) = pad + (size.height - 2 * pad) * (1f - ((v - lo) / span).toFloat())
+        val dash = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx()))
+        if (prev.size >= 2) {
+            val mid = size.width * 0.4f
+            val px = mid - 3.dp.toPx()
+            val ox = mid + 3.dp.toPx()
+            val bars = data.sessionBars.takeIf { it > 1 } ?: pts.size
+            val endX = if (data.live) ox + (size.width - pad - ox) * ((pts.size - 1f) / (bars - 1f)).coerceIn(0.02f, 1f) else size.width - pad
+            val baseY = base?.let { yOf(it) }
+            if (baseY != null) drawLine(color.copy(alpha = 0.55f), Offset(0f, baseY), Offset(size.width, baseY), strokeWidth = 1.dp.toPx(), pathEffect = dash)
+            val prevPath = Path()
+            prev.forEachIndexed { i, v -> val x = i / (prev.size - 1f) * px; if (i == 0) prevPath.moveTo(x, yOf(v)) else prevPath.lineTo(x, yOf(v)) }
+            drawPath(prevPath, gray, style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round))
+            drawLine(gray, Offset(mid, 0f), Offset(mid, size.height), strokeWidth = 1.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx())))
+            val firstY = yOf(open ?: pts.first())
+            drawLine(gapColor, Offset(px, yOf(prev.last())), Offset(ox, firstY), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+            val line = Path()
+            pts.forEachIndexed { i, v -> val x = ox + (endX - ox) * i / (pts.size - 1f); if (i == 0) line.moveTo(x, yOf(v)) else line.lineTo(x, yOf(v)) }
+            drawPath(line, color, style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round))
+            drawCircle(color, radius = 2.6.dp.toPx(), center = Offset(endX, yOf(pts.last())))
+            return@Canvas
+        }
         fun xOf(i: Int) = i / (pts.size - 1f) * (size.width - pad)
         val line = Path()
         pts.forEachIndexed { i, v -> if (i == 0) line.moveTo(xOf(i), yOf(v)) else line.lineTo(xOf(i), yOf(v)) }
@@ -797,14 +834,28 @@ internal fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modi
         }
         drawPath(area, color.copy(alpha = 0.16f))
         if (base != null) {
-            drawLine(
-                color.copy(alpha = 0.55f), Offset(0f, baseY), Offset(size.width, baseY), strokeWidth = 1.dp.toPx(),
-                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx()))
-            )
+            drawLine(color.copy(alpha = 0.55f), Offset(0f, baseY), Offset(size.width, baseY), strokeWidth = 1.dp.toPx(), pathEffect = dash)
         }
         drawPath(line, color, style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round))
         drawCircle(color, radius = 2.6.dp.toPx(), center = Offset(xOf(pts.lastIndex), yOf(pts.last())))
     }
+}
+
+/** 지표 이름 옆 상황 배지(장중·마감·휴장·개장 전). 상황을 알 수 없으면 아무것도 그리지 않는다. */
+@Composable
+internal fun StatusTag(status: String?, modifier: Modifier = Modifier) {
+    if (status == null) return
+    val live = status == "장중"
+    Text(
+        status,
+        modifier.background(
+            if (live) Color(0x22DC5C60) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f),
+            RoundedCornerShape(6.dp)
+        ).padding(horizontal = 4.dp, vertical = 1.dp),
+        style = TextStyle(fontSize = 8.5.sp, fontWeight = FontWeight.Medium),
+        color = if (live) Color(0xFFDC5C60) else MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1
+    )
 }
 
 /** 증시동향 지표 선택: 후보마다 "증시동향" / "브리핑" 체크로 어디에 보일지 고른다(통계 선택과 같은 방식). */
@@ -940,7 +991,7 @@ private fun WatchCell(
                 quote?.let { priceText(item, it.price) } ?: "—",
                 Modifier.weight(1f), style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp), color = color, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
-            if (showIntraday) IntradayChart(intraday, color, Modifier.width(44.dp).height(18.dp))
+            if (showIntraday) IntradayChart(intraday, color, Modifier.width(44.dp).height(18.dp), compare = false)
             else if (history != null) Sparkline(history.closes, Modifier.width(44.dp).height(18.dp))
         }
         Text(
