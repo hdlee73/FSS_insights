@@ -785,6 +785,7 @@ private fun StatPickerDialog(current: StatSelection, onDismiss: () -> Unit, onSa
 @Composable
 internal fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modifier = Modifier, compare: Boolean = true) {
     val gray = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+    val gapColor = series?.let { changeColor((it.open ?: it.points.firstOrNull() ?: 0.0) - (it.previous ?: it.prevPoints.lastOrNull() ?: 0.0)) } ?: color
     Canvas(modifier) {
         val data = series ?: return@Canvas
         val pts = data.points
@@ -814,7 +815,6 @@ internal fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modi
             drawPath(prevPath, gray, style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round))
             drawLine(gray, Offset(mid, 0f), Offset(mid, size.height), strokeWidth = 1.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx())))
             val firstY = yOf(open ?: pts.first())
-            val gapColor = changeColor((open ?: pts.first()) - (base ?: prev.last()))
             drawLine(gapColor, Offset(px, yOf(prev.last())), Offset(ox, firstY), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
             val line = Path()
             pts.forEachIndexed { i, v -> val x = ox + (endX - ox) * i / (pts.size - 1f); if (i == 0) line.moveTo(x, yOf(v)) else line.lineTo(x, yOf(v)) }
