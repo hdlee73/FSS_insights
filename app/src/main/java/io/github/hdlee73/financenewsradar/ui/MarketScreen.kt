@@ -641,7 +641,7 @@ private fun IndexTile(
             if (showInvestors) InvestorRow(investors)
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(item.name, Modifier.weight(1f, fill = false), style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1, softWrap = false)
                 if (showIntraday) StatusTag(series?.status)
             }
             // 코스피·코스닥 이외 칸은 수치를 오른쪽 끝에 맞춘다.
@@ -844,8 +844,9 @@ internal fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modi
 /** 지표 이름 옆 상황 배지(장중·마감·휴장·개장 전). 상황을 알 수 없으면 아무것도 그리지 않는다. */
 @Composable
 internal fun StatusTag(status: String?, modifier: Modifier = Modifier) {
-    if (status == null) return
-    val live = status == "장중"
+    // 장중만 표시한다. 마감·휴장·개장 전 같은 설명은 지수명을 가리므로 넣지 않는다.
+    if (status != "장중") return
+    val live = true
     Text(
         status,
         modifier.background(
@@ -854,7 +855,7 @@ internal fun StatusTag(status: String?, modifier: Modifier = Modifier) {
         ).padding(horizontal = 4.dp, vertical = 1.dp),
         style = TextStyle(fontSize = 8.5.sp, fontWeight = FontWeight.Medium),
         color = if (live) Color(0xFFDC5C60) else MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1
+        maxLines = 1, softWrap = false, overflow = TextOverflow.Clip
     )
 }
 

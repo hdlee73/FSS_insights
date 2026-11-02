@@ -1,11 +1,11 @@
-# FSS Insights v2.1.1
+# FSS Insights v2.1.2
 
 만든이: 이현덕 (hdlee73@gmail.com)
 
-## v2.1.1 변경 내용
+## v2.1.2 변경 내용
 
 **📥 새 APK 바로 받기 (누르면 휴대폰 다운로드 폴더에 저장됩니다)**
-https://github.com/hdlee73/FSS_insights/releases/download/v2.1.1/fss-insights-v2.1.1.apk
+https://github.com/hdlee73/FSS_insights/releases/download/v2.1.2/fss-insights-v2.1.2.apk
 
 최신 릴리스 페이지: https://github.com/hdlee73/FSS_insights/releases/latest
 
@@ -14,7 +14,7 @@ https://github.com/hdlee73/FSS_insights/releases/download/v2.1.1/fss-insights-v2
 **⚠️ 2.0.0 이전 버전에서 올라오려면 기존 앱을 삭제한 뒤 새로 설치해야 합니다.** 앱 보안을 위해 서명키를 교체해서 기존 앱 위에 바로 설치(업데이트)할 수 없습니다. 아래 순서대로 한 번만 하시면 되고, 이후 업데이트는 다시 앱에서 자동으로 설치됩니다.
 
 1. 설정 캡처: 삭제하면 관심종목·알림·키워드 설정이 사라집니다. 지우기 전에 설정 화면을 캡처하거나 적어 두세요.
-2. 새 APK 내려받기: 이 페이지 아래 Assets의 `fss-insights-v2.1.1.apk`를 눌러 내려받습니다.
+2. 새 APK 내려받기: 이 페이지 아래 Assets의 `fss-insights-v2.1.2.apk`를 눌러 내려받습니다.
 3. 기존 앱 삭제: 휴대폰 설정 > 앱 > FSS Insights > 삭제 (또는 앱 아이콘을 길게 눌러 '앱 삭제').
 4. 새 APK 설치: 내려받은 파일을 눌러 설치합니다. '출처를 알 수 없는 앱' 허용 창이 나오면 사용 중인 앱(Chrome, 내 파일 등)에 대해 허용한 뒤 설치합니다.
 5. 알림 허용 후 관심종목·알림 설정을 다시 맞춥니다.
@@ -22,6 +22,4 @@ https://github.com/hdlee73/FSS_insights/releases/download/v2.1.1/fss-insights-v2
 (앱에서 "지금 업데이트"를 눌렀을 때 "앱이 설치되지 않았습니다"가 나오면 정상이니 위 순서대로 삭제 후 설치해 주세요.)
 
 **이번 버전 변경**:
-- 시장 지표 그래프 개선: 전일 흐름(회색)과 오늘 흐름(1분봉)을 구분선으로 나눠 함께 보여 주고, 전일 종가에서 오늘 시가까지 갭 방향 색 연결선으로 이어 줍니다
-- 장중·마감·휴장·개장 전 배지 표시, 휴장일과 마감 후에는 마지막 거래일 하루를 그대로 보여 줍니다
-- 기준선을 전일 종가로, 끝점을 현재가로 맞춰 전일 대비 상승인데 그래프가 점선 아래로 보이던 문제를 고쳤습니다
+- 시장 지표 칸에서 지수명이 배지에 가려 잘리던 문제 수정: 상태 배지는 "장중"일 때만 표시하고 마감·휴장·개장 전 표시는 뺐습니다

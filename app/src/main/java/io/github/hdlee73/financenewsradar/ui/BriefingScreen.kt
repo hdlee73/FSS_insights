@@ -273,7 +273,7 @@ private fun MarketTile(item: Instrument, quote: Quote, series: IntradaySeries?, 
     Surface(modifier.clickable(onClick = onClick), shape = RoundedCornerShape(16.dp), color = color.copy(alpha = 0.09f)) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(item.name, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false)
                 StatusTag(series?.status)
             }
             ValueWithDelta(priceText(item, quote.price), quote.changePercent?.let { arrowPercent(it) }, color, Modifier.padding(top = 2.dp))
