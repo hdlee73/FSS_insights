@@ -436,6 +436,8 @@ class MarketClient(private val context: Context) {
      */
     suspend fun intraday(raw: String, fallbackPrevious: Double?, price: Double? = null): IntradaySeries = withContext(Dispatchers.IO) {
         val symbol = checkedSymbol(raw)
+        // 국내 지수·종목은 헤더 시세와 같은 NAVER 5분봉을 우선 쓴다(출처가 같아 끝점·기준선이 어긋나지 않는다).
+        if (fallbackPrevious != null) runCatching { naverIntraday(symbol, fallbackPrevious, price) }.getOrNull()?.let { return@withContext it }
         val chart = yahooChart(symbol, "5d", "5m")
         val meta = chart.getJSONObject("meta")
         val zone = ZoneId.of(meta.optString("exchangeTimezoneName", "UTC"))
@@ -457,6 +459,23 @@ class MarketClient(private val context: Context) {
         val before = days.lastOrNull { it.isBefore(pick) }?.let { byDay[it]?.last() }
         if (pick == latest && price != null && price.isFinite() && price > 0) points[points.lastIndex] = price
         IntradaySeries(points, if (pick == latest) fallbackPrevious ?: before else before ?: fallbackPrevious)
+    }
+
+    /** 오늘(KST) 5분봉. 국내 지수·종목이 아니거나 오늘 점이 2개 미만이면 null(→ Yahoo로 대체). */
+    private fun naverIntraday(symbol: String, previous: Double, price: Double?): IntradaySeries? {
+        val path = when {
+            symbol == "^KS11" -> "index/KOSPI"
+            symbol == "^KQ11" -> "index/KOSDAQ"
+            Regex("[A-Z0-9]{6}\\.(KS|KQ)").matches(symbol) -> "item/${symbol.substring(0, 6)}"
+            else -> return null
+        }
+        val day = java.time.LocalDate.now(ZoneId.of("Asia/Seoul")).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+        val rows = JSONArray(get("https://api.stock.naver.com/chart/domestic/$path/minute5?startDateTime=${day}0900&endDateTime=${day}1600"))
+        val points = (0 until rows.length()).map { rows.getJSONObject(it).optDouble("currentPrice", Double.NaN) }
+            .filter { it.isFinite() && it > 0 }.toMutableList()
+        if (points.size < 2) return null
+        if (price != null && price.isFinite() && price > 0) points[points.lastIndex] = price
+        return IntradaySeries(points, previous)
     }
 
     /** 최근 1년 일별 종가. 1시간 동안은 캐시 파일을 쓴다. */
