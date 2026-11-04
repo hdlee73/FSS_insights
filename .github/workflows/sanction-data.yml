@@ -35,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq poppler-utils
-          pip install --quiet olefile==0.47
+          python3 -m pip install --quiet olefile==0.47
       - name: Get previous data
         run: |
           if git fetch --depth=1 origin sanction-data 2>/dev/null; then
@@ -52,7 +52,7 @@ jobs:
         run: |
           ARGS="--prev prev.json --cache sanction-cache --workers 6"
           if [ "${{ inputs.reparse }}" = "true" ]; then ARGS="$ARGS --reparse"; fi
-          python3 -I server/sanction-data/build_sanctions.py sanctions.json $ARGS
+          python3 server/sanction-data/build_sanctions.py sanctions.json $ARGS
           python3 -c "import json; d=json.load(open('sanctions.json')); n=len(d['cases']); print('cases', n); assert n > 1000, 'too few cases'"
       - name: Save text cache
         if: always()
