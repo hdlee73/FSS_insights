@@ -161,13 +161,15 @@ object RegulatoryMenus {
 
 private val regDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
 
-/** 금융회사 주요 현황 아래 메뉴: 유권해석·비조치·행정지도(금융위/금감원)를 최근 20건씩 읽고 제목+내용으로 검색한다. */
+/** 금융회사 주요 현황 아래 메뉴: 유권해석·비조치·행정지도(금융위/금감원)를 최근 20건씩(제재공시는 50건) 읽고 제목+내용으로 검색한다. */
 @Composable
 fun RegulatoryScreen(
     viewModel: RegulatoryViewModel,
     modifier: Modifier = Modifier,
     title: String = "유권해석·비조치의견서·행정지도",
-    sources: List<RegSource> = RegulatoryMenus.guidance
+    sources: List<RegSource> = RegulatoryMenus.guidance,
+    /** 제목 바로 아래에 둘 상위 탭(제재공시의 [최근 공시 | 세부내역·통계]). */
+    headerTabs: (@Composable () -> Unit)? = null
 ) {
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -192,6 +194,7 @@ fun RegulatoryScreen(
                     }
                 }
             }
+            if (headerTabs != null) item(key = "headerTabs") { headerTabs() }
             if (sources.size > 1) item(key = "tabs") {
                 UnderlineTabs(sources.map { it.tabLabel }, selected, { selected = it })
             }

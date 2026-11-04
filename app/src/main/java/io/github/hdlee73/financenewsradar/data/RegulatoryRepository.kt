@@ -53,7 +53,8 @@ class RegulatoryRepository(private val context: Context) {
         val rows = LinkedHashMap<String, RegulatoryParser.Row>()
         var failure: Throwable? = null
         for (page in 1..MAX_LIST_PAGES) {
-            val url = pageUrl(source.listUrl, page)
+            // 제재공시 목록은 한 쪽에 몇 건을 보일지(pageUnit) 정할 수 있어 50건을 한 번에 받는다.
+            val url = pageUrl(source.listUrl, page).let { if (source == RegSource.FSS_SANCTION) "$it&pageUnit=${source.count}" else it }
             val parsed = try {
                 fetchHtml(url) { RegulatoryParser.parseList(it, url, source.kind, source.detailPath, source.detailParam).isNotEmpty() }
                     .let { RegulatoryParser.parseList(it, url, source.kind, source.detailPath, source.detailParam) }
@@ -76,6 +77,8 @@ class RegulatoryRepository(private val context: Context) {
 
     private suspend fun withDetail(item: RegItem): RegItem {
         if (item.link == item.source.listUrl) return item
+        // 제재공시 상세 화면은 내용이 첨부 문서에만 있고 검색도 회사명·부서로만 하므로 받지 않는다(50건 × 약 650KB 절약).
+        if (item.source == RegSource.FSS_SANCTION) return item
         val html = fetchHtml(item.link) { true }
         val text = RegulatoryParser.htmlToText(html, item.title)
         val (impl, status) = RegulatoryParser.detailFields(text)

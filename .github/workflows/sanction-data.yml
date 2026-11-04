@@ -1,0 +1,79 @@
+name: Sanction data
+
+# 금감원 '금융회사 제재공시'(2016년 이후)를 모아 지적사항 단위로 정리한 sanctions.json을
+# sanction-data 브랜치에 올린다. 앱은 이 파일만 받아 세부내역·통계·엑셀 저장에 쓴다.
+# 처음 한 번은 전체(약 3,700건)를 받느라 1~2시간 걸리고, 그 뒤로는 새 공시만 읽는다.
+
+on:
+  schedule:
+    - cron: "0 21 * * 0,3" # 매주 월·목 06:00(한국시각)
+  workflow_dispatch:
+    inputs:
+      reparse:
+        description: "이전 자료를 버리고 전부 다시 받기"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "server/sanction-data/**"
+      - ".github/workflows/sanction-data.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sanction-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          pip install --quiet olefile==0.47
+      - name: Get previous data
+        run: |
+          if git fetch --depth=1 origin sanction-data 2>/dev/null; then
+            git show FETCH_HEAD:sanctions.json > prev.json || true
+          fi
+          ls -la prev.json 2>/dev/null || echo "이전 자료 없음(처음 실행)"
+      - name: Restore text cache
+        uses: actions/cache/restore@v4
+        with:
+          path: sanction-cache
+          key: sanction-text-${{ github.run_id }}
+          restore-keys: sanction-text-
+      - name: Build sanctions.json
+        run: |
+          ARGS="--prev prev.json --cache sanction-cache --workers 6"
+          if [ "${{ inputs.reparse }}" = "true" ]; then ARGS="$ARGS --reparse"; fi
+          python3 -I server/sanction-data/build_sanctions.py sanctions.json $ARGS
+          python3 -c "import json; d=json.load(open('sanctions.json')); n=len(d['cases']); print('cases', n); assert n > 1000, 'too few cases'"
+      - name: Save text cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: sanction-cache
+          key: sanction-text-${{ github.run_id }}
+      - name: Publish to sanction-data branch
+        run: |
+          mkdir publish && cd publish
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898333+github-actions[bot]@users.noreply.github.com"
+          cp ../sanctions.json .
+          cat > README.md <<'EOF'
+          # FSS Insights 제재공시 세부내역 자료
+
+          금융감독원 '금융회사 제재공시'(2016년 이후)를 GitHub Actions(.github/workflows/sanction-data.yml)가
+          자동으로 모아 정리한 파일입니다. 참고용이며 원문과 다를 수 있습니다. 이 브랜치는 매번 새로 덮어씁니다.
+          EOF
+          git add sanctions.json README.md
+          git commit -q -m "제재공시 자료 갱신 $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:sanction-data
+          echo "sanctions.json $(du -h sanctions.json | cut -f1) 게시" >> "$GITHUB_STEP_SUMMARY"

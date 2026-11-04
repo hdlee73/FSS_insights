@@ -141,7 +141,8 @@ fun FinanceNewsRadarApp(
     marketViewModel: MarketViewModel = viewModel(),
     fisisViewModel: FisisViewModel = viewModel(),
     dartViewModel: DartViewModel = viewModel(),
-    regulatoryViewModel: RegulatoryViewModel = viewModel()
+    regulatoryViewModel: RegulatoryViewModel = viewModel(),
+    sanctionViewModel: SanctionViewModel = viewModel()
 ) {
     val newsState by newsViewModel.state.collectAsStateWithLifecycle()
     val releases by releasesViewModel.state.collectAsStateWithLifecycle()
@@ -170,20 +171,32 @@ fun FinanceNewsRadarApp(
         focusManager.clearFocus()
         scope.launch { drawerState.open() }
     }
+    // 제재공시의 위반 조문을 누르면 스마트 법령검색을 그 조문으로 연다. 이때 뒤로가기는 제재공시로 바로 돌아간다.
+    var lawLaunch by remember { mutableStateOf<io.github.hdlee73.financenewsradar.law.LawLaunch?>(null) }
+    var lawFromLink by rememberSaveable { mutableStateOf(false) }
     fun go(target: Int) {
         keyboard?.hide()
         focusManager.clearFocus()
+        lawFromLink = false
         if (target != screen) {
             history = (history.split(',').filter { it.isNotEmpty() } + screen.toString()).takeLast(30).joinToString(",")
             screen = target
         }
         scope.launch { drawerState.close() }
     }
-    BackHandler(enabled = history.isNotEmpty() && !drawerState.isOpen) {
+    fun goBack() {
         val stack = history.split(',').filter { it.isNotEmpty() }
+        if (stack.isEmpty()) return
+        lawFromLink = false
         screen = stack.last().toInt()
         history = stack.dropLast(1).joinToString(",")
     }
+    fun openLaw(query: String) {
+        lawLaunch = io.github.hdlee73.financenewsradar.law.LawLaunch(query)
+        go(SCREEN_LAW)
+        lawFromLink = true
+    }
+    BackHandler(enabled = history.isNotEmpty() && !drawerState.isOpen) { goBack() }
     BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
 
     LaunchedEffect(newsState.error) {
@@ -266,8 +279,12 @@ fun FinanceNewsRadarApp(
                     SCREEN_FISIS -> FisisScreen(fisisViewModel)
                     SCREEN_DART -> DartScreen(dartViewModel)
                     SCREEN_REGULATORY -> RegulatoryScreen(regulatoryViewModel)
-                    SCREEN_SANCTION -> RegulatoryScreen(regulatoryViewModel, title = "금융회사 제재공시", sources = RegulatoryMenus.sanction)
-                    SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen()
+                    SCREEN_SANCTION -> SanctionScreen(regulatoryViewModel, sanctionViewModel, onOpenLaw = ::openLaw)
+                    SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen(
+                        launch = lawLaunch,
+                        onLaunchConsumed = { lawLaunch = null },
+                        onReturn = if (lawFromLink) ({ goBack() }) else null
+                    )
                     SCREEN_PRESS -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
                     SCREEN_RESEARCH -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
                     SCREEN_LIBRARY -> LibraryScreen(libraryViewModel)
