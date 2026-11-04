@@ -88,5 +88,5 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 
 1. GitHub Secrets에 `ADMIN_TOKEN`(앱 토큰과 다른 임의의 긴 문자열)을 저장합니다. Cloudflare API 토큰에는 **D1 편집(Edit)** 권한이 있어야 합니다(Account → D1 → Edit).
 2. Actions → **Deploy news proxy**를 실행합니다. 배포 전에 D1 `fss-usage`가 없으면 만들고 `wrangler.toml`에 연결하며, 표/인덱스는 첫 요청 때 자동으로 만듭니다. 실행 요약에 관리자 화면 주소(`…/admin`)가 표시됩니다.
-3. 관리자 화면(`/admin`)에서 `ADMIN_TOKEN`을 입력하면 일자별 DAU·WAU(7일)·MAU(30일), 버전별 분포, 메뉴별 이용 횟수를 볼 수 있습니다. 날짜는 한국 시간 기준입니다. 앱 안에는 관리자 화면을 두지 않습니다(APK의 앱 토큰은 추출될 수 있기 때문).
+3. 관리자 화면(`/admin`)에서 `ADMIN_TOKEN`을 입력하면 일자별 DAU·WAU(7일)·MAU(30일), 버전별 분포, 메뉴별 사용자 수·열린 횟수(최근 7일 일자별 사용자 수 포함)를 볼 수 있습니다. 날짜는 한국 시간 기준입니다. 앱 안에는 관리자 화면을 두지 않습니다(APK의 앱 토큰은 추출될 수 있기 때문).
 - 한계: 설치 ID 기준이라 재설치하면 새 사용자로, 한 사람이 여러 기기를 쓰면 각각 집계되며, 통계를 끈 사용자는 빠집니다. D1이 연결되지 않으면 `/usage/ping`은 503을 돌려주고 앱은 조용히 넘어갑니다.
