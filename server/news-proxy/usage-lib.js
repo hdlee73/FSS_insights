@@ -8,7 +8,9 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const INSTALL_ID = /^[A-Za-z0-9-]{16,64}$/;
 const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS usage_daily (day TEXT NOT NULL, uid TEXT NOT NULL, version TEXT NOT NULL, PRIMARY KEY (day, uid))",
+  // 예전 합계 표(사용자 구분 없음). 새 기록은 usage_menu_user 에만 쌓고, 조회할 때 둘을 합쳐 횟수를 보여 준다.
   "CREATE TABLE IF NOT EXISTS usage_menu (day TEXT NOT NULL, menu TEXT NOT NULL, hits INTEGER NOT NULL, PRIMARY KEY (day, menu))",
+  "CREATE TABLE IF NOT EXISTS usage_menu_user (day TEXT NOT NULL, menu TEXT NOT NULL, uid TEXT NOT NULL, hits INTEGER NOT NULL, PRIMARY KEY (day, menu, uid))",
 ];
 let schemaReady = false;
 
@@ -71,7 +73,7 @@ export async function usagePing(request, env) {
     );
     for (const [menu, hits] of Object.entries(menus)) {
       statements.push(
-        env.DB.prepare("INSERT INTO usage_menu (day, menu, hits) VALUES (?, ?, ?) ON CONFLICT(day, menu) DO UPDATE SET hits = hits + excluded.hits").bind(day, menu, hits)
+        env.DB.prepare("INSERT INTO usage_menu_user (day, menu, uid, hits) VALUES (?, ?, ?, ?) ON CONFLICT(day, menu, uid) DO UPDATE SET hits = hits + excluded.hits").bind(day, menu, uid, hits)
       );
     }
   }
@@ -80,7 +82,7 @@ export async function usagePing(request, env) {
 }
 
 /** 일자별 DAU와 7일·30일 이동 활성사용자, 최근 7일 버전 분포, 기간 내 메뉴별 이용량. */
-export function summarize(rows, menuRows, from, to) {
+export function summarize(rows, menuRows, from, to, menuUserRows = []) {
   const byDay = new Map();
   const latestVersion = new Map();
   for (const r of rows) {
@@ -102,9 +104,21 @@ export function summarize(rows, menuRows, from, to) {
   }
   const versions = {};
   for (const v of latestVersion.values()) versions[v] = (versions[v] ?? 0) + 1;
+  // 메뉴별: 열린 횟수(hits), 기간 중 쓴 사용자 수(users), 최근 7일 일자별 사용자 수(daily).
   const menus = {};
-  for (const m of menuRows) if (m.day >= from && m.day <= to) menus[m.menu] = (menus[m.menu] ?? 0) + m.hits;
-  return { series, versions, menus };
+  const entry = (name) => (menus[name] ??= { hits: 0, users: 0, daily: {} });
+  const uniq = new Map();
+  for (const m of menuRows) if (m.day >= from && m.day <= to) entry(m.menu).hits += m.hits;
+  for (const m of menuUserRows) {
+    if (m.day < from || m.day > to) continue;
+    const e = entry(m.menu);
+    e.hits += m.hits;
+    if (!uniq.has(m.menu)) uniq.set(m.menu, new Set());
+    uniq.get(m.menu).add(m.uid);
+    if (m.day >= weekStart) e.daily[m.day] = (e.daily[m.day] ?? 0) + 1;
+  }
+  for (const [name, set] of uniq) menus[name].users = set.size;
+  return { series, versions, menus, weekDays: Array.from({ length: 7 }, (_, i) => dayShift(weekStart, i)) };
 }
 
 export async function adminApi(request, url, env) {
@@ -114,12 +128,13 @@ export async function adminApi(request, url, env) {
   const span = Math.min(120, Math.max(7, parseInt(url.searchParams.get("days"), 10) || 30));
   const to = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); // 한국 날짜 기준
   const from = dayShift(to, -(span - 1));
-  const [daily, menu, total] = await Promise.all([
+  const [daily, menu, menuUser, total] = await Promise.all([
     env.DB.prepare("SELECT day, uid, version FROM usage_daily WHERE day >= ?").bind(dayShift(from, -29)).all(),
     env.DB.prepare("SELECT day, menu, hits FROM usage_menu WHERE day >= ?").bind(from).all(),
+    env.DB.prepare("SELECT day, menu, uid, hits FROM usage_menu_user WHERE day >= ?").bind(from).all(),
     env.DB.prepare("SELECT COUNT(DISTINCT uid) AS n FROM usage_daily").first(),
   ]);
-  return reply({ from, to, totalInstalls: total?.n ?? 0, ...summarize(daily.results ?? [], menu.results ?? [], from, to) });
+  return reply({ from, to, totalInstalls: total?.n ?? 0, ...summarize(daily.results ?? [], menu.results ?? [], from, to, menuUser.results ?? []) });
 }
 
 export function adminPage() {
@@ -144,7 +159,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 6px;b
 <div class="card"><div class="kpi"><div><b id="k1"></b><span>오늘 DAU</span></div><div><b id="k2"></b><span>최근 7일 WAU</span></div><div><b id="k3"></b><span>최근 30일 MAU</span></div><div><b id="k4"></b><span>누적 설치(고유)</span></div></div></div>
 <div class="card"><h2>일자별 활성사용자</h2><svg id="chart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg><div class="leg"><b style="background:var(--a)"></b>DAU<b style="background:var(--b)"></b>WAU(7일)<b style="background:var(--c)"></b>MAU(30일)</div></div>
 <div class="card"><h2>버전별 분포 (최근 7일 활성)</h2><div id="ver"></div></div>
-<div class="card"><h2>메뉴별 이용 횟수</h2><div id="menu"></div></div>
+<div class="card"><h2>메뉴별 사용자 수·열린 횟수</h2><table id="menu"></table><div class="leg">사용자 수는 조회 기간 중 그 메뉴를 연 서로 다른 설치 수입니다. 메뉴 기록은 사용자가 다음 날 앱을 열 때 올라오므로 오늘 것은 내일부터 보입니다.</div></div>
 <div class="card"><h2>일자별 표</h2><table id="tbl"></table></div>
 </div></main>
 <script>
@@ -158,7 +173,9 @@ if(!r.ok){$("msg").textContent=r.status==401?"토큰이 맞지 않습니다":"�
 const d=await r.json();$("msg").textContent=d.from+" ~ "+d.to;$("out").hidden=false;const s=d.series,l=s[s.length-1];
 $("k1").textContent=l.dau;$("k2").textContent=l.wau;$("k3").textContent=l.mau;$("k4").textContent=d.totalInstalls;
 const max=Math.max(1,...s.map(p=>p.mau));$("chart").innerHTML='<line x1="10" x2="590" y1="185" y2="185" stroke="currentColor" opacity=".2"/>'+line(s,"mau","var(--c)",max)+line(s,"wau","var(--b)",max)+line(s,"dau","var(--a)",max);
-bars($("ver"),d.versions);bars($("menu"),d.menus);
+bars($("ver"),d.versions);
+const ms=Object.entries(d.menus).sort((a,b)=>b[1].users-a[1].users||b[1].hits-a[1].hits);
+$("menu").innerHTML="<tr><th>메뉴</th><th>사용자</th><th>횟수</th>"+d.weekDays.map(x=>"<th>"+x.slice(5)+"</th>").join("")+"</tr>"+(ms.length?ms.map(([k,v])=>"<tr><td>"+esc(k)+"</td><td>"+v.users+"</td><td>"+v.hits+"</td>"+d.weekDays.map(x=>"<td>"+(v.daily[x]||"")+"</td>").join("")+"</tr>").join(""):"<tr><td colspan=10>자료 없음</td></tr>");
 $("tbl").innerHTML="<tr><th>날짜</th><th>DAU</th><th>WAU</th><th>MAU</th></tr>"+s.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.wau+"</td><td>"+p.mau+"</td></tr>").join("")}
 $("go").onclick=load;if($("tok").value)load();
 </script></body></html>`;
