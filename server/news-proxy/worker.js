@@ -4,8 +4,10 @@
 //  - /stats   : 국내 금융 통계(한국은행 ECOS). 키는 이 서버의 비밀값(ECOS_API_KEY)으로만 존재한다.
 //  - /law     : 국가법령정보 Open API(DRF) 중계. 인증값(LAW_OC)은 이 서버의 비밀값으로만 존재한다.
 //  - /dart    : 기업 개황 및 공시(DART). DART Open API(개황·최대주주·재무·정기/주요사항/기타 공시)를 중계한다. 인증키는 이 서버의 비밀값(DART_API_KEY)으로만 존재한다.
+//  - /usage   : 익명 사용 통계(일일 핑) 수집, /admin 은 관리자 통계 화면(usage-lib.js).
 //  - /fisis   : 금융통계정보시스템(FISIS) Open API 중계(금융회사 목록·총자산 순위·주요 경영정보). 인증키는 이 서버의 비밀값(FISIS_API_KEY)으로만 존재한다.
 import fisisData from "./fisis-data.json";
+import { usagePing, adminApi, adminPage } from "./usage-lib.js";
 import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, withDartClass } from "./dart-lib.js";
 import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos } from "./fisis-lib.js";
 
@@ -32,8 +34,24 @@ const ID = /^[A-Za-z0-9_-]{10,100}$/;
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    // 관리자 통계 화면은 자체 토큰(ADMIN_TOKEN)으로 보호한다(앱 토큰과 별개).
+    if (url.pathname === "/admin" && request.method === "GET") return adminPage();
+    if (url.pathname === "/admin/api" && request.method === "GET") {
+      try {
+        return await adminApi(request, url, env);
+      } catch (e) {
+        return fail(502, `통계 조회 오류: ${e.message}`);
+      }
+    }
     if (!env.APP_TOKEN || request.headers.get("X-App-Token") !== env.APP_TOKEN) {
       return new Response("Unauthorized", { status: 401 });
+    }
+    if (url.pathname === "/usage/ping" && request.method === "POST") {
+      try {
+        return await usagePing(request, env);
+      } catch (e) {
+        return fail(502, "통계 저장 오류");
+      }
     }
     if (url.pathname === "/news" && request.method === "GET") return news(url, env, ctx);
     if (url.pathname === "/stats" && request.method === "GET") {

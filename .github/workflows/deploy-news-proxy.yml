@@ -18,6 +18,22 @@ jobs:
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
         run: node server/news-proxy/build-dart-data.mjs || echo "DART 회사 목록을 만들지 않았습니다."
+      - name: Prepare usage database (D1)
+        # 익명 사용 통계용 D1 데이터베이스를 (없으면) 만들고 wrangler.toml 에 연결한다. 실패해도 다른 기능 배포는 계속된다.
+        continue-on-error: true
+        working-directory: server/news-proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@4 d1 create fss-usage || echo "이미 있거나 만들지 못했습니다."
+          ID=$(npx --yes wrangler@4 d1 info fss-usage --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.uuid||j.id||j.database_id||"")})')
+          if echo "$ID" | grep -Eq '^[0-9a-f-]{36}$'; then
+            printf '\n[[d1_databases]]\nbinding = "DB"\ndatabase_name = "fss-usage"\ndatabase_id = "%s"\n' "$ID" >> wrangler.toml
+            echo "D1 연결: fss-usage" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::D1(fss-usage)를 연결하지 못했습니다. API 토큰에 D1 편집 권한이 있는지 확인하세요."
+          fi
       - name: Deploy Cloudflare Worker
         id: deploy
         uses: cloudflare/wrangler-action@v3
@@ -35,6 +51,7 @@ jobs:
             LAW_OC
             ECOS_API_KEY
             DART_API_KEY
+            ADMIN_TOKEN
         env:
           APP_TOKEN: ${{ secrets.NEWS_PROXY_TOKEN }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
@@ -45,5 +62,7 @@ jobs:
           LAW_OC: ${{ secrets.LAW_OC }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
       - name: Show URL
         run: echo "NEWS_PROXY_URL = ${{ steps.deploy.outputs.deployment-url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "관리자 통계 화면 = ${{ steps.deploy.outputs.deployment-url }}/admin" >> "$GITHUB_STEP_SUMMARY"
