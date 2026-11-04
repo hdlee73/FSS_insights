@@ -6,7 +6,7 @@ name: Sanction data
 
 on:
   schedule:
-    - cron: "0 21 * * 0,3" # 매주 월·목 06:00(한국시각)
+    - cron: "0 21 * * *" # 매일 06:00(한국시각). 새 공시만 읽으므로 몇 분이면 끝난다.
   workflow_dispatch:
     inputs:
       reparse:

@@ -40,8 +40,8 @@ enum class RegSource(val label: String, val tabLabel: String, val listUrl: Strin
             else -> RegulatoryParser.ListKind.GUIDANCE
         }
 
-    /** 처음 가져오는 건수(출처마다). 제재공시는 50건. */
-    val count: Int get() = if (this == FSS_SANCTION) 50 else 20
+    /** 처음 가져오는 건수(출처마다). */
+    val count: Int get() = 20
 }
 
 /**

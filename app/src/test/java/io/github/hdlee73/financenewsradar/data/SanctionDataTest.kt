@@ -33,15 +33,17 @@ class SanctionDataTest {
     }
 
     @Test
-    fun filtersByYearSectorActionAndLaw() {
+    fun filtersByYearSectorAndSearchField() {
         val d = SanctionJson.parse(json)
         assertEquals(2, SanctionStats.filter(d, SanctionFilter(sector = "보험")).size)
         assertEquals(1, SanctionStats.filter(d, SanctionFilter().withYear(2025)).size)
         assertEquals(3, SanctionStats.filter(d, SanctionFilter(from = YearMonth.of(2025, 10), to = YearMonth.of(2026, 10))).size)
         assertEquals(0, SanctionStats.filter(d, SanctionFilter(from = YearMonth.of(2025, 11), to = YearMonth.of(2026, 9))).size)
-        assertEquals(2, SanctionStats.filter(d, SanctionFilter(action = SanctionAction.MONEY)).size)
-        assertEquals(1, SanctionStats.filter(d, SanctionFilter(action = SanctionAction.INST_WARNING)).size)
-        assertEquals(1, SanctionStats.filter(d, SanctionFilter(action = SanctionAction.STAFF_HEAVY)).size)
+        assertEquals(2, SanctionStats.filter(d, SanctionFilter(query = "보험업법", field = SanctionSearchField.LAW)).size)
+        assertEquals(0, SanctionStats.filter(d, SanctionFilter(query = "보험업법", field = SanctionSearchField.COMPANY)).size)
+        assertEquals(1, SanctionStats.filter(d, SanctionFilter(query = "설명의무", field = SanctionSearchField.TITLE)).size)
+        assertEquals(1, SanctionStats.filter(d, SanctionFilter(query = "농협", field = SanctionSearchField.COMPANY)).size)
+        assertEquals(2, SanctionStats.cases(SanctionStats.filter(d, SanctionFilter())).size)
         assertEquals(1, SanctionStats.filter(d, SanctionFilter(query = "보험업법 제95조의2")).size)
         assertEquals(2, SanctionStats.filter(d, SanctionFilter(query = "DB손해")).size)
     }
@@ -95,7 +97,29 @@ class SanctionDataTest {
         }
         assertTrue(names.containsAll(listOf("[Content_Types].xml", "xl/workbook.xml", "xl/worksheets/sheet1.xml", "xl/worksheets/sheet2.xml", "xl/styles.xml")))
         assertTrue(sheet1.contains("보험업법 제95조의2"))
-        assertTrue(sheet1.contains("<v>105000000</v>"))
+        assertTrue(!sheet1.contains("<v>105000000</v>"))
+        // 같은 공시(DB손해보험, 2행)의 기관·임원·직원 조치 칸은 세로로 합친다
+        assertTrue(sheet1.contains("""<mergeCell ref="E2:E3"/>"""))
+        assertTrue(sheet1.contains("""<mergeCell ref="G2:G3"/>"""))
+        assertTrue(!sheet1.contains("공시 페이지") && !sheet1.contains("지적구분"))
         assertEquals("AA", XlsxWriter.col(26))
+    }
+
+    @Test
+    fun cleansActionText() {
+        assertEquals(listOf("기관경고", "과징금 11,196백만원"), SanctionText.actions("· 기관경고 / · 과징금 11,196백만원"))
+        assertEquals(
+            listOf("정직3월 1명", "퇴직자 위법·부당사항(주의 상당) 1명", "※ 미등기임원 포함"),
+            SanctionText.actions("* / (3명) / · 정직3월 1명 / · 퇴직자 위법· / 부당사항(주의 상당) 1명 / * 미등기임원 포함")
+        )
+        assertEquals(listOf("퇴직자 위법·부당사항(주의적경고 상당) 1명"), SanctionText.actions("퇴직자 위법·부당사항(주의적경고 / 상당) 1명"))
+    }
+
+    @Test
+    fun matchesCompanyNames() {
+        val d = SanctionJson.parse(json)
+        assertEquals(1, SanctionNames.casesOf(d, "농협은행").size)
+        assertEquals(1, SanctionNames.casesOf(d, "DB손해보험").size)
+        assertEquals(0, SanctionNames.casesOf(d, "국민은행").size)
     }
 }

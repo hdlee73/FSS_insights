@@ -11,21 +11,29 @@ object SanctionExport {
         "원문과 다르거나 누락·오분류가 있을 수 있으며, 권역은 회사명·담당부서로 추정했습니다. " +
         "과태료·과징금은 공시(건) 단위 금액이며, 2013년 이전 일부 공시는 형식이 달라 지적사항이 미분류로 나올 수 있습니다. 업무에 인용할 때는 반드시 금감원 원문을 확인하세요."
 
-    private fun detailSheet(rows: List<SanctionRow>) = XlsxWriter.Sheet(
-        "세부내역",
-        listOf("권역", "회사명", "조치요구일", "지적제목", "지적구분", "기관 조치", "임원 조치", "직원 조치",
-            "과태료(원, 건 전체)", "과징금(원, 건 전체)", "위반 법률·조항", "담당부서", "공시 페이지", "원문 파일"),
-        rows.map { r ->
+    /** 세부내역 열. 기관·임원·직원 조치(4~6번 열)는 같은 공시의 지적사항끼리 세로로 합친다. */
+    val DETAIL_HEADER = listOf("권역", "회사명", "조치요구일", "지적제목", "기관 조치", "임원 조치", "직원 조치", "위반 법률·조항", "담당부서")
+    private val ACTION_COLS = 4..6
+
+    internal fun detailSheet(rows: List<SanctionRow>): XlsxWriter.Sheet {
+        val merges = mutableListOf<Triple<Int, Int, Int>>()
+        var start = 0
+        val data = rows.mapIndexed { i, r ->
             val c = r.case
+            val first = i == 0 || rows[i - 1].case.id != c.id
+            if (first) start = i
+            val last = i == rows.lastIndex || rows[i + 1].case.id != c.id
+            if (last && i > start) ACTION_COLS.forEach { col -> merges += Triple(col, start, i) }
             listOf(
-                c.sector, c.company, c.date.format(ymd), r.title, r.item?.category.orEmpty(),
-                c.inst, c.exec, c.staff,
-                c.fine.takeIf { it > 0 }, c.penalty.takeIf { it > 0 },
-                r.laws.joinToString(", "), c.dept, c.viewUrl, c.fileUrl.orEmpty()
+                c.sector, c.company, c.date.format(ymd), r.title,
+                if (first) SanctionText.line(c.inst) else null,
+                if (first) SanctionText.line(c.exec) else null,
+                if (first) SanctionText.line(c.staff) else null,
+                r.laws.joinToString(", "), c.dept
             )
-        },
-        widths = listOf(9, 24, 11, 48, 9, 32, 28, 32, 15, 15, 40, 16, 30, 30)
-    )
+        }
+        return XlsxWriter.Sheet("세부내역", DETAIL_HEADER, data, widths = listOf(9, 24, 11, 48, 32, 32, 32, 40, 16), merges = merges)
+    }
 
     private fun statsSheet(s: SanctionStats.Summary, scope: String, generatedAt: String): XlsxWriter.Sheet {
         val rows = mutableListOf<List<Any?>>()
@@ -41,8 +49,6 @@ object SanctionExport {
         rows += listOf<Any?>("과태료 합계(원)", s.fine)
         rows += listOf<Any?>("과징금 합계(원)", s.penalty)
         rows += listOf<Any?>(null, null)
-        block("연도별 공시 건수", s.byYear.map { it.first to it.second })
-        if (s.byMonth.size in 1..120) block("월별 공시 건수", s.byMonth.map { "%d.%02d".format(it.first.year, it.first.monthValue) to it.second })
         block("권역별 공시 건수", s.bySector.map { it.first to it.second })
         block("기관 조치 종류별 공시 건수", s.instKinds.map { it.first to it.second })
         block("임원 조치 종류별 공시 건수", s.execKinds.map { it.first to it.second })

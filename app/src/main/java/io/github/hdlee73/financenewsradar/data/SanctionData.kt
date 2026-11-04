@@ -71,30 +71,69 @@ data class SanctionRow(val case: SanctionCase, val item: SanctionItem?, val inde
 
 data class SanctionDataset(val generatedAt: String, val fromYear: Int, val cases: List<SanctionCase>) {
     val years: List<Int> by lazy { cases.map { it.year }.distinct().sortedDescending() }
+
+    companion object {
+        /** 수집 시작 연도(사용자 지정). */
+        const val FIRST_YEAR = 2011
+    }
 }
 
-/** 조치수준 거르기. */
-enum class SanctionAction(val label: String) {
-    ALL("조치 전체"),
-    MONEY("금전제재(과태료·과징금)"),
-    SUSPEND("영업·업무정지·인허가취소"),
-    INST_WARNING("기관경고"),
-    INST_CAUTION("기관주의"),
-    EXEC_HEAVY("임원 중징계(해임권고·직무정지·문책경고)"),
-    EXEC_LIGHT("임원 주의적경고·주의"),
-    STAFF_HEAVY("직원 중징계(면직·정직·감봉)"),
-    STAFF_LIGHT("직원 견책·주의");
+/** 검색어를 어디에서 찾을지. */
+enum class SanctionSearchField(val label: String, val hint: String) {
+    ALL("전체", "회사명·지적제목·법조문 검색"),
+    COMPANY("회사명", "회사명 검색 (예: 국민은행)"),
+    TITLE("지적제목", "지적제목 검색 (예: 설명의무)"),
+    LAW("법조문", "법조문 검색 (예: 보험업법 제95조의2)")
+}
 
-    fun matches(c: SanctionCase): Boolean = when (this) {
-        ALL -> true
-        MONEY -> c.money > 0 || c.instKinds.any { it == "과태료" || it == "과징금" }
-        SUSPEND -> c.instKinds.any { it in setOf("영업정지", "업무정지", "인가취소", "등록취소", "영업점폐쇄", "영업의 일부정지") }
-        INST_WARNING -> "기관경고" in c.instKinds
-        INST_CAUTION -> "기관주의" in c.instKinds
-        EXEC_HEAVY -> c.execKinds.any { it in setOf("해임권고", "직무정지", "업무집행정지", "문책경고") }
-        EXEC_LIGHT -> c.execKinds.any { it == "주의적경고" || it == "주의" }
-        STAFF_HEAVY -> c.staffKinds.any { it in setOf("면직", "정직", "감봉") }
-        STAFF_LIGHT -> c.staffKinds.any { it == "견책" || it == "주의" }
+/** 조치 원문(표 칸을 이어 붙인 글)을 읽기 좋은 항목들로 나눈다. "· ", "* ", "(3명)" 같은 머리 조각은 뗀다. */
+object SanctionText {
+    private val HEAD = Regex("^[\\s·ㆍ•∙*\\-]+")
+    private val COUNT_ONLY = Regex("^\\(\\d+\\s*명\\)$")
+    private val COUNT_HEAD = Regex("^\\(\\d+\\s*명\\)\\s*")
+
+    fun actions(raw: String): List<String> {
+        val parts = raw.split(Regex("\\s*/\\s*|\\n")).map { it.trim() }
+        val joined = mutableListOf<String>()
+        for (p in parts) {
+            val last = joined.lastOrNull()
+            // "퇴직자 위법· / 부당사항"처럼 줄이 끊긴 것은 다시 잇는다.
+            when {
+                last == null -> joined += p
+                last.endsWith("·") || last.endsWith("ㆍ") -> joined[joined.size - 1] = last + p
+                // "(주의적경고 / 상당)"처럼 괄호 안에서 끊긴 것, "및"으로 끝난 것
+                last.count { it == '(' } > last.count { it == ')' } || last.endsWith("및") -> joined[joined.size - 1] = "$last $p"
+                else -> joined += p
+            }
+        }
+        return joined.mapNotNull { p ->
+            val note = p.startsWith("*") && p.trimStart('*', ' ').isNotEmpty()
+            val t = p.replace(HEAD, "").replace(COUNT_HEAD, "").trim()
+            when {
+                t.isEmpty() || COUNT_ONLY.matches(t) -> null
+                note -> "※ $t"
+                else -> t
+            }
+        }.distinct()
+    }
+
+    /** 한 줄 표기(엑셀·목록용). */
+    fun line(raw: String): String = actions(raw).joinToString(" / ")
+}
+
+/** 회사 이름 맞추기(금융회사 주요 현황 → 제재내역). "주식회사", "(주)", 띄어쓰기를 무시한다. */
+object SanctionNames {
+    private val NOISE = Regex("주식회사|유한회사|\\(주\\)|㈜|\\(유\\)|\\s|[.,·]")
+
+    fun key(name: String): String = name.replace(NOISE, "").lowercase()
+
+    fun casesOf(data: SanctionDataset, company: String): List<SanctionCase> {
+        val k = key(company)
+        if (k.isEmpty()) return emptyList()
+        val exact = data.cases.filter { key(it.company) == k }
+        if (exact.isNotEmpty() || k.length < 4) return exact
+        // 지점·옛 이름 표기 차이를 조금 허용(4글자 이상일 때만)
+        return data.cases.filter { val o = key(it.company); o.length >= 4 && (o.startsWith(k) || k.startsWith(o)) }
     }
 }
 
@@ -114,14 +153,14 @@ data class SanctionFilter(
     val from: YearMonth? = null,
     val to: YearMonth? = null,
     val sector: String? = null,
-    val action: SanctionAction = SanctionAction.ALL,
-    val query: String = ""
+    val query: String = "",
+    val field: SanctionSearchField = SanctionSearchField.ALL
 ) {
     fun inPeriod(d: LocalDate): Boolean =
         (from == null || !d.isBefore(from.atDay(1))) && (to == null || !d.isAfter(to.atEndOfMonth()))
 
     fun matchesCase(c: SanctionCase): Boolean =
-        inPeriod(c.date) && (sector == null || c.sector == sector) && action.matches(c)
+        inPeriod(c.date) && (sector == null || c.sector == sector)
 
     fun withYear(y: Int) = copy(from = YearMonth.of(y, 1), to = YearMonth.of(y, 12))
     fun withPeriod(p: SanctionPeriod): SanctionFilter = p.range().let { (f, t) -> copy(from = f, to = t) }
@@ -143,7 +182,12 @@ data class SanctionFilter(
         val q = query.trim()
         if (q.isEmpty()) return true
         val compact = q.replace(" ", "")
-        val hay = listOf(r.case.company, r.title, r.case.dept, r.case.sector, r.laws.joinToString(" "), r.item?.category.orEmpty())
+        val hay = when (field) {
+            SanctionSearchField.ALL -> listOf(r.case.company, r.title, r.case.dept, r.laws.joinToString(" "))
+            SanctionSearchField.COMPANY -> listOf(r.case.company)
+            SanctionSearchField.TITLE -> listOf(r.item?.title.orEmpty())
+            SanctionSearchField.LAW -> r.laws
+        }
         return q.split(Regex("\\s+")).all { word -> hay.any { it.contains(word, ignoreCase = true) } } ||
             hay.any { it.replace(" ", "").contains(compact, ignoreCase = true) }
     }
@@ -158,6 +202,9 @@ object SanctionStats {
         val cases = data.cases.filter(f::matchesCase)
         return rows(cases).filter(f::matchesRow)
     }
+
+    /** 걸러진 지적사항이 하나라도 있는 공시(최신순). */
+    fun cases(rows: List<SanctionRow>): List<SanctionCase> = rows.map { it.case }.distinctBy { it.id }
 
     data class Summary(
         val caseCount: Int,
@@ -255,7 +302,7 @@ object SanctionJson {
                 parsed = c.optBoolean("ok")
             )
         }
-        return SanctionDataset(o.optString("generatedAt"), o.optInt("from", 2011), cases)
+        return SanctionDataset(o.optString("generatedAt"), o.optInt("from", SanctionDataset.FIRST_YEAR), cases)
     }
 
     private fun strings(a: JSONArray?): List<String> = if (a == null) emptyList() else (0 until a.length()).map { a.getString(it) }
@@ -263,7 +310,7 @@ object SanctionJson {
 
 /** sanctions.json을 받아 기기에 보관한다. 12시간 안에 받은 것이 있으면 다시 받지 않는다. */
 class SanctionRepository(private val context: Context) {
-    private val file get() = File(context.filesDir, "sanctions.json")
+    private val file get() = File(context.filesDir, "sanctions-2011.json")
 
     suspend fun cached(): SanctionDataset? = withContext(Dispatchers.IO) {
         runCatching { if (file.exists()) SanctionJson.parse(file.readText()) else null }.getOrNull()
@@ -279,7 +326,7 @@ class SanctionRepository(private val context: Context) {
             throw IllegalStateException("제재공시 세부내역 자료를 받지 못했습니다. 인터넷 연결을 확인해 주세요. (${e.message})")
         }
         val data = SanctionJson.parse(text)
-        File(context.filesDir, "sanctions.json.tmp").apply { writeText(text); renameTo(file) }
+        File(context.filesDir, "sanctions-2011.json.tmp").apply { writeText(text); renameTo(file) }
         data
     }
 

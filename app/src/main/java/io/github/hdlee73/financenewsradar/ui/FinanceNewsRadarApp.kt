@@ -120,14 +120,14 @@ private val appScreens = listOf(
     AppScreen("앱 정보", Icons.Filled.Info),
     AppScreen("금융회사 주요 현황", Icons.Filled.Business),
     AppScreen("유권해석·비조치의견서·행정지도", Icons.Filled.Gavel),
-    AppScreen("금융회사 제재공시", Icons.Filled.Gavel),
+    AppScreen("금융회사 제재현황", Icons.Filled.Gavel),
     AppScreen("스마트 법령검색", Icons.Filled.AccountTree),
     AppScreen("기업 개황 및 공시(DART)", Icons.Filled.Apartment)
 )
 
 // 서랍 메뉴의 묶음: 소제목과 그 아래 화면 번호.
 private val drawerSections = listOf(
-    null to listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_FISIS, SCREEN_DART, SCREEN_SANCTION, SCREEN_LAW),
+    null to listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_FISIS, SCREEN_SANCTION, SCREEN_DART, SCREEN_LAW),
     "자료" to listOf(SCREEN_PRESS, SCREEN_REGULATORY, SCREEN_RESEARCH, SCREEN_LIBRARY),
     "더보기" to listOf(SCREEN_SITES, SCREEN_ALERTS, SCREEN_INFO)
 )
@@ -276,10 +276,10 @@ fun FinanceNewsRadarApp(
                     SCREEN_BRIEFING -> BriefingScreen(newsViewModel, releasesViewModel, marketViewModel, onOpenTab = ::go)
                     SCREEN_NEWS -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     SCREEN_MARKET -> MarketScreen(marketViewModel)
-                    SCREEN_FISIS -> FisisScreen(fisisViewModel)
+                    SCREEN_FISIS -> FisisScreen(fisisViewModel, sanctionViewModel, onOpenLaw = ::openLaw)
                     SCREEN_DART -> DartScreen(dartViewModel)
                     SCREEN_REGULATORY -> RegulatoryScreen(regulatoryViewModel)
-                    SCREEN_SANCTION -> SanctionScreen(regulatoryViewModel, sanctionViewModel, onOpenLaw = ::openLaw)
+                    SCREEN_SANCTION -> SanctionScreen(sanctionViewModel, onOpenLaw = ::openLaw)
                     SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen(
                         launch = lawLaunch,
                         onLaunchConsumed = { lawLaunch = null },

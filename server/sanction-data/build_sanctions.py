@@ -49,7 +49,7 @@ def fetch(url: str, tries: int = 4) -> bytes:
 
 ROW = re.compile(
     r"<tr>\s*<td>\s*\d+\s*</td>\s*<td>([^<]*)</td>\s*<td>\s*(\d{8})\s*</td>.*?"
-    r"examMgmtNo=(\d+)&(?:amp;)?emOpenSeq=(\d+).*?</td>\s*<td>([^<]*)</td>",
+    r"examMgmtNo=([0-9A-Za-z]+)&(?:amp;)?emOpenSeq=(\d+).*?</td>\s*<td>([^<]*)</td>",
     re.S,
 )
 
@@ -70,7 +70,8 @@ def list_year(year: int, today: dt.date):
                 "date": f"{d[:4]}-{d[4:6]}-{d[6:]}",
                 "dept": html.unescape(dept).strip(),
             })
-        if len(rows) < 100:
+        # 행 하나를 못 읽어도 다음 쪽으로 넘어가도록, 읽은 수가 아니라 표의 행 수로 판단한다.
+        if h.count("<tr>") - 1 < 100:
             break
         p += 1
         time.sleep(0.3)

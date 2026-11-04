@@ -199,11 +199,25 @@ class FisisViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
-/** 금융회사 주요 현황: 권역별로 자산총계 순으로 회사를 찾고, 재무현황·주요경영지표를 보고, 회사 2~3곳을 비교한다. */
+/**
+ * 금융회사 주요 현황: 권역별로 자산총계 순으로 회사를 찾고, 재무현황·주요경영지표·최근 제재내역을 보고, 회사 2~3곳을 비교한다.
+ * [onOpenLaw]는 제재 세부내역의 위반 조문을 스마트 법령검색에서 연다.
+ */
 @Composable
-fun FisisScreen(viewModel: FisisViewModel, modifier: Modifier = Modifier) {
+fun FisisScreen(viewModel: FisisViewModel, sanctionViewModel: SanctionViewModel, onOpenLaw: (String) -> Unit, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     BackHandler(enabled = state.view != FisisView.Companies) { viewModel.back() }
+    // '최근 제재내역'에서 연 공시 세부내역("회사코드|공시 번호"). 다른 회사로 가면 저절로 닫힌다.
+    var sanctionCase by rememberSaveable { mutableStateOf<String?>(null) }
+    val sanctionState by sanctionViewModel.state.collectAsStateWithLifecycle()
+    val detailCode = (state.view as? FisisView.Detail)?.company?.code
+    val openCase = sanctionCase?.takeIf { detailCode != null && it.startsWith("$detailCode|") }
+        ?.substringAfter('|')?.let { id -> sanctionState.data?.cases?.firstOrNull { it.id == id } }
+    if (openCase != null) {
+        BackHandler { sanctionCase = null }
+        SanctionCaseScreen(openCase, onBack = { sanctionCase = null }, onOpenLaw = onOpenLaw)
+        return
+    }
     Column(modifier.fillMaxSize()) {
         when (val view = state.view) {
             FisisView.Companies -> {
@@ -212,7 +226,7 @@ fun FisisScreen(viewModel: FisisViewModel, modifier: Modifier = Modifier) {
                 if (!viewModel.isConfigured) CenterMessage("서버가 연결되지 않아 경영정보를 불러올 수 없습니다.")
                 else CompanyList(state, viewModel)
             }
-            is FisisView.Detail -> CompanyDetail(view.company, state, viewModel)
+            is FisisView.Detail -> CompanyDetail(view.company, state, viewModel, sanctionViewModel, onOpenCase = { sanctionCase = "${view.company.code}|${it.id}" })
             FisisView.Compare -> CompareView(state, viewModel)
         }
     }
@@ -319,7 +333,13 @@ private fun PeriodPicker(months: List<String>, selected: String?, term: String, 
 private fun monthsOf(metrics: List<FisisMetric>): List<String> = metrics.flatMap { m -> m.points.map { it.month } }.filter { it >= FIRST_MONTH }.distinct().sortedDescending()
 
 @Composable
-private fun ColumnScope.CompanyDetail(company: FisisCompany, state: FisisUiState, viewModel: FisisViewModel) {
+private fun ColumnScope.CompanyDetail(
+    company: FisisCompany,
+    state: FisisUiState,
+    viewModel: FisisViewModel,
+    sanctionViewModel: SanctionViewModel,
+    onOpenCase: (io.github.hdlee73.financenewsradar.data.SanctionCase) -> Unit
+) {
     val sectorCode = state.sector
     val sector = FISIS_SECTORS.first { it.code == sectorCode }
     val key = profileKey(sectorCode, company.code)
@@ -331,9 +351,10 @@ private fun ColumnScope.CompanyDetail(company: FisisCompany, state: FisisUiState
     val profile = state.profiles[key]
 
     BackHeader(company.name, onBack = viewModel::back)
-    UnderlineTabs(listOf("재무현황", "주요경영지표"), tab, { tab = it })
+    UnderlineTabs(listOf("재무현황", "주요경영지표", "최근 제재내역"), tab, { tab = it })
     Box(Modifier.weight(1f).fillMaxWidth()) {
         when {
+            tab == 2 -> CompanySanctionPane(company.name, sanctionViewModel, onOpenCase)
             key in state.loading || (profile == null && key !in state.errors) -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             key in state.errors -> CenterMessage(state.errors[key].orEmpty(), isError = true, actionLabel = "다시 시도", onAction = { viewModel.retry(sectorCode, company) })
             profile == null || profile.metrics.isEmpty() -> CenterMessage("이 회사는 ${sector.label} 자료를 찾지 못했습니다.")

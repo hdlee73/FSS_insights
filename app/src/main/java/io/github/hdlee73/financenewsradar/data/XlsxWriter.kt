@@ -9,7 +9,14 @@ import java.util.zip.ZipOutputStream
  * 첫 줄은 굵은 머리글로 고정하고, 숫자는 숫자 칸(천 단위 쉼표)으로, 나머지는 글자 칸으로 넣는다.
  */
 object XlsxWriter {
-    data class Sheet(val name: String, val header: List<String>, val rows: List<List<Any?>>, val widths: List<Int> = emptyList())
+    data class Sheet(
+        val name: String,
+        val header: List<String>,
+        val rows: List<List<Any?>>,
+        val widths: List<Int> = emptyList(),
+        /** 세로로 합칠 칸: (열 번호, 첫 데이터 행 번호, 끝 데이터 행 번호), 행 번호는 rows 기준 0부터. */
+        val merges: List<Triple<Int, Int, Int>> = emptyList()
+    )
 
     fun write(out: OutputStream, sheets: List<Sheet>) {
         ZipOutputStream(out).use { zip ->
@@ -37,8 +44,8 @@ object XlsxWriter {
                 sheets.indices.forEach { append("""<Relationship Id="rId${it + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${it + 1}.xml"/>""") }
                 append("""<Relationship Id="rId${sheets.size + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>""")
             })
-            // 0: 기본, 1: 굵은 머리글(옅은 배경), 2: 천 단위 쉼표 숫자, 3: 줄바꿈 글자
-            put("xl/styles.xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><name val="맑은 고딕"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8ECFB"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="4"><xf/><xf fontId="1" fillId="2" applyFont="1" applyFill="1"/><xf numFmtId="3" applyNumberFormat="1"/><xf applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf></cellXfs></styleSheet>""")
+            // 0: 기본, 1: 굵은 머리글(옅은 배경), 2: 천 단위 쉼표 숫자, 3: 줄바꿈 글자, 4: 합친 칸(세로 가운데)
+            put("xl/styles.xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><name val="맑은 고딕"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8ECFB"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="5"><xf/><xf fontId="1" fillId="2" applyFont="1" applyFill="1"/><xf numFmtId="3" applyNumberFormat="1"/><xf applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf><xf applyAlignment="1"><alignment vertical="center"/></xf></cellXfs></styleSheet>""")
             sheets.forEachIndexed { i, s -> put("xl/worksheets/sheet${i + 1}.xml", sheetXml(s)) }
         }
     }
@@ -52,23 +59,32 @@ object XlsxWriter {
             append("</cols>")
         }
         append("<sheetData>")
-        row(this, 1, s.header, header = true)
-        s.rows.forEachIndexed { i, r -> row(this, i + 2, r, header = false) }
+        row(this, 1, s.header, header = true, merged = emptySet())
+        val merges = s.merges.filter { it.third > it.second }
+        val merged = HashMap<Int, MutableSet<Int>>()
+        merges.forEach { (c, a, b) -> (a..b).forEach { merged.getOrPut(it) { mutableSetOf() } += c } }
+        s.rows.forEachIndexed { i, r -> row(this, i + 2, r, header = false, merged = merged[i].orEmpty()) }
         append("</sheetData>")
         if (s.rows.isNotEmpty()) append("""<autoFilter ref="A1:${col(s.header.size - 1)}${s.rows.size + 1}"/>""")
+        if (merges.isNotEmpty()) {
+            append("""<mergeCells count="${merges.size}">""")
+            merges.forEach { (c, a, b) -> append("""<mergeCell ref="${col(c)}${a + 2}:${col(c)}${b + 2}"/>""") }
+            append("</mergeCells>")
+        }
         append("</worksheet>")
     }
 
-    private fun row(sb: StringBuilder, n: Int, cells: List<Any?>, header: Boolean) {
+    private fun row(sb: StringBuilder, n: Int, cells: List<Any?>, header: Boolean, merged: Set<Int>) {
         sb.append("""<row r="$n">""")
         cells.forEachIndexed { i, v ->
             val ref = "${col(i)}$n"
             when {
+                i in merged && v == null -> sb.append("""<c r="$ref" s="4"/>""")
                 v == null -> {}
                 !header && v is Number -> sb.append("""<c r="$ref" s="2"><v>$v</v></c>""")
                 else -> {
                     val text = v.toString()
-                    val style = if (header) 1 else if (text.contains('\n')) 3 else 0
+                    val style = if (header) 1 else if (i in merged) 4 else if (text.contains('\n')) 3 else 0
                     sb.append("""<c r="$ref" t="inlineStr" s="$style"><is><t xml:space="preserve">${esc(text)}</t></is></c>""")
                 }
             }

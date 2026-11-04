@@ -68,14 +68,16 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import io.github.hdlee73.financenewsradar.data.SanctionAction
 import io.github.hdlee73.financenewsradar.data.SanctionCase
 import io.github.hdlee73.financenewsradar.data.SanctionDataset
 import io.github.hdlee73.financenewsradar.data.SanctionExport
 import io.github.hdlee73.financenewsradar.data.SanctionFilter
 import io.github.hdlee73.financenewsradar.data.SanctionPeriod
 import io.github.hdlee73.financenewsradar.data.SanctionRepository
-import io.github.hdlee73.financenewsradar.data.SanctionRow
+import io.github.hdlee73.financenewsradar.data.SanctionItem
+import io.github.hdlee73.financenewsradar.data.SanctionNames
+import io.github.hdlee73.financenewsradar.data.SanctionSearchField
+import io.github.hdlee73.financenewsradar.data.SanctionText
 import io.github.hdlee73.financenewsradar.data.SanctionSectors
 import io.github.hdlee73.financenewsradar.data.SanctionStats
 import io.github.hdlee73.financenewsradar.ui.theme.AppColors
@@ -132,29 +134,12 @@ class SanctionViewModel(application: Application) : AndroidViewModel(application
 private val sDate: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
 
 /**
- * 서랍 메뉴 "금융회사 제재공시": 첫 탭은 기존 '최근 공시' 화면 그대로(최근 50건),
- * 둘째 탭은 2011년 이후 제재 세부내역(지적사항 단위)과 통계.
+ * 서랍 메뉴 "금융회사 제재현황": 2011년 이후 금감원 제재공시 전체 목록(공시마다 [원문보기]·[세부내역])과 통계.
  * [onOpenLaw]는 "보험업법 제95조의2" 같은 조문을 스마트 법령검색에서 바로 연다.
  */
-@Composable
-fun SanctionScreen(
-    regulatoryViewModel: RegulatoryViewModel,
-    sanctionViewModel: SanctionViewModel,
-    onOpenLaw: (String) -> Unit
-) {
-    var tab by rememberSaveable { mutableStateOf(0) }
-    val tabs: @Composable () -> Unit = { UnderlineTabs(listOf("최근 공시", "세부내역·통계"), tab, { tab = it }) }
-    if (tab == 0) {
-        RegulatoryScreen(regulatoryViewModel, title = "금융회사 제재공시", sources = RegulatoryMenus.sanction, headerTabs = tabs)
-    } else {
-        BackHandler { tab = 0 }
-        SanctionDetailPane(sanctionViewModel, tabs, onOpenLaw)
-    }
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SanctionDetailPane(vm: SanctionViewModel, tabs: @Composable () -> Unit, onOpenLaw: (String) -> Unit) {
+fun SanctionScreen(vm: SanctionViewModel, onOpenLaw: (String) -> Unit) {
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
@@ -166,6 +151,8 @@ private fun SanctionDetailPane(vm: SanctionViewModel, tabs: @Composable () -> Un
     val filter = state.filter
 
     val rows = remember(data, filter) { if (data == null) emptyList() else SanctionStats.filter(data, filter) }
+    val cases = remember(rows) { SanctionStats.cases(rows) }
+    val rowsByCase = remember(rows) { rows.groupBy { it.case.id } }
     val summary = remember(rows, data) { SanctionStats.summarize(rows, data?.years.orEmpty(), filter) }
 
     val selected = openCase?.let { id -> data?.cases?.firstOrNull { it.id == id } }
@@ -174,6 +161,7 @@ private fun SanctionDetailPane(vm: SanctionViewModel, tabs: @Composable () -> Un
         SanctionCaseScreen(selected, onBack = { openCase = null }, onOpenLaw = onOpenLaw)
         return
     }
+    if (state.stats) BackHandler { vm.showStats(false) }
 
     val saver = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -195,33 +183,36 @@ private fun SanctionDetailPane(vm: SanctionViewModel, tabs: @Composable () -> Un
             Toast.makeText(context, "저장할 내역이 없습니다.", Toast.LENGTH_SHORT).show(); return
         }
         val period = filter.periodLabel(data.fromYear).replace(Regex("[^0-9A-Za-z가-힣.~]"), "").replace("~", "-")
-        saver.launch("제재공시_${period}_${LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)}.xlsx")
+        saver.launch("제재현황_${period}_${LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)}.xlsx")
     }
+    val fromYear = data?.fromYear ?: SanctionDataset.FIRST_YEAR
 
     val listState = rememberLazyListState()
     Box(Modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 28.dp)) {
             item(key = "title") {
-                LargeTitle("금융회사 제재공시", subtitle = "2011년 이후 제재 세부내역과 통계") {
+                LargeTitle("금융회사 제재현황", subtitle = "${fromYear}년 이후 금감원 제재공시와 통계") {
                     IconButton(onClick = ::export, enabled = data != null) { Icon(Icons.Default.Download, contentDescription = "엑셀로 저장") }
                     IconButton(onClick = { vm.load(force = true) }, enabled = !state.loading) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
                 }
             }
-            item(key = "tabs") { tabs() }
-            item(key = "mode") {
-                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PillChip("세부내역", onClick = { vm.showStats(false) }, selected = !state.stats)
-                    PillChip("통계", onClick = { vm.showStats(true) }, selected = state.stats)
+            item(key = "tabs") { UnderlineTabs(listOf("제재 공시", "통계"), if (state.stats) 1 else 0, { vm.showStats(it == 1) }) }
+            item(key = "field") {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("검색", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SanctionSearchField.entries.forEach { f ->
+                        PillChip(f.label, onClick = { vm.setFilter(filter.copy(field = f)) }, selected = filter.field == f)
+                    }
                 }
             }
             item(key = "search") {
                 SearchPill(
                     value = filter.query,
                     onValueChange = { vm.setFilter(filter.copy(query = it)) },
-                    placeholder = "회사명·지적제목·법조문 검색",
+                    placeholder = filter.field.hint,
                     onSearch = { keyboard?.hide(); focus.clearFocus() },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
-                    description = "제재 세부내역 검색어"
+                    description = "제재 공시 검색어"
                 )
             }
             item(key = "filters") { FilterBar(data, filter) { vm.setFilter(it) } }
@@ -229,7 +220,7 @@ private fun SanctionDetailPane(vm: SanctionViewModel, tabs: @Composable () -> Un
                 data == null && state.loading -> item(key = "loading") {
                     Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp)
-                        Text("2011년 이후 제재 세부내역을 받는 중입니다…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${fromYear}년 이후 제재공시를 받는 중입니다…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 data == null -> item(key = "error") {
@@ -242,7 +233,7 @@ private fun SanctionDetailPane(vm: SanctionViewModel, tabs: @Composable () -> Un
                 }
                 else -> {
                     item(key = "count") {
-                        SectionLabel("지적 ${"%,d".format(rows.size)}건 · 공시 ${"%,d".format(summary.caseCount)}건 · 2011년 이후") {
+                        SectionLabel("공시 ${"%,d".format(cases.size)}건 · 지적 ${"%,d".format(summary.itemCount)}건 · ${filter.periodLabel(fromYear)}") {
                             TextButton(onClick = ::export) {
                                 Icon(Icons.Default.Download, contentDescription = null, Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
@@ -250,9 +241,17 @@ private fun SanctionDetailPane(vm: SanctionViewModel, tabs: @Composable () -> Un
                             }
                         }
                     }
-                    if (rows.isEmpty()) item(key = "empty") { CenterMessage("조건에 맞는 내역이 없습니다.") }
-                    items(rows, key = { "${it.case.id}#${it.index}" }) { row ->
-                        SanctionRowCard(row, onOpen = { openCase = row.case.id }, onOpenLaw = onOpenLaw)
+                    if (cases.isEmpty()) item(key = "empty") { CenterMessage("조건에 맞는 공시가 없습니다.") }
+                    items(cases, key = { it.id }) { c ->
+                        val matched = if (filter.query.isBlank()) emptyList() else rowsByCase[c.id].orEmpty().mapNotNull { it.item }
+                        SanctionCaseCard(c, matched, onDetail = { openCase = c.id })
+                    }
+                    item(key = "notice") {
+                        Text(
+                            "자료 기준 ${data.generatedAt.take(16).replace('T', ' ')} · 금감원 공시를 자동으로 정리한 참고용 자료입니다.",
+                            Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline
+                        )
                     }
                 }
             }
@@ -261,26 +260,61 @@ private fun SanctionDetailPane(vm: SanctionViewModel, tabs: @Composable () -> Un
     }
 }
 
+/**
+ * 금융회사 주요 현황의 '최근 제재내역' 탭: 그 회사의 제재공시(최신순). 회사 이름으로 맞춘다.
+ * [onOpenCase]는 세부내역 화면을 연다.
+ */
+@Composable
+fun CompanySanctionPane(company: String, vm: SanctionViewModel, onOpenCase: (SanctionCase) -> Unit, modifier: Modifier = Modifier) {
+    val state by vm.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { vm.ensure() }
+    val data = state.data
+    val cases = remember(data, company) { if (data == null) emptyList() else SanctionNames.casesOf(data, company) }
+    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(top = 6.dp, bottom = 28.dp)) {
+        when {
+            data == null && state.loading -> item {
+                Box(Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp) }
+            }
+            data == null -> item {
+                CenterMessage(state.error ?: "자료가 없습니다.", isError = true, actionLabel = "다시 시도", onAction = { vm.load(force = true) })
+            }
+            cases.isEmpty() -> item {
+                CenterMessage("${data.fromYear}년 이후 금감원 제재공시에서 '$company' 이름으로 된 공시를 찾지 못했습니다.\n(회사명이 바뀌었으면 '금융회사 제재현황'에서 옛 이름으로 검색해 보세요.)")
+            }
+            else -> {
+                item { SectionLabel("${data.fromYear}년 이후 제재공시 ${cases.size}건") }
+                items(cases, key = { it.id }) { c -> SanctionCaseCard(c, emptyList(), onDetail = { onOpenCase(c) }) }
+            }
+        }
+        item {
+            Text(
+                "금감원 '금융회사 제재공시'를 회사명으로 맞춰 보여 줍니다. 원문과 다를 수 있으니 업무에는 금감원 원문을 확인하세요.",
+                Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+}
+
 private fun scopeLabel(f: SanctionFilter, data: SanctionDataset): String = listOfNotNull(
     "기간 ${f.periodLabel(data.fromYear)}",
     f.sector ?: "전 권역",
-    f.action.takeIf { it != SanctionAction.ALL }?.label,
-    f.query.trim().takeIf { it.isNotEmpty() }?.let { "검색어 ‘$it’" }
+    f.query.trim().takeIf { it.isNotEmpty() }?.let { "${f.field.label} 검색 ‘$it’" }
 ).joinToString(" · ")
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FilterBar(data: SanctionDataset?, f: SanctionFilter, onChange: (SanctionFilter) -> Unit) {
+    val fromYear = data?.fromYear ?: SanctionDataset.FIRST_YEAR
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // 기간: 빠른 선택 + 직접 지정(시작 연·월 ~ 끝 연·월). 통계와 엑셀 저장도 이 기간을 따른다.
         var pickPeriod by remember { mutableStateOf(false) }
         val preset = f.preset()
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SanctionPeriod.entries.forEach { p ->
-                PillChip(if (p == SanctionPeriod.ALL) "전체(${data?.fromYear ?: 2011}~)" else p.label, onClick = { onChange(f.withPeriod(p)) }, selected = preset == p)
+                PillChip(if (p == SanctionPeriod.ALL) "전체(${fromYear}~)" else p.label, onClick = { onChange(f.withPeriod(p)) }, selected = preset == p)
             }
             PillChip(
-                if (preset == null) "기간: ${f.periodLabel(data?.fromYear ?: 2011)}" else "기간 지정…",
+                if (preset == null) "기간: ${f.periodLabel(fromYear)}" else "기간 지정…",
                 onClick = { pickPeriod = true }, selected = preset == null
             )
         }
@@ -291,27 +325,8 @@ private fun FilterBar(data: SanctionDataset?, f: SanctionFilter, onChange: (Sanc
             PillChip("전 권역", onClick = { onChange(f.copy(sector = null)) }, selected = f.sector == null)
             SanctionSectors.all.forEach { s -> PillChip(s, onClick = { onChange(f.copy(sector = if (f.sector == s) null else s)) }, selected = f.sector == s) }
         }
-        Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            var open by remember { mutableStateOf(false) }
-            Box {
-                Surface(
-                    onClick = { open = true },
-                    shape = RoundedCornerShape(50),
-                    color = if (f.action != SanctionAction.ALL) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Row(Modifier.padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("조치수준: ${f.action.label}", style = MaterialTheme.typography.labelLarge, color = if (f.action != SanctionAction.ALL) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                    }
-                }
-                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                    SanctionAction.entries.forEach { a ->
-                        DropdownMenuItem(text = { Text(a.label) }, onClick = { onChange(f.copy(action = a)); open = false })
-                    }
-                }
-            }
-            if (f != SanctionFilter()) TextButton(onClick = { onChange(SanctionFilter()) }) { Text("조건 초기화") }
+        if (f != SanctionFilter()) {
+            TextButton(onClick = { onChange(SanctionFilter()) }, modifier = Modifier.padding(start = 10.dp)) { Text("조건 초기화") }
         }
     }
 }
@@ -352,32 +367,57 @@ private fun actionTags(c: SanctionCase): List<Pair<String, Boolean>> {
     return tags
 }
 
+/** 공시 목록 한 줄: 회사·권역·날짜·조치 태그·지적제목 미리보기와 [원문보기]·[세부내역]. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SanctionRowCard(row: SanctionRow, onOpen: () -> Unit, onOpenLaw: (String) -> Unit) {
-    val c = row.case
-    ListCard(onClick = onOpen) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            row.item?.category?.let { TagLabel(it, accent = it == "문책") }
-            Text(row.title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                color = if (row.item == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+private fun SanctionCaseCard(c: SanctionCase, matched: List<SanctionItem>, onDetail: () -> Unit) {
+    val context = LocalContext.current
+    ListCard(onClick = onDetail) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(c.company, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(listOf(c.sector, c.date.format(sDate), c.dept).filter { it.isNotBlank() }.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SmallButton("원문보기", filled = false) { openExternal(context, c.viewUrl) }
+                SmallButton("세부내역", filled = true, onClick = onDetail)
+            }
         }
-        Text("${c.company} · ${c.sector} · ${c.date.format(sDate)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         val tags = actionTags(c)
         if (tags.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             tags.take(5).forEach { (t, strong) -> ActionTag(t, strong) }
         }
-        if (row.laws.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            row.laws.take(4).forEach { LawChip(it, onOpenLaw) }
-            if (row.laws.size > 4) Text("외 ${row.laws.size - 4}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val titles = (matched.ifEmpty { c.items }).map { it.title }.distinct()
+        if (titles.isNotEmpty()) {
+            Text(
+                titles.take(2).joinToString("\n") { "· $it" } + if (titles.size > 2) "  외 ${titles.size - 2}건" else "",
+                style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
 
-/** 공시 한 건 상세: 조치수준(신분·금전)과 지적사항별 위반 조문. */
+@Composable
+private fun SmallButton(label: String, filled: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = if (filled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+        border = if (filled) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Text(
+            label, Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
+            color = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+/** 공시 한 건 세부내역: 조치수준(신분·금전)과 지적사항별 위반 조문. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SanctionCaseScreen(c: SanctionCase, onBack: () -> Unit, onOpenLaw: (String) -> Unit) {
+fun SanctionCaseScreen(c: SanctionCase, onBack: () -> Unit, onOpenLaw: (String) -> Unit) {
     val context = LocalContext.current
     Column(Modifier.fillMaxSize()) {
         BackHeader(c.company, onBack)
@@ -398,9 +438,9 @@ private fun SanctionCaseScreen(c: SanctionCase, onBack: () -> Unit, onOpenLaw: (
                             if (c.penalty > 0) ActionTag("과징금 ${SanctionStats.won(c.penalty)}", true)
                         }
                     }
-                    InfoLine("기관", c.inst.ifBlank { "-" })
-                    InfoLine("임원", c.exec.ifBlank { "-" })
-                    InfoLine("직원", c.staff.ifBlank { "-" })
+                    InfoLine("기관", SanctionText.actions(c.inst).joinToString("\n").ifBlank { "-" })
+                    InfoLine("임원", SanctionText.actions(c.exec).joinToString("\n").ifBlank { "-" })
+                    InfoLine("직원", SanctionText.actions(c.staff).joinToString("\n").ifBlank { "-" })
                 }
             }
             item { SectionLabel(if (c.items.isEmpty()) "지적사항 (원문 참조)" else "지적사항 ${c.items.size}건") }
@@ -476,32 +516,25 @@ private fun StatsPane(
             Kpi("과징금", SanctionStats.won(s.penalty), Modifier.weight(1f))
         }
 
-        if (s.byMonth.size in 2..24) {
-            StatCard("월별 공시 건수 (${f.periodLabel(data.fromYear)})") { MonthBars(s.byMonth) }
-        }
-        StatCard("연도별 공시 건수", hint = "누르면 그 해로 기간 변경") {
-            val selectedYear = f.from?.takeIf { f.to != null && it.year == f.to.year && it.monthValue == 1 && f.to.monthValue == 12 }?.year
-            YearBars(s.byYear, selectedYear) { y -> onFilter(if (selectedYear == y) f.copy(from = null, to = null) else f.withYear(y)) }
-        }
         StatCard("권역별 공시 건수", hint = "누르면 해당 권역 내역") {
             Bars(s.bySector.map { it.first to it.second }) { onFilter(f.copy(sector = it)) }
         }
         StatCard("기관 조치 종류별") { Bars(s.instKinds.take(10)) {} }
         StatCard("임원 조치 종류별") { Bars(s.execKinds.take(8)) {} }
         StatCard("직원 조치 종류별") { Bars(s.staffKinds.take(8)) {} }
-        StatCard("자주 지적된 법률", hint = "누르면 해당 내역") { Bars(s.topLawNames) { onFilter(f.copy(query = it)) } }
+        StatCard("자주 지적된 법률", hint = "누르면 해당 내역") { Bars(s.topLawNames) { onFilter(f.copy(query = it, field = SanctionSearchField.LAW)) } }
         StatCard("자주 지적된 조항", hint = "누르면 내역, 아이콘은 법령검색") {
             Bars(s.topLaws.take(15), trailing = { law ->
                 IconButton(onClick = { onOpenLaw(law) }, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Default.AccountTree, contentDescription = "$law 법령검색", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                 }
-            }) { onFilter(f.copy(query = it)) }
+            }) { onFilter(f.copy(query = it, field = SanctionSearchField.LAW)) }
         }
-        StatCard("제재 공시가 많은 회사", hint = "누르면 해당 내역") { Bars(s.topCompanies) { onFilter(f.copy(query = it)) } }
+        StatCard("제재 공시가 많은 회사", hint = "누르면 해당 내역") { Bars(s.topCompanies) { onFilter(f.copy(query = it, field = SanctionSearchField.COMPANY)) } }
         StatCard("금전제재 상위 10건") {
             if (s.topMoney.isEmpty()) Text("해당 없음", style = MaterialTheme.typography.bodySmall)
             s.topMoney.forEachIndexed { i, c ->
-                Row(Modifier.fillMaxWidth().clickable { onFilter(f.copy(query = c.company).withYear(c.year)) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().clickable { onFilter(f.copy(query = c.company, field = SanctionSearchField.COMPANY).withYear(c.year)) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("${i + 1}", Modifier.width(22.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Column(Modifier.weight(1f)) {
                         Text(c.company, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -512,7 +545,7 @@ private fun StatsPane(
             }
         }
         TextButton(onClick = onExport, modifier = Modifier.padding(horizontal = 14.dp)) {
-            Icon(Icons.Default.Download, contentDescription = null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("세부내역·통계 엑셀로 저장")
+            Icon(Icons.Default.Download, contentDescription = null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("공시 세부내역·통계 엑셀로 저장")
         }
     }
 }
@@ -551,43 +584,6 @@ private fun Bars(values: List<Pair<String, Int>>, trailing: (@Composable (String
             }
             Text("%,d".format(v), Modifier.width(44.dp).padding(start = 6.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             trailing?.invoke(label)
-        }
-    }
-}
-
-@Composable
-private fun YearBars(values: List<Pair<Int, Int>>, selected: Int?, onClick: (Int) -> Unit) {
-    if (values.isEmpty()) return
-    val max = values.maxOf { it.second }.coerceAtLeast(1)
-    Row(Modifier.fillMaxWidth().height(140.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
-        values.forEach { (y, v) ->
-            Column(Modifier.weight(1f).fillMaxHeight().clickable { onClick(y) }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
-                Text("$v", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                Box(
-                    Modifier.fillMaxWidth().fillMaxHeight((v.toFloat() / max * 0.78f).coerceAtLeast(0.02f))
-                        .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                        .background(if (selected == null || selected == y) AppColors.heroEnd else AppColors.heroEnd.copy(alpha = 0.3f))
-                )
-                Text("'${y % 100}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-            }
-        }
-    }
-}
-
-@Composable
-private fun MonthBars(values: List<Pair<YearMonth, Int>>) {
-    val max = values.maxOf { it.second }.coerceAtLeast(1)
-    Row(Modifier.fillMaxWidth().height(120.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
-        values.forEachIndexed { i, (m, v) ->
-            Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
-                if (values.size <= 12) Text("$v", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                Box(
-                    Modifier.fillMaxWidth().fillMaxHeight((v.toFloat() / max * 0.78f).coerceAtLeast(0.02f))
-                        .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp)).background(AppColors.heroEnd.copy(alpha = 0.85f))
-                )
-                val label = if (m.monthValue == 1 || i == 0) "'${m.year % 100}.${m.monthValue}" else if (values.size <= 12 || m.monthValue % 3 == 1) "${m.monthValue}" else ""
-                Text(label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false)
-            }
         }
     }
 }
