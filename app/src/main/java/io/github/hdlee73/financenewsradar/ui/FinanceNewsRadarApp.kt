@@ -49,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.ui.platform.LocalView
@@ -89,6 +90,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import io.github.hdlee73.financenewsradar.BuildConfig
 import io.github.hdlee73.financenewsradar.data.UpdateStatus
+import io.github.hdlee73.financenewsradar.data.UsageStats
 import kotlinx.coroutines.launch
 private class AppScreen(val label: String, val icon: ImageVector)
 
@@ -164,6 +166,9 @@ fun FinanceNewsRadarApp(
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val usageContext = LocalContext.current.applicationContext
+    // 익명 사용 통계: 어느 메뉴가 얼마나 열리는지 횟수만 기기에 쌓는다(앱 정보에서 끌 수 있음).
+    LaunchedEffect(screen) { UsageStats.recordMenu(usageContext, appScreens[screen].label) }
 
     fun openMenu() {
         keyboard?.hide()
