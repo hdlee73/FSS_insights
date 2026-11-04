@@ -50,8 +50,29 @@ data class SanctionCase(
     val penalty: Long,
     val items: List<SanctionItem>,
     /** 지적사항을 원문에서 뽑아냈는지. false면 원문을 직접 봐야 한다. */
-    val parsed: Boolean
+    val parsed: Boolean,
+    /** 지적사항을 못 뽑은 이유 코드(missing·download·nofile·scan·format). */
+    val why: String? = null
 ) {
+    /** 지적사항이 없는 이유(짧게). */
+    fun whyShort(): String = when (why) {
+        "missing" -> "금감원 사이트에 첨부 파일 없음(사이트 오류)"
+        "download" -> "첨부 문서 내려받기 실패"
+        "nofile" -> "첨부 문서 없음"
+        "scan" -> "스캔 이미지 문서"
+        "format" -> "문서 형식 자동 인식 불가"
+        else -> "원문 참조"
+    }
+
+    /** 지적사항이 없는 이유(목록에 보여 줄 문장). */
+    fun whyText(): String = when (why) {
+        "missing" -> "금감원 공시 사이트에서 첨부 문서가 열리지 않아(‘해당 파일이 존재하지 않습니다’ 오류) 지적사항을 읽지 못했습니다. 사이트가 고치면 자동으로 채워집니다."
+        "download" -> "금감원 사이트에서 첨부 문서를 받지 못했습니다(일시 오류). 다음 갱신 때 다시 읽습니다."
+        "nofile" -> "공시에 첨부 문서가 없어 지적사항을 읽지 못했습니다."
+        "scan" -> "첨부 문서가 스캔 이미지라 글자를 읽을 수 없습니다."
+        else -> "문서 형식이 달라 지적사항을 자동으로 나누지 못했습니다."
+    } + " 원문보기로 확인해 주세요."
+
     val money: Long get() = fine + penalty
     val year: Int get() = date.year
 
@@ -65,7 +86,7 @@ data class SanctionCase(
 
 /** 세부내역 목록의 한 줄 = 지적사항 1건(지적사항을 못 뽑은 공시는 공시 1건이 한 줄). */
 data class SanctionRow(val case: SanctionCase, val item: SanctionItem?, val index: Int) {
-    val title: String get() = item?.title ?: "지적사항 미분류 · 원문 참조"
+    val title: String get() = item?.title ?: "지적사항 미분류 · ${case.whyShort()}"
     val laws: List<String> get() = item?.laws.orEmpty()
 }
 
@@ -299,7 +320,8 @@ object SanctionJson {
                     val it = items.getJSONObject(j)
                     SanctionItem(it.optString("t"), it.optString("cat").takeIf { s -> s.isNotBlank() && s != "null" }, strings(it.optJSONArray("laws")))
                 },
-                parsed = c.optBoolean("ok")
+                parsed = c.optBoolean("ok"),
+                why = c.optString("why").takeIf { it.isNotBlank() && it != "null" }
             )
         }
         return SanctionDataset(o.optString("generatedAt"), o.optInt("from", SanctionDataset.FIRST_YEAR), cases)

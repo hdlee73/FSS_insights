@@ -111,6 +111,19 @@ def attachment_text(path: str, name: str) -> str:
 CACHE_DIR = None
 
 
+def why_empty(text: str, fields: dict, status: str) -> str:
+    """지적사항을 못 뽑은 이유(앱에 그대로 보여 준다)."""
+    if status == "nofile" and len(fields.get("제재대상사실", "")) < 50:
+        return "nofile"
+    if status == "missing":
+        return "missing"
+    if status == "failed":
+        return "download"
+    if len(text.strip()) <= 50 and len(fields.get("제재대상사실", "")) < 50:
+        return "scan"
+    return "format"
+
+
 def load_case(row: dict) -> dict:
     url = VIEW.format(m=row["m"], q=row["q"])
     cpath = os.path.join(CACHE_DIR, row["id"] + ".json") if CACHE_DIR else None
@@ -120,20 +133,30 @@ def load_case(row: dict) -> dict:
             raw = json.load(open(cpath, encoding="utf-8"))
         except ValueError:
             raw = None
+        # 예전 캐시 중 본문이 비어 있고 상태 기록이 없는 것은 사이트 오류였을 수 있어 다시 받는다.
+        if raw is not None and "status" not in raw and len(raw.get("text", "").strip()) <= 50 \
+                and len(raw.get("fields", {}).get("제재대상사실", "")) < 50:
+            raw = None
     if raw is not None:
         case = {"id": row["id"], "co": row["co"], "date": row["date"], "dept": row["dept"], "view": url, "file": raw["file"]}
         case.update(parse_case(raw["text"], raw["fields"], row))
+        if not case.get("items"):
+            case["why"] = why_empty(raw["text"], raw["fields"], raw.get("status", "ok"))
         return case
     h = fetch(url).decode("utf-8", "ignore")
     fields = {k.strip(): clean_html(v) for k, v in DD.findall(h)}
     files = [html.unescape(f) for f in FILE.findall(h)]
     names = [urllib.parse.unquote_plus(f.split("file=")[-1]) for f in files]
     text, fname = "", None
+    failures = missing = 0
     # PDF > HWPX > HWP 순으로 하나만 읽는다.
     order = sorted(range(len(files)), key=lambda i: {".pdf": 0, "hwpx": 1, ".hwp": 2}.get(names[i].lower()[-4:], 9))
     for i in order:
         try:
             data = fetch(BASE + files[i])
+            if data[:200].lstrip().startswith(b"<") and "존재하지".encode() in data[:600]:
+                missing += 1
+                raise ValueError("사이트에 파일이 없음(해당 파일이 존재하지 않습니다)")
             with tempfile.NamedTemporaryFile(suffix=os.path.splitext(names[i])[1], delete=False) as tf:
                 tf.write(data)
                 tmp = tf.name
@@ -145,11 +168,15 @@ def load_case(row: dict) -> dict:
                 fname = files[i]
                 break
         except Exception as e:  # noqa: BLE001
+            failures += 1
             print(f"  ! {row['id']} 첨부 실패: {e}", file=sys.stderr)
-    if cpath:
+    status = "ok" if fname else ("nofile" if not files else (
+        "missing" if missing == len(files) else "failed" if failures == len(files) else "empty"))
+    # 내려받기에 실패한 것은 캐시에 남기지 않아 다음 실행 때 다시 받는다(사이트가 고치면 저절로 채워진다).
+    if cpath and status not in ("failed", "missing"):
         tmp_path = cpath + ".tmp"
         with open(tmp_path, "w", encoding="utf-8", errors="replace") as f:
-            json.dump({"file": (BASE + fname) if fname else None, "fields": fields, "text": text}, f, ensure_ascii=False)
+            json.dump({"file": (BASE + fname) if fname else None, "fields": fields, "text": text, "status": status}, f, ensure_ascii=False)
         os.replace(tmp_path, cpath)
     if fname is None and files:
         fname = files[order[0]] if order else files[0]
@@ -158,6 +185,8 @@ def load_case(row: dict) -> dict:
         "view": url, "file": (BASE + fname) if fname else None,
     }
     case.update(parse_case(text, fields, row))
+    if not case.get("items"):
+        case["why"] = why_empty(text, fields, status)
     return case
 
 
@@ -456,20 +485,29 @@ def parse_case(text: str, fields: dict, row: dict) -> dict:
 
 # ---------------------------------------------------------------- 권역
 
+# 이름만으로 확실한 것(먼저 본다). "미래에셋증권"이 '에셋' 때문에 보험이 되지 않도록 업종 낱말을 앞에 둔다.
 SECTOR_BY_NAME = [
+    ("기타", r"신용정보|신용평가|평가정보|협회|거래소|결제원|예탁결제|신용보증"),
     ("저축은행", r"저축은행"),
-    ("대부", r"대부|크레디트|파이낸셜대부"),
-    ("상호금융", r"농업협동조합|축산업협동조합|수산업협동조합|산림조합|신용협동조합|신협|새마을금고|[가-힣]+농협(?!은행|생명|손해|금융|캐피탈|지주)|[가-힣]+수협(?!은행)|조합$"),
-    ("여신전문", r"카드|캐피탈|캐피털|리스|할부금융|신기술"),
-    ("보험", r"보험|손해사정|라이프|금융서비스|금융판매|GA|에셋(?!.*운용)|인슈|재보험|공제"),
+    ("대부", r"대부"),
+    ("증권", r"증권|금융투자|미래에셋대우|선물(?!환)|종합금융|종금"),
+    ("운용", r"자산운용|운용"),
     ("자문일임", r"투자자문|자문|일임"),
-    ("운용", r"자산운용|운용|인베스트먼트|파트너스|매니지먼트|어드바이저"),
-    ("증권", r"증권|투자증권|선물|종합금융"),
+    ("보험", r"보험|생명|화재|손해사정|재보험"),
+    ("여신전문", r"카드|캐피탈|캐피털|리스|할부금융|신기술"),
+    ("상호금융", r"농업협동조합|축산업협동조합|수산업협동조합|산림조합|신용협동조합|신협|새마을금고|[가-힣]+농협(?!은행|생명|손해|금융|캐피탈|지주)|[가-힣]+수협(?!은행)|조합$"),
     ("은행", r"은행|뱅크$|뱅크주식회사|^주식회사.*뱅크"),
 ]
 SECTOR_BY_DEPT = [
     ("저축은행", r"저축은행"), ("상호금융", r"상호금융"), ("여신전문", r"여신"), ("대부", r"대부|서민금융|불법금융"),
     ("보험", r"보험|손해사정"), ("운용", r"자산운용"), ("증권", r"금융투자|증권|자본시장"), ("은행", r"은행|일반은행|특수은행|외국계"),
+]
+# 보험대리점(GA)에 흔한 이름 조각: 업종 낱말이 없을 때만 본다.
+SECTOR_GA = r"라이프|금융서비스|금융판매|GA|에셋|인슈|공제"
+# 이름 조각만으로는 애매한 것(담당부서로도 못 정했을 때).
+SECTOR_WEAK = [
+    ("대부", r"크레디트"),
+    ("운용", r"인베스트먼트|파트너스|매니지먼트|어드바이저"),
 ]
 
 
@@ -477,13 +515,20 @@ def sector(co: str, dept: str, text_hint: str = "") -> str:
     name = co.replace(" ", "")
     for s, rx in SECTOR_BY_NAME:
         if re.search(rx, name):
-            # 은행·보험 지주/계열 구분: '농협은행', '농협생명보험'은 위 규칙으로 처리된다.
             return s
-    # 지역·직장 이름만 있는 짧은 이름(예: '전주동부', '부산치과의사')은 신협·지역조합이다.
-    if re.fullmatch(r"[가-힣]{2,6}", name) and not re.search(r"(공사|협회|재단|회사|공단|센터|금고)$", name):
-        return "상호금융"
+    if re.search(SECTOR_GA, name):
+        return "보험"
     for s, rx in SECTOR_BY_DEPT:
         if re.search(rx, dept):
+            # 금융투자검사국 소관의 '…인베스트먼트·…파트너스'는 대개 사모운용사다.
+            if s == "증권" and re.search(SECTOR_WEAK[1][1], name):
+                return "운용"
+            return s
+    # 지역·직장 이름만 있는 짧은 이름(예: '전주동부', '부산치과의사')은 신협·지역조합이다(담당부서로 못 정했을 때만).
+    if re.fullmatch(r"[가-힣]{2,6}", name) and not re.search(r"(공사|협회|재단|회사|공단|센터|금고|신탁|거래소)$", name):
+        return "상호금융"
+    for s, rx in SECTOR_WEAK:
+        if re.search(rx, name):
             return s
     return "기타"
 
@@ -548,7 +593,8 @@ def main():
             uniq.append(r)
     # 새 공시와, 글을 보관해 둔 공시(다시 파싱만 하므로 빠르다 → 파서 개선이 기존 자료에도 반영된다)
     cached_ids = {f[:-5] for f in os.listdir(CACHE_DIR) if f.endswith(".json")} if CACHE_DIR else set()
-    todo = [r for r in uniq if r["id"] not in prev or r["id"] in cached_ids]
+    # 지적사항을 못 뽑은 공시는 사이트 오류였을 수 있어 매번 다시 본다.
+    todo = [r for r in uniq if r["id"] not in prev or r["id"] in cached_ids or not prev[r["id"]].get("items")]
     if args.limit:
         todo = todo[: args.limit]
     print(f"전체 {len(uniq)}건, 처리할 {len(todo)}건(보관 글 {len(cached_ids)}건)", file=sys.stderr)

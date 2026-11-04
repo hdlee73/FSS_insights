@@ -60,7 +60,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -134,7 +140,7 @@ class SanctionViewModel(application: Application) : AndroidViewModel(application
 private val sDate: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
 
 /**
- * 서랍 메뉴 "금융회사 제재현황": 2011년 이후 금감원 제재공시 전체 목록(공시마다 [원문보기]·[세부내역])과 통계.
+ * 서랍 메뉴 "금융회사 제재현황": 2011년 이후 금감원 제재공시 전체 목록(공시마다 조치·지적제목·위반 조항과 [원문보기])과 통계.
  * [onOpenLaw]는 "보험업법 제95조의2" 같은 조문을 스마트 법령검색에서 바로 연다.
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -146,7 +152,6 @@ fun SanctionScreen(vm: SanctionViewModel, onOpenLaw: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.ensure() }
-    var openCase by rememberSaveable { mutableStateOf<String?>(null) }
     val data = state.data
     val filter = state.filter
 
@@ -155,12 +160,6 @@ fun SanctionScreen(vm: SanctionViewModel, onOpenLaw: (String) -> Unit) {
     val rowsByCase = remember(rows) { rows.groupBy { it.case.id } }
     val summary = remember(rows, data) { SanctionStats.summarize(rows, data?.years.orEmpty(), filter) }
 
-    val selected = openCase?.let { id -> data?.cases?.firstOrNull { it.id == id } }
-    if (selected != null) {
-        BackHandler { openCase = null }
-        SanctionCaseScreen(selected, onBack = { openCase = null }, onOpenLaw = onOpenLaw)
-        return
-    }
     if (state.stats) BackHandler { vm.showStats(false) }
 
     val saver = rememberLauncherForActivityResult(
@@ -198,7 +197,7 @@ fun SanctionScreen(vm: SanctionViewModel, onOpenLaw: (String) -> Unit) {
             }
             item(key = "tabs") { UnderlineTabs(listOf("제재 공시", "통계"), if (state.stats) 1 else 0, { vm.showStats(it == 1) }) }
             item(key = "field") {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("검색", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SanctionSearchField.entries.forEach { f ->
                         PillChip(f.label, onClick = { vm.setFilter(filter.copy(field = f)) }, selected = filter.field == f)
@@ -211,7 +210,7 @@ fun SanctionScreen(vm: SanctionViewModel, onOpenLaw: (String) -> Unit) {
                     onValueChange = { vm.setFilter(filter.copy(query = it)) },
                     placeholder = filter.field.hint,
                     onSearch = { keyboard?.hide(); focus.clearFocus() },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
                     description = "제재 공시 검색어"
                 )
             }
@@ -243,8 +242,9 @@ fun SanctionScreen(vm: SanctionViewModel, onOpenLaw: (String) -> Unit) {
                     }
                     if (cases.isEmpty()) item(key = "empty") { CenterMessage("조건에 맞는 공시가 없습니다.") }
                     items(cases, key = { it.id }) { c ->
-                        val matched = if (filter.query.isBlank()) emptyList() else rowsByCase[c.id].orEmpty().mapNotNull { it.item }
-                        SanctionCaseCard(c, matched, onDetail = { openCase = c.id })
+                        val matched = if (filter.query.isBlank() || filter.field == SanctionSearchField.COMPANY) emptySet()
+                            else rowsByCase[c.id].orEmpty().mapNotNull { it.item }.toSet()
+                        SanctionCaseCard(c, matched, onOpenLaw)
                     }
                     item(key = "notice") {
                         Text(
@@ -260,12 +260,9 @@ fun SanctionScreen(vm: SanctionViewModel, onOpenLaw: (String) -> Unit) {
     }
 }
 
-/**
- * 금융회사 주요 현황의 '최근 제재내역' 탭: 그 회사의 제재공시(최신순). 회사 이름으로 맞춘다.
- * [onOpenCase]는 세부내역 화면을 연다.
- */
+/** 금융회사 주요 현황의 '최근 제재내역' 탭: 그 회사의 제재공시(최신순). 회사 이름으로 맞춘다. */
 @Composable
-fun CompanySanctionPane(company: String, vm: SanctionViewModel, onOpenCase: (SanctionCase) -> Unit, modifier: Modifier = Modifier) {
+fun CompanySanctionPane(company: String, vm: SanctionViewModel, onOpenLaw: (String) -> Unit, modifier: Modifier = Modifier) {
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.ensure() }
     val data = state.data
@@ -283,7 +280,7 @@ fun CompanySanctionPane(company: String, vm: SanctionViewModel, onOpenCase: (San
             }
             else -> {
                 item { SectionLabel("${data.fromYear}년 이후 제재공시 ${cases.size}건") }
-                items(cases, key = { it.id }) { c -> SanctionCaseCard(c, emptyList(), onDetail = { onOpenCase(c) }) }
+                items(cases, key = { it.id }) { c -> SanctionCaseCard(c, emptySet(), onOpenLaw) }
             }
         }
         item {
@@ -305,7 +302,7 @@ private fun scopeLabel(f: SanctionFilter, data: SanctionDataset): String = listO
 @Composable
 private fun FilterBar(data: SanctionDataset?, f: SanctionFilter, onChange: (SanctionFilter) -> Unit) {
     val fromYear = data?.fromYear ?: SanctionDataset.FIRST_YEAR
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         // 기간: 빠른 선택 + 직접 지정(시작 연·월 ~ 끝 연·월). 통계와 엑셀 저장도 이 기간을 따른다.
         var pickPeriod by remember { mutableStateOf(false) }
         val preset = f.preset()
@@ -331,155 +328,93 @@ private fun FilterBar(data: SanctionDataset?, f: SanctionFilter, onChange: (Sanc
     }
 }
 
-/** 조문 칩: 누르면 스마트 법령검색이 그 조문으로 열린다. */
+/**
+ * 공시 한 건(세부내역을 펼친 카드): 회사·권역·날짜·부서, 기관·임원·직원 조치, 지적제목마다 (위반 법률·조항).
+ * 조항을 누르면 스마트 법령검색이 열리고, [원문보기]는 금감원 공시 페이지를 연다.
+ */
 @Composable
-private fun LawChip(law: String, onOpenLaw: (String) -> Unit) {
-    Surface(
-        onClick = { onOpenLaw(law) },
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-    ) {
-        Row(Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Icon(Icons.Default.AccountTree, contentDescription = null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
-            Text(law, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, textDecoration = TextDecoration.Underline, maxLines = 1)
-        }
-    }
-}
-
-@Composable
-private fun ActionTag(text: String, strong: Boolean) {
-    val bg = if (strong) Color(0xFFFDE8EA) else Color(0xFFFFF1DC)
-    val fg = if (strong) Color(0xFFB4233A) else Color(0xFF9A5A00)
-    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(bg).padding(horizontal = 6.dp, vertical = 2.dp)) {
-        Text(text, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), color = fg, fontWeight = FontWeight.SemiBold, maxLines = 1)
-    }
-}
-
-/** 공시 한 건의 조치를 짧은 태그로(금전제재·기관·임원·직원). */
-private fun actionTags(c: SanctionCase): List<Pair<String, Boolean>> {
-    val tags = mutableListOf<Pair<String, Boolean>>()
-    if (c.fine > 0) tags += "과태료 ${SanctionStats.won(c.fine)}" to true
-    if (c.penalty > 0) tags += "과징금 ${SanctionStats.won(c.penalty)}" to true
-    c.instKinds.filter { it != "과태료" && it != "과징금" || (it == "과태료" && c.fine == 0L) || (it == "과징금" && c.penalty == 0L) }
-        .forEach { tags += "기관 $it" to (it != "주의" && it != "개선" && it != "경영유의") }
-    if (c.execKinds.isNotEmpty()) tags += "임원 ${c.execKinds.take(2).joinToString("·")}" to false
-    if (c.staffKinds.isNotEmpty()) tags += "직원 ${c.staffKinds.take(2).joinToString("·")}" to false
-    return tags
-}
-
-/** 공시 목록 한 줄: 회사·권역·날짜·조치 태그·지적제목 미리보기와 [원문보기]·[세부내역]. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SanctionCaseCard(c: SanctionCase, matched: List<SanctionItem>, onDetail: () -> Unit) {
+private fun SanctionCaseCard(c: SanctionCase, matched: Set<SanctionItem>, onOpenLaw: (String) -> Unit) {
     val context = LocalContext.current
-    ListCard(onClick = onDetail) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text(c.company, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(listOf(c.sector, c.date.format(sDate), c.dept).filter { it.isNotBlank() }.joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val link = MaterialTheme.colorScheme.primary
+    Surface(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(c.company, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(listOf(c.sector, c.date.format(sDate), c.dept).filter { it.isNotBlank() }.joinToString(" · "),
+                        style = MaterialTheme.typography.labelMedium, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                SmallButton("원문보기") { openExternal(context, c.viewUrl) }
             }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                SmallButton("원문보기", filled = false) { openExternal(context, c.viewUrl) }
-                SmallButton("세부내역", filled = true, onClick = onDetail)
+            val actions = buildList {
+                SanctionText.line(c.inst).takeIf { it.isNotBlank() }?.let { add("기관" to it) }
+                if (c.inst.isBlank() && c.money > 0) add("금전" to listOfNotNull(
+                    c.fine.takeIf { it > 0 }?.let { "과태료 ${SanctionStats.won(it)}" },
+                    c.penalty.takeIf { it > 0 }?.let { "과징금 ${SanctionStats.won(it)}" }).joinToString(", "))
+                SanctionText.line(c.exec).takeIf { it.isNotBlank() }?.let { add("임원" to it) }
+                SanctionText.line(c.staff).takeIf { it.isNotBlank() }?.let { add("직원" to it) }
             }
-        }
-        val tags = actionTags(c)
-        if (tags.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            tags.take(5).forEach { (t, strong) -> ActionTag(t, strong) }
-        }
-        val titles = (matched.ifEmpty { c.items }).map { it.title }.distinct()
-        if (titles.isNotEmpty()) {
-            Text(
-                titles.take(2).joinToString("\n") { "· $it" } + if (titles.size > 2) "  외 ${titles.size - 2}건" else "",
-                style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis
-            )
+            actions.forEach { (label, text) ->
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(color = Color(0xFFB4233A), fontWeight = FontWeight.SemiBold)) { append(label) }
+                        append("  ")
+                        append(text)
+                    },
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (c.items.isEmpty()) {
+                Text(c.whyText(), style = MaterialTheme.typography.bodySmall, color = muted)
+            } else {
+                c.items.forEachIndexed { i, it ->
+                    val hit = it in matched
+                    Text(
+                        buildAnnotatedString {
+                            withStyle(SpanStyle(fontWeight = if (hit) FontWeight.Bold else FontWeight.Medium)) {
+                                append("${i + 1}. ")
+                                it.category?.let { cat -> append("[$cat] ") }
+                                append(it.title)
+                            }
+                            if (it.laws.isNotEmpty()) {
+                                append(" (")
+                                it.laws.forEachIndexed { j, law ->
+                                    if (j > 0) append(", ")
+                                    withLink(LinkAnnotation.Clickable(law, TextLinkStyles(SpanStyle(color = link, textDecoration = TextDecoration.Underline))) { onOpenLaw(law) }) {
+                                        append(law)
+                                    }
+                                }
+                                append(")")
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall.copy(lineHeight = 17.sp),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun SmallButton(label: String, filled: Boolean, onClick: () -> Unit) {
+private fun SmallButton(label: String, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(50),
-        color = if (filled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-        border = if (filled) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Text(
-            label, Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+            label, Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
-            color = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+            color = MaterialTheme.colorScheme.primary
         )
-    }
-}
-
-/** 공시 한 건 세부내역: 조치수준(신분·금전)과 지적사항별 위반 조문. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun SanctionCaseScreen(c: SanctionCase, onBack: () -> Unit, onOpenLaw: (String) -> Unit) {
-    val context = LocalContext.current
-    Column(Modifier.fillMaxSize()) {
-        BackHeader(c.company, onBack)
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 28.dp)) {
-            item {
-                Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    InfoLine("권역", c.sector)
-                    InfoLine("조치요구일", c.date.format(sDate))
-                    InfoLine("담당부서", c.dept)
-                }
-            }
-            item { SectionLabel("조치수준") }
-            item {
-                ListCard {
-                    if (c.fine > 0 || c.penalty > 0) {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (c.fine > 0) ActionTag("과태료 ${SanctionStats.won(c.fine)}", true)
-                            if (c.penalty > 0) ActionTag("과징금 ${SanctionStats.won(c.penalty)}", true)
-                        }
-                    }
-                    InfoLine("기관", SanctionText.actions(c.inst).joinToString("\n").ifBlank { "-" })
-                    InfoLine("임원", SanctionText.actions(c.exec).joinToString("\n").ifBlank { "-" })
-                    InfoLine("직원", SanctionText.actions(c.staff).joinToString("\n").ifBlank { "-" })
-                }
-            }
-            item { SectionLabel(if (c.items.isEmpty()) "지적사항 (원문 참조)" else "지적사항 ${c.items.size}건") }
-            if (c.items.isEmpty()) item {
-                CenterMessage("이 공시는 지적사항을 자동으로 나누지 못했습니다. 아래 원문을 확인해 주세요.")
-            }
-            items(c.items.size) { i ->
-                val it = c.items[i]
-                ListCard {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        it.category?.let { cat -> TagLabel(cat, accent = cat == "문책") }
-                        Text("${i + 1}. ${it.title}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                    }
-                    if (it.laws.isEmpty()) Text("위반 조문을 찾지 못했습니다(원문 참조).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    else FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { it.laws.forEach { l -> LawChip(l, onOpenLaw) } }
-                }
-            }
-            item {
-                Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    c.fileUrl?.let { url ->
-                        TextButton(onClick = { openExternal(context, url) }) {
-                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("원문 문서 열기")
-                        }
-                    }
-                    TextButton(onClick = { openExternal(context, c.viewUrl) }) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("금감원 공시 페이지")
-                    }
-                    Text("자동으로 읽어 정리한 내용이라 원문과 다를 수 있습니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun InfoLine(label: String, value: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(label, Modifier.width(72.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
     }
 }
 

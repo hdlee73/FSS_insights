@@ -18,7 +18,7 @@ class SanctionDataTest {
                    {"t":"기초서류 기재사항 준수의무 위반","cat":"문책","laws":["보험업법 제127조의3"]}],"ok":true},
          {"id":"202500199-5","co":"농협은행주식회사","date":"2025-10-26","dept":"자금세탁방지실","sector":"은행",
           "view":"https://www.fss.or.kr/v2","file":null,"inst":"기관경고","exec":"","staff":"감봉 6명, 견책 7명",
-          "instK":["기관경고"],"execK":[],"staffK":["감봉","견책"],"fine":0,"penalty":0,"items":[],"ok":false}
+          "instK":["기관경고"],"execK":[],"staffK":["감봉","견책"],"fine":0,"penalty":0,"items":[],"ok":false,"why":"missing"}
         ]}
     """.trimIndent()
 
@@ -28,7 +28,8 @@ class SanctionDataTest {
         assertEquals(2, d.cases.size)
         val rows = SanctionStats.rows(d.cases)
         assertEquals(3, rows.size)
-        assertEquals("지적사항 미분류 · 원문 참조", rows.last().title)
+        assertEquals("지적사항 미분류 · 금감원 사이트에 첨부 파일 없음(사이트 오류)", rows.last().title)
+        assertTrue(rows.last().case.whyText().contains("해당 파일이 존재하지 않습니다"))
         assertEquals(listOf(2026, 2025), d.years)
     }
 
