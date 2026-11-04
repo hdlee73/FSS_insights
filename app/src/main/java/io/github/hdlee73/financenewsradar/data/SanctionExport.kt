@@ -7,9 +7,9 @@ import java.time.format.DateTimeFormatter
 object SanctionExport {
     private val ymd = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
-    const val NOTICE = "2016년 이후 금융감독원 '금융회사 제재공시'의 공개 문서를 자동으로 읽어 정리한 참고용 자료입니다. " +
+    const val NOTICE = "2011년 이후 금융감독원 '금융회사 제재공시'의 공개 문서를 자동으로 읽어 정리한 참고용 자료입니다. " +
         "원문과 다르거나 누락·오분류가 있을 수 있으며, 권역은 회사명·담당부서로 추정했습니다. " +
-        "과태료·과징금은 공시(건) 단위 금액입니다. 업무에 인용할 때는 반드시 금감원 원문을 확인하세요."
+        "과태료·과징금은 공시(건) 단위 금액이며, 2013년 이전 일부 공시는 형식이 달라 지적사항이 미분류로 나올 수 있습니다. 업무에 인용할 때는 반드시 금감원 원문을 확인하세요."
 
     private fun detailSheet(rows: List<SanctionRow>) = XlsxWriter.Sheet(
         "세부내역",

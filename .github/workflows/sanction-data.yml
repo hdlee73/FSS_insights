@@ -1,8 +1,8 @@
 name: Sanction data
 
-# 금감원 '금융회사 제재공시'(2016년 이후)를 모아 지적사항 단위로 정리한 sanctions.json을
+# 금감원 '금융회사 제재공시'(2011년 이후)를 모아 지적사항 단위로 정리한 sanctions.json을
 # sanction-data 브랜치에 올린다. 앱은 이 파일만 받아 세부내역·통계·엑셀 저장에 쓴다.
-# 처음 한 번은 전체(약 3,700건)를 받느라 1~2시간 걸리고, 그 뒤로는 새 공시만 읽는다.
+# 처음 한 번은 전체(약 5,500건)를 받느라 2~3시간 걸리고, 그 뒤로는 새 공시만 읽는다.
 
 on:
   schedule:
@@ -70,7 +70,7 @@ jobs:
           cat > README.md <<'EOF'
           # FSS Insights 제재공시 세부내역 자료
 
-          금융감독원 '금융회사 제재공시'(2016년 이후)를 GitHub Actions(.github/workflows/sanction-data.yml)가
+          금융감독원 '금융회사 제재공시'(2011년 이후)를 GitHub Actions(.github/workflows/sanction-data.yml)가
           자동으로 모아 정리한 파일입니다. 참고용이며 원문과 다를 수 있습니다. 이 브랜치는 매번 새로 덮어씁니다.
           EOF
           git add sanctions.json README.md

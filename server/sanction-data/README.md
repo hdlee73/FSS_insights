@@ -1,6 +1,6 @@
 # 제재공시 세부내역 수집기
 
-금감원 [금융회사 제재공시](https://www.fss.or.kr/fss/job/openInfo/list.do?menuNo=200476)를 2016년부터 모아
+금감원 [금융회사 제재공시](https://www.fss.or.kr/fss/job/openInfo/list.do?menuNo=200476)를 2011년부터 모아
 지적사항 단위로 정리한 `sanctions.json`을 만든다. 앱의 제재공시 › 세부내역·통계 탭이 이 파일을 쓴다.
 
 - 목록(`pageUnit=100`) → 상세 → 첨부(PDF는 `pdftotext -raw`, HWP는 `hwp_text.py`, HWPX는 XML)를 읽는다.

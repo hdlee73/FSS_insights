@@ -1,11 +1,11 @@
-"""금융감독원 '금융회사 제재공시'를 2016년부터 모아 지적사항 단위로 정리한 sanctions.json을 만든다.
+"""금융감독원 '금융회사 제재공시'를 2011년부터 모아 지적사항 단위로 정리한 sanctions.json을 만든다.
 
 목록(list.do) → 상세(view.do) → 첨부(PDF·HWP)를 읽어 다음을 뽑는다.
   권역, 회사명, 제재조치일(조치요구일), 담당부서, 기관/임원/직원 조치, 과태료·과징금 금액,
   지적사항별 제목·구분(문책/주의/개선 등)·위반 법률과 조항
 
 사용법:
-  python3 build_sanctions.py OUT.json [--prev PREV.json] [--from 2016] [--limit N] [--workers 4]
+  python3 build_sanctions.py OUT.json [--prev PREV.json] [--from 2011] [--limit N] [--workers 4]
 --prev가 있으면 이미 있는 건은 다시 받지 않는다(신규만 추가).
 """
 import argparse
@@ -273,7 +273,7 @@ LAW_BRACKET = re.compile(r"[「｢『]\s*([^」｣』]{2,60}?)\s*[」｣』]")
 ARTICLE = re.compile(r"제\s*(\d+)\s*조(?:\s*의\s*(\d+))?(?:\s*제\s*(\d+)\s*항)?(?:\s*제\s*(\d+)\s*호)?")
 PLAIN_LAW = re.compile(r"((?:[가-힣A-Za-z·ㆍ]+\s?){1,9}?(?:법률|법|시행령|시행규칙|감독규정|업무시행세칙|시행세칙|규정|세칙|규칙))\s*[」｣』]?\s*(?=제\s*\d+\s*조)")
 PARTICLE_TOKEN = re.compile(r"(에|는|은|를|을|면|며|서|및|등|이|가|도|로|으로|하여|하고|하는|된|있는|위반|사항|규정상|따라|의하면|따르면|경우|때|중|또는|있고|있으며|하며|바|같이)$")
-NOT_LAW = {"동법", "같은법", "동규정", "같은규정", "동시행령", "같은법시행령", "법", "이법", "관련법", "관계법", "관련규정", "규정", "내부규정", "업무규정", "세칙"}
+NOT_LAW = {"시행령", "시행규칙", "동법", "같은법", "동규정", "같은규정", "동시행령", "같은법시행령", "법", "이법", "관련법", "관계법", "관련규정", "규정", "내부규정", "업무규정", "세칙"}
 
 LAW_CANON = {
     "자본시장과금융투자업에관한법률": "자본시장법", "자통법": "자본시장법",
@@ -379,7 +379,8 @@ def items_of(sec: str):
             m = rx.match(l)
             body = m.group(2).strip() if m else ""
             # 문장(…하였음, …있음)이나 아주 긴 줄은 제목이 아니라 본문의 나열 항목이다.
-            if m and len(body) >= 3 and len(body) <= 90 and not re.match(r"^[\d,.\s]+(?:원|건|명|%)", body) \
+            if m and len(body) >= 5 and len(body) <= 90 and "(생략)" not in body and not body.startswith("~") \
+                    and not re.search(r"부터\s*\S{0,4}\s*까지", body) and not re.match(r"^[\d,.\s]+(?:원|건|명|%)", body) \
                     and not re.search(r"(음|함|임|였으며|하였고|하고|있고|었고|으며|였는데|는데|바|등|,)\s*$", body):
                 heads.append((i, level, m.group(2).strip()))
                 break
@@ -413,7 +414,17 @@ def items_of(sec: str):
     return items
 
 
+def old_brackets(t: str) -> str:
+    """2011~2013년 공시는 「」가 '?'로 깨져 있다: ?은행법? → 「은행법」."""
+    return re.sub(r"\?\s*([가-힣A-Za-z·ㆍ\s]{2,40}?(?:법률|법|시행령|시행규칙|규정|세칙|규칙|기준))\s*\?", r"「\1」", t)
+
+
 def parse_case(text: str, fields: dict, row: dict) -> dict:
+    # 첨부가 없는 옛 공시(2011~2013년 무렵)는 상세 화면의 '제재대상사실' 칸에 본문이 있다.
+    if len(text.strip()) < 50:
+        fact = fields.get("제재대상사실", "")
+        if len(fact) > 80:
+            text = old_brackets(fact)
     t = text.replace("\r", "")
     t = re.sub(r"\n\s*-\s*\d+\s*-\s*\n", "\n", t)  # 쪽 번호
     a = re.search(r"제\s*재\s*조\s*치\s*내\s*용", t)
@@ -421,7 +432,7 @@ def parse_case(text: str, fields: dict, row: dict) -> dict:
     act_sec = t[a.end(): a.end() + b.start()] if a and b else ""
     fact_sec = t[a.end() + b.end():] if a and b else t
     acts = split_actions(act_sec) if act_sec else {"inst": "", "exec": "", "staff": ""}
-    # 상세 화면에 적힌 값이 있으면 그것을 우선한다(2016~2021 공시는 대개 채워져 있다).
+    # 상세 화면에 적힌 값이 있으면 그것을 우선한다(2021년 이전 공시는 대개 채워져 있다).
     for key, label in (("inst", "기관 제재대상"), ("exec", "임원 제재대상"), ("staff", "직원 제재대상")):
         v = fields.get(label, "").strip()
         if v and v not in ("-", "해당사항 없음"):
@@ -500,7 +511,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
     ap.add_argument("--prev")
-    ap.add_argument("--from", dest="start", type=int, default=2016)
+    ap.add_argument("--from", dest="start", type=int, default=2011)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--reparse", action="store_true", help="이전 자료를 버리고 모두 다시 받는다")

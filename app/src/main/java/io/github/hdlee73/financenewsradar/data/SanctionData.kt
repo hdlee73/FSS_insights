@@ -12,7 +12,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 
 /**
- * 금융회사 제재공시 세부내역(2016년 이후).
+ * 금융회사 제재공시 세부내역(2011년 이후).
  * 금감원 공시의 첨부 문서(PDF·HWP)는 앱에서 직접 읽기에 무거워, GitHub Actions가 주기적으로 모아
  * 지적사항 단위로 정리한 sanctions.json을 저장소의 sanction-data 브랜치에 올려 두고 앱은 그것만 받는다.
  */
@@ -129,7 +129,7 @@ data class SanctionFilter(
     /** 지금 기간이 빠른 선택 중 어느 것과 같은지(직접 지정이면 null). */
     fun preset(): SanctionPeriod? = SanctionPeriod.entries.firstOrNull { it.range() == (from to to) }
 
-    /** "2019.01~2021.12", "2023년", "2016년 이후 전체" 같은 기간 표기. */
+    /** "2019.01~2021.12", "2023년", "2011년 이후 전체" 같은 기간 표기. */
     fun periodLabel(fromYear: Int): String {
         val f = from; val t = to
         return when {
@@ -255,7 +255,7 @@ object SanctionJson {
                 parsed = c.optBoolean("ok")
             )
         }
-        return SanctionDataset(o.optString("generatedAt"), o.optInt("from", 2016), cases)
+        return SanctionDataset(o.optString("generatedAt"), o.optInt("from", 2011), cases)
     }
 
     private fun strings(a: JSONArray?): List<String> = if (a == null) emptyList() else (0 until a.length()).map { a.getString(it) }

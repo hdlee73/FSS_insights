@@ -133,7 +133,7 @@ private val sDate: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
 
 /**
  * 서랍 메뉴 "금융회사 제재공시": 첫 탭은 기존 '최근 공시' 화면 그대로(최근 50건),
- * 둘째 탭은 2016년 이후 제재 세부내역(지적사항 단위)과 통계.
+ * 둘째 탭은 2011년 이후 제재 세부내역(지적사항 단위)과 통계.
  * [onOpenLaw]는 "보험업법 제95조의2" 같은 조문을 스마트 법령검색에서 바로 연다.
  */
 @Composable
@@ -202,7 +202,7 @@ private fun SanctionDetailPane(vm: SanctionViewModel, tabs: @Composable () -> Un
     Box(Modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 28.dp)) {
             item(key = "title") {
-                LargeTitle("금융회사 제재공시", subtitle = "2016년 이후 제재 세부내역과 통계") {
+                LargeTitle("금융회사 제재공시", subtitle = "2011년 이후 제재 세부내역과 통계") {
                     IconButton(onClick = ::export, enabled = data != null) { Icon(Icons.Default.Download, contentDescription = "엑셀로 저장") }
                     IconButton(onClick = { vm.load(force = true) }, enabled = !state.loading) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
                 }
@@ -229,7 +229,7 @@ private fun SanctionDetailPane(vm: SanctionViewModel, tabs: @Composable () -> Un
                 data == null && state.loading -> item(key = "loading") {
                     Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp)
-                        Text("2016년 이후 제재 세부내역을 받는 중입니다…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("2011년 이후 제재 세부내역을 받는 중입니다…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 data == null -> item(key = "error") {
@@ -242,7 +242,7 @@ private fun SanctionDetailPane(vm: SanctionViewModel, tabs: @Composable () -> Un
                 }
                 else -> {
                     item(key = "count") {
-                        SectionLabel("지적 ${"%,d".format(rows.size)}건 · 공시 ${"%,d".format(summary.caseCount)}건 · 2016년 이후") {
+                        SectionLabel("지적 ${"%,d".format(rows.size)}건 · 공시 ${"%,d".format(summary.caseCount)}건 · 2011년 이후") {
                             TextButton(onClick = ::export) {
                                 Icon(Icons.Default.Download, contentDescription = null, Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
@@ -277,10 +277,10 @@ private fun FilterBar(data: SanctionDataset?, f: SanctionFilter, onChange: (Sanc
         val preset = f.preset()
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SanctionPeriod.entries.forEach { p ->
-                PillChip(if (p == SanctionPeriod.ALL) "전체(${data?.fromYear ?: 2016}~)" else p.label, onClick = { onChange(f.withPeriod(p)) }, selected = preset == p)
+                PillChip(if (p == SanctionPeriod.ALL) "전체(${data?.fromYear ?: 2011}~)" else p.label, onClick = { onChange(f.withPeriod(p)) }, selected = preset == p)
             }
             PillChip(
-                if (preset == null) "기간: ${f.periodLabel(data?.fromYear ?: 2016)}" else "기간 지정…",
+                if (preset == null) "기간: ${f.periodLabel(data?.fromYear ?: 2011)}" else "기간 지정…",
                 onClick = { pickPeriod = true }, selected = preset == null
             )
         }
