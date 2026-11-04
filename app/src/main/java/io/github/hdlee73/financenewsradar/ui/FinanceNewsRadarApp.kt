@@ -122,14 +122,14 @@ private val appScreens = listOf(
     AppScreen("앱 정보", Icons.Filled.Info),
     AppScreen("금융회사 주요 현황", Icons.Filled.Business),
     AppScreen("유권해석·비조치의견서·행정지도", Icons.Filled.Gavel),
-    AppScreen("금융회사 제재공시", Icons.Filled.Gavel),
+    AppScreen("금융회사 제재현황", Icons.Filled.Gavel),
     AppScreen("스마트 법령검색", Icons.Filled.AccountTree),
     AppScreen("기업 개황 및 공시(DART)", Icons.Filled.Apartment)
 )
 
 // 서랍 메뉴의 묶음: 소제목과 그 아래 화면 번호.
 private val drawerSections = listOf(
-    null to listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_FISIS, SCREEN_DART, SCREEN_SANCTION, SCREEN_LAW),
+    null to listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_FISIS, SCREEN_SANCTION, SCREEN_DART, SCREEN_LAW),
     "자료" to listOf(SCREEN_PRESS, SCREEN_REGULATORY, SCREEN_RESEARCH, SCREEN_LIBRARY),
     "더보기" to listOf(SCREEN_SITES, SCREEN_ALERTS, SCREEN_INFO)
 )
@@ -143,7 +143,8 @@ fun FinanceNewsRadarApp(
     marketViewModel: MarketViewModel = viewModel(),
     fisisViewModel: FisisViewModel = viewModel(),
     dartViewModel: DartViewModel = viewModel(),
-    regulatoryViewModel: RegulatoryViewModel = viewModel()
+    regulatoryViewModel: RegulatoryViewModel = viewModel(),
+    sanctionViewModel: SanctionViewModel = viewModel()
 ) {
     val newsState by newsViewModel.state.collectAsStateWithLifecycle()
     val releases by releasesViewModel.state.collectAsStateWithLifecycle()
@@ -175,20 +176,32 @@ fun FinanceNewsRadarApp(
         focusManager.clearFocus()
         scope.launch { drawerState.open() }
     }
+    // 제재공시의 위반 조문을 누르면 스마트 법령검색을 그 조문으로 연다. 이때 뒤로가기는 제재공시로 바로 돌아간다.
+    var lawLaunch by remember { mutableStateOf<io.github.hdlee73.financenewsradar.law.LawLaunch?>(null) }
+    var lawFromLink by rememberSaveable { mutableStateOf(false) }
     fun go(target: Int) {
         keyboard?.hide()
         focusManager.clearFocus()
+        lawFromLink = false
         if (target != screen) {
             history = (history.split(',').filter { it.isNotEmpty() } + screen.toString()).takeLast(30).joinToString(",")
             screen = target
         }
         scope.launch { drawerState.close() }
     }
-    BackHandler(enabled = history.isNotEmpty() && !drawerState.isOpen) {
+    fun goBack() {
         val stack = history.split(',').filter { it.isNotEmpty() }
+        if (stack.isEmpty()) return
+        lawFromLink = false
         screen = stack.last().toInt()
         history = stack.dropLast(1).joinToString(",")
     }
+    fun openLaw(query: String) {
+        lawLaunch = io.github.hdlee73.financenewsradar.law.LawLaunch(query)
+        go(SCREEN_LAW)
+        lawFromLink = true
+    }
+    BackHandler(enabled = history.isNotEmpty() && !drawerState.isOpen) { goBack() }
     BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
 
     LaunchedEffect(newsState.error) {
@@ -268,11 +281,15 @@ fun FinanceNewsRadarApp(
                     SCREEN_BRIEFING -> BriefingScreen(newsViewModel, releasesViewModel, marketViewModel, onOpenTab = ::go)
                     SCREEN_NEWS -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     SCREEN_MARKET -> MarketScreen(marketViewModel)
-                    SCREEN_FISIS -> FisisScreen(fisisViewModel)
+                    SCREEN_FISIS -> FisisScreen(fisisViewModel, sanctionViewModel, onOpenLaw = ::openLaw)
                     SCREEN_DART -> DartScreen(dartViewModel)
                     SCREEN_REGULATORY -> RegulatoryScreen(regulatoryViewModel)
-                    SCREEN_SANCTION -> RegulatoryScreen(regulatoryViewModel, title = "금융회사 제재공시", sources = RegulatoryMenus.sanction)
-                    SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen()
+                    SCREEN_SANCTION -> SanctionScreen(sanctionViewModel, onOpenLaw = ::openLaw)
+                    SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen(
+                        launch = lawLaunch,
+                        onLaunchConsumed = { lawLaunch = null },
+                        onReturn = if (lawFromLink) ({ goBack() }) else null
+                    )
                     SCREEN_PRESS -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
                     SCREEN_RESEARCH -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
                     SCREEN_LIBRARY -> LibraryScreen(libraryViewModel)

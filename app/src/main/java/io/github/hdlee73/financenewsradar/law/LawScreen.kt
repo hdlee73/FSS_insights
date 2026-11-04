@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,8 +34,15 @@ private sealed interface LawRoute {
  * 서랍 메뉴의 "스마트 법령검색" 화면. 검색 → 위임 트리 → 판례·조문 상세를 이 안에서 오가고,
  * 뒤로가기는 앱을 끄지 않고 직전 화면(결과 → 검색 첫 화면 → 앱의 이전 메뉴)으로 돌아간다.
  */
+/** 다른 화면(예: 제재공시의 위반 조문)에서 스마트 법령검색을 특정 검색어로 열 때 넘기는 요청. [nonce]가 바뀌면 다시 검색한다. */
+data class LawLaunch(val query: String, val nonce: Long = System.nanoTime())
+
+/**
+ * [launch]가 오면 그 검색어로 바로 검색하고 [onLaunchConsumed]로 알린다.
+ * [onReturn]이 있으면(다른 화면에서 들어온 경우) 검색 결과 화면에서 뒤로가기 시 들어온 화면으로 바로 돌아간다.
+ */
 @Composable
-fun LawScreen() {
+fun LawScreen(launch: LawLaunch? = null, onLaunchConsumed: () -> Unit = {}, onReturn: (() -> Unit)? = null) {
     val container = LawContainer.get(LocalContext.current)
     val factory = container.viewModelFactory
     val searchVm: SearchViewModel = viewModel(factory = factory)
@@ -57,6 +65,15 @@ fun LawScreen() {
         stack = emptyList()
         searchVm.submit(q)
     }
+
+    LaunchedEffect(launch?.nonce) {
+        if (launch != null) {
+            runQuery(launch.query)
+            onLaunchConsumed()
+        }
+    }
+    // 다른 화면에서 들어왔으면 상세 화면이 없을 때의 뒤로가기는 그 화면으로(위 BackHandler보다 나중에 등록되어 먼저 처리된다).
+    BackHandler(enabled = onReturn != null && stack.isEmpty()) { onReturn?.invoke() }
 
     ProvideCitationHandler(onCite = runQuery) {
         Box(Modifier.fillMaxSize()) {

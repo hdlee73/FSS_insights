@@ -16,3 +16,4 @@ keystore.properties
 !/keystore/
 *.jks
 *.keystore.b64*
+__pycache__/
