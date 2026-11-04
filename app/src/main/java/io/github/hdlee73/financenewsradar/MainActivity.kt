@@ -10,6 +10,7 @@ import androidx.lifecycle.lifecycleScope
 import io.github.hdlee73.financenewsradar.data.BriefingAlert
 import io.github.hdlee73.financenewsradar.data.KeywordAlerts
 import io.github.hdlee73.financenewsradar.data.UpdateChecker
+import io.github.hdlee73.financenewsradar.data.UsageStats
 import io.github.hdlee73.financenewsradar.ui.FinanceNewsRadarApp
 import io.github.hdlee73.financenewsradar.ui.theme.FinanceNewsRadarTheme
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +37,12 @@ class MainActivity : ComponentActivity() {
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // 익명 사용 통계: 하루 한 번만 실제로 전송한다(꺼져 있거나 서버가 없으면 아무 일도 하지 않는다).
+        lifecycleScope.launch { UsageStats.sendIfNeeded(applicationContext) }
     }
 
     /** 예약이 빠졌거나 주기가 바뀐 경우를 위해 앱을 열 때 알림 예약을 설정에 맞춰 다시 확인한다. */

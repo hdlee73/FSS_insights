@@ -15,6 +15,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -29,6 +30,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.hdlee73.financenewsradar.data.CheckState
 import io.github.hdlee73.financenewsradar.data.UpdateInfo
 import io.github.hdlee73.financenewsradar.data.UpdateInstaller
+import io.github.hdlee73.financenewsradar.data.UsageStats
 import java.io.File
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
@@ -50,7 +52,8 @@ private const val USAGE_GUIDE =
         "• 금융회사 제재현황: 2011년 이후 금감원 제재공시 전체 목록입니다. 공시마다 기관·임원·직원 조치와 지적제목(위반 법률·조항)을 보여 주고, [원문보기]는 금감원 공시 페이지를 엽니다. 회사명·지적제목·법조문으로 검색하고 기간·권역으로 거르며, ‘통계’ 탭과 위 ⬇ 버튼(엑셀 저장)을 씁니다. 위반 조항을 누르면 스마트 법령검색으로 이동합니다.\n" +
         "• 기업 개황 및 공시(DART): 회사명·종목코드로 검색해 개황·최대주주·재무손익·정기/주요사항/기타 공시와 주가(당일 포함)를 봅니다. 공시는 1년·3년·5년·기간선택(최대 10년)으로 조회하고, 별(★)로 관심기업에 담으면 첫 화면에서 새 공시를 모아 봅니다.\n" +
         "• 스마트 법령검색·유권해석: 법령 비교표와 해석 자료를 찾고 PDF·한글(HWPX)로 저장합니다.\n" +
-        "• 알림: 키워드·자료별 알림을 켜고 끕니다. 새 버전은 이 화면에서 바로 업데이트할 수 있습니다."
+        "• 알림: 키워드·자료별 알림을 켜고 끕니다. 새 버전은 이 화면에서 바로 업데이트할 수 있습니다.\n" +
+        "• 앱 정보: 버전·업데이트 확인과 함께 익명 사용 통계 전송을 켜고 끌 수 있습니다."
 
 /** 앱 이름·버전·만든이와 업데이트 확인(릴리스 노트 표시, 새 버전 자동 내려받기·설치). */
 @Composable
@@ -81,6 +84,18 @@ fun AppInfoScreen(modifier: Modifier = Modifier) {
         Text("면책 안내", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
         Text(DISCLAIMER_SHORT, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
         Text(DISCLAIMER_DETAIL, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+
+        Text("사용 통계", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+        var usageOn by remember { mutableStateOf(UsageStats.isEnabled(context)) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("익명 사용 통계 보내기", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Switch(checked = usageOn, onCheckedChange = { usageOn = it; UsageStats.setEnabled(context, it) })
+        }
+        Text(
+            "앱 개선을 위해 하루 한 번, 무작위로 만든 설치 번호·앱 버전·날짜·메뉴별 이용 횟수만 서버로 보냅니다. 이름, 계정, 기기 정보, 검색어, 열람한 내용은 보내지 않으며, 꺼도 앱 기능은 그대로 쓸 수 있습니다.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall
+        )
 
         Text("업데이트", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
         InfoRow("현재", BuildConfig.VERSION_NAME)

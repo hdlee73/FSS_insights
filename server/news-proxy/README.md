@@ -82,3 +82,11 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 2. GitHub Secrets에 `DART_API_KEY`로 저장하고 Actions → **Deploy news proxy**를 다시 실행합니다.
 - DART에는 회사명으로 고유번호를 찾는 API가 없어서, **배포할 때** `build-dart-data.mjs`가 고유번호 목록(corpCode.xml)을 받아 상장사와 2023년 이후 이력이 있는 비상장사만 추려 `dart-corps.json`으로 만들어 서버에 함께 올립니다. 회사 검색은 이 목록으로 합니다.
 - 최대주주 및 특수관계인은 가장 최근 정기보고서(분기·반기·사업) 기준으로 찾습니다. 공시 목록은 정기(A)·주요사항(B)·기타(발행 D, 지분 E 등, 거래소 I)로 나누어 최근 것부터 보여 줍니다. 시장 구분(유가증권·코스닥·코넥스·기타법인)은 검색할 때 DART 기업개황의 법인구분으로 정합니다.
+
+## 익명 사용 통계(일일 핑)와 관리자 화면
+앱이 하루 한 번 `POST /usage/ping`으로 (무작위 설치 ID, 앱 버전, 날짜, 날짜별 메뉴 이용 횟수)만 보내고, Worker가 Cloudflare **D1**(`fss-usage`)에 저장합니다. 설치 ID는 `SHA-256(설치ID:APP_TOKEN)`으로 해시해 저장하고 IP·기기정보는 저장하지 않습니다. 앱 정보 화면에서 사용자가 끌 수 있습니다.
+
+1. GitHub Secrets에 `ADMIN_TOKEN`(앱 토큰과 다른 임의의 긴 문자열)을 저장합니다. Cloudflare API 토큰에는 **D1 편집(Edit)** 권한이 있어야 합니다(Account → D1 → Edit).
+2. Actions → **Deploy news proxy**를 실행합니다. 배포 전에 D1 `fss-usage`가 없으면 만들고 `wrangler.toml`에 연결하며, 표/인덱스는 첫 요청 때 자동으로 만듭니다. 실행 요약에 관리자 화면 주소(`…/admin`)가 표시됩니다.
+3. 관리자 화면(`/admin`)에서 `ADMIN_TOKEN`을 입력하면 일자별 DAU·WAU(7일)·MAU(30일), 버전별 분포, 메뉴별 이용 횟수를 볼 수 있습니다. 날짜는 한국 시간 기준입니다. 앱 안에는 관리자 화면을 두지 않습니다(APK의 앱 토큰은 추출될 수 있기 때문).
+- 한계: 설치 ID 기준이라 재설치하면 새 사용자로, 한 사람이 여러 기기를 쓰면 각각 집계되며, 통계를 끈 사용자는 빠집니다. D1이 연결되지 않으면 `/usage/ping`은 503을 돌려주고 앱은 조용히 넘어갑니다.
