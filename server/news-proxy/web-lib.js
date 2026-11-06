@@ -1,15 +1,16 @@
 // 웹 버전(fss-insights-web, PWA) 지원.
 // 웹은 소스가 공개되어 앱 토큰을 숨길 수 없다. 그래서 허용 출처(WEB_ORIGINS, 쉼표로 구분)에서 온 브라우저 요청만
 // 토큰 없이 받고, 남용을 막으려고 IP별 요청 수를 제한한다(WEB_LIMIT 바인딩, wrangler.toml).
-// 네이버 뉴스(/news)는 웹 범위가 아니어서 열지 않는다.
+// 네이버 뉴스(/news)도 웹 뉴스검색에서 쓴다(네이버 키는 서버 비밀값에만 있다).
 
-const WEB_PATHS = /^\/(law|dart|fisis|stats|library|fetch|usage\/ping)(\/|$)/;
+const WEB_PATHS = /^\/(news|law|dart|fisis|stats|library|fetch|usage\/ping)(\/|$)/;
 
 // /fetch 가 대신 읽어 줄 수 있는 사이트(앱이 기기에서 직접 읽던 곳). 이 밖의 주소는 거절한다.
 const FETCH_HOSTS = [
   "fss.or.kr", "fsc.go.kr", "kcmi.re.kr", "kif.re.kr", "iosco.org", "bis.org", "fsb.org", "esma.europa.eu",
   "sec.gov", "mas.gov.sg", "bok.or.kr", "mofe.go.kr", "moef.go.kr", "stock.naver.com", "finance.naver.com",
   "finance.yahoo.com", "kofia.or.kr", "kofiabond.or.kr", "krx.co.kr",
+  "news.google.com", // 뉴스검색: 네이버가 안 될 때 대신 쓰는 Google 뉴스 RSS
 ];
 const MAX_BYTES = 4 * 1024 * 1024;
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
