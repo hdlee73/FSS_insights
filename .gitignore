@@ -17,3 +17,6 @@ keystore.properties
 *.jks
 *.keystore.b64*
 __pycache__/
+
+# 로컬 wrangler dev 상태
+.wrangler/
