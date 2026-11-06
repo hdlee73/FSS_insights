@@ -557,8 +557,14 @@ async function proxyFetch(request, url, ctx) {
   if (target.protocol !== "https:" && target.protocol !== "http:") return new Response("bad url", { status: 400 });
   if (!allowedHost(target.hostname)) return new Response("\uD5C8\uC6A9\uB418\uC9C0 \uC54A\uC740 \uC0AC\uC774\uD2B8\uC785\uB2C8\uB2E4.", { status: 403 });
   const isPost = request.method === "POST";
+  let referer = null;
+  try {
+    const ref = url.searchParams.get("ref");
+    if (ref && allowedHost(new URL(ref).hostname)) referer = new URL(ref).href;
+  } catch {
+  }
   const cache = caches.default;
-  const cacheKey = new Request(`https://fetch-cache.invalid/${encodeURIComponent(target.href)}`);
+  const cacheKey = new Request(`https://fetch-cache.invalid/?u=${encodeURIComponent(target.href)}&r=${encodeURIComponent(referer || "")}`);
   if (!isPost) {
     const hit = await cache.match(cacheKey);
     if (hit) return hit;
@@ -572,6 +578,7 @@ async function proxyFetch(request, url, ctx) {
       "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.5"
     }
   };
+  if (referer) init.headers.Referer = referer;
   if (isPost) {
     const body = await request.arrayBuffer();
     if (body.byteLength > 32 * 1024) return new Response("body too large", { status: 413 });
@@ -1390,7 +1397,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-vWQCFG/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-6eWoQn/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -1422,7 +1429,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-vWQCFG/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-6eWoQn/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

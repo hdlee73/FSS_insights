@@ -61,6 +61,7 @@ export function withCors(response, origin) {
 
 /**
  * GET /fetch?url=… (POST는 본문을 그대로 넘김): 허용된 사이트의 응답을 바이트 그대로 돌려준다(문자 집합은 브라우저가 판단).
+ * &ref=… 를 주면 Referer로 보낸다(목록을 자기 사이트에서 부른 요청만 받는 곳: 금융연구원 등). ref도 허용된 사이트여야 한다.
  * GET 결과는 10분간 캐시해 같은 목록을 여러 사람이 열어도 기관 사이트에 한 번만 간다.
  */
 export async function proxyFetch(request, url, ctx) {
@@ -73,8 +74,15 @@ export async function proxyFetch(request, url, ctx) {
   if (target.protocol !== "https:" && target.protocol !== "http:") return new Response("bad url", { status: 400 });
   if (!allowedHost(target.hostname)) return new Response("허용되지 않은 사이트입니다.", { status: 403 });
   const isPost = request.method === "POST";
+  let referer = null;
+  try {
+    const ref = url.searchParams.get("ref");
+    if (ref && allowedHost(new URL(ref).hostname)) referer = new URL(ref).href;
+  } catch {
+    /* 잘못된 ref는 무시 */
+  }
   const cache = caches.default;
-  const cacheKey = new Request(`https://fetch-cache.invalid/${encodeURIComponent(target.href)}`);
+  const cacheKey = new Request(`https://fetch-cache.invalid/?u=${encodeURIComponent(target.href)}&r=${encodeURIComponent(referer || "")}`);
   if (!isPost) {
     const hit = await cache.match(cacheKey);
     if (hit) return hit;
@@ -88,6 +96,7 @@ export async function proxyFetch(request, url, ctx) {
       "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.5",
     },
   };
+  if (referer) init.headers.Referer = referer;
   if (isPost) {
     const body = await request.arrayBuffer();
     if (body.byteLength > 32 * 1024) return new Response("body too large", { status: 413 });

@@ -1,0 +1,703 @@
+
+
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=0,maximum-scale=10,user-scalable=yes">
+	<meta name="HandheldFriendly" content="true">
+	<meta name="format-detection" content="telephone=no">
+	<meta http-equiv="imagetoolbar" content="no">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<title>금융규제민원</title>
+	
+	
+	<link rel="stylesheet" href="/fsc_new/css/comm.css">
+	<link rel="stylesheet" href="/fsc_new/css/sub.css?20250917">
+	<link rel="stylesheet" href="/fsc_new/css/jquery-ui.css">
+	<link rel="stylesheet" href="/fsc_new/css/swiper.min.css">
+
+	<script type="text/javascript" src="/fsc_new/js/jquery-3.5.1.min.js"></script>
+	
+	<script type="text/javascript" src="/fsc_new/js/jquery-ui.js"></script>
+	<script type="text/javascript" src="/fsc_new/js/ui_common.js?20260917"></script>
+	<script type="text/javascript" src="/fsc_new/js/prefixfree.min.js"></script>
+	<script type="text/javascript" src="/fsc_new/js/DataTables/datatables.js"></script>
+	<script type="text/javascript" src="/fsc_new/js/file.js"></script>
+	<script type="text/javascript" src="/fsc_new/js/page.js"></script>
+	
+
+</head>
+<body>
+
+   
+
+
+
+<script>
+$(document).ready(function() {
+	var stNo = "11" != "" ? "11" : getParameterByName("stNo");
+	var muNo = "86" != "" ? "86" : getParameterByName("muNo");
+	var muGpNo = "75" != "" ? "75" : getParameterByName("muGpNo");
+	fn_selectLeftMenu(stNo, muNo, muGpNo);
+	fn_selectTopMenu(stNo, muNo, muGpNo);
+	fn_selectNaviList(stNo, muNo, muGpNo);
+	fn_selectTitleTree(stNo, muNo, muGpNo);
+});
+
+function getParameterByName(name) {
+    name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
+    var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
+            results = regex.exec(location.search);
+    return results == null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+}
+
+function fn_selectTopMenu(stNo, muNo, muGpNo) {
+	$.ajax({
+		url: "/fsc_new/main/selectTopMenu.do",
+		async: false,
+		type: "post",
+		data: {stNo:stNo, muNo:muNo, muGpNo:muGpNo},
+		dataType: "json",
+
+		success:function(data) {
+			var topMenuList = data.topMenuList;
+			var linkTarget;
+			var linkTitle;
+			$(topMenuList).each(function(i, list) {
+				//console.log(list);
+				if(list.linkTargetCd == "LINK0002"){
+					linkTarget = "_blank";
+					linkTitle = "새창열림";
+				}else{
+					linkTarget = "_self";
+					linkTitle = "";
+				}
+				
+				if(list.lvl == 1) {
+					$("<li class='gnb1-li'></li>").attr("id", "gnb1-li_"+list.muNo).appendTo("#gnb1");
+					if(linkTitle != ""){
+						$("<a></a>").addClass("gnb1-item").text(list.muNm).appendTo("#gnb1-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"")).after("<ul class='gnb2-ul' id='gnb2_"+list.muNo+"'></ul>").attr("target",linkTarget).attr("title",linkTitle);
+					}else{
+						$("<a></a>").addClass("gnb1-item").text(list.muNm).appendTo("#gnb1-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"")).after("<ul class='gnb2-ul' id='gnb2_"+list.muNo+"'></ul>").attr("target",linkTarget)
+					}
+					
+				}else if(list.lvl == 2) {
+					$("<li class='gnb2-li'></li>").attr("id", "gnb2-li_"+list.muNo).appendTo("#gnb2_"+list.muGpNo);
+					if(linkTitle != ""){
+						$("<a></a>").addClass("gnb2-item").text(list.muNm).appendTo("#gnb2-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"?stNo="+list.stNo+"&muNo="+list.muNo+"&muGpNo="+list.muGpNo)).attr("target",linkTarget).attr("title",linkTitle);
+					}else{
+						if(list.muNo == "192"){
+							$("<a></a>").addClass("gnb2-item").text(list.muNm).appendTo("#gnb2-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"")).attr("target",linkTarget);
+						}else{
+							$("<a></a>").addClass("gnb2-item").text(list.muNm).appendTo("#gnb2-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"?stNo="+list.stNo+"&muNo="+list.muNo+"&muGpNo="+list.muGpNo)).attr("target",linkTarget);
+						}
+					}
+				}else if(list.lvl == 3){
+					if(list.ordNo == 1){
+						$("<ul class='gnb3-ul muNoGnb_"+list.muPnNo+"'></ul>").appendTo("#gnb2-li_"+list.muPnNo);
+					}
+					$("<li class='gnb3-li'></li>").attr("id", "gnb3-li_"+list.muNo).appendTo(".muNoGnb_"+list.muPnNo);
+					if(linkTitle != ""){
+						$("<a></a>").addClass(muNo == list.muNo ? "gnb3-item on" : "gnb3-item").text("- "+list.muNm).appendTo("#gnb3-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"?stNo="+list.stNo+"&muNo="+list.muNo+"&muGpNo="+list.muGpNo)).attr("target",linkTarget).attr("title",linkTitle);
+					}else{
+						if(list.muNo == "109" || list.muNo == "114"){
+							$("<a></a>").addClass(muNo == list.muNo ? "gnb3-item on" : "gnb3-item").text("- "+list.muNm).appendTo("#gnb3-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"")).attr("target",linkTarget);
+						}else{
+							$("<a></a>").addClass(muNo == list.muNo ? "gnb3-item on" : "gnb3-item").text("- "+list.muNm).appendTo("#gnb3-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"?stNo="+list.stNo+"&muNo="+list.muNo+"&muGpNo="+list.muGpNo)).attr("target",linkTarget);
+						}
+					}
+				}
+		
+			});
+		},
+	});
+}
+
+function fn_selectLeftMenu(stNo, muNo, muGpNo) {
+	$.ajax({
+		url: "/fsc_new/main/selectLeftMenu.do",
+		async: false,
+		type: "post",
+		data: {stNo:stNo, muNo:muNo, muGpNo:muGpNo},
+		dataType: "json",
+
+		success:function(data) {
+			var leftMenuList = data.leftMenuList;
+			var linkTarget;
+			var linkImg;
+			var linkTitle;
+			//console.log(leftMenuList);
+			
+			$(leftMenuList).each(function(i, list) {
+				
+				if(list.linkTargetCd == "LINK0002"){
+					linkTarget = "_blank";
+					linkImg = " <img src='/fsc_new/img/sub/ico_link.png' alt='새창'>";
+					linkTitle = "새창열림";
+				}else{
+					linkTarget = "_self";
+					linkImg = "";
+					linkTitle = "";
+				}
+				
+				if(list.lvl == 1 && muGpNo == list.muNo){
+					//console.log(list.muNm);
+					$("#left-menu_nm").text(list.muNm);
+				}else if(list.lvl == 2 && muGpNo == list.muGpNo) {
+					$("<li class='lnb1-li'></li>").attr("id", "lnb1-li_"+list.muNo).appendTo("#lnb1");
+					if(linkTitle != ""){
+						$("<a></a>").addClass(muNo == list.muNo ? "lnb1-item on" : "lnb1-item").text(list.muNm).appendTo("#lnb1-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"?stNo="+list.stNo+"&muNo="+list.muNo+"&muGpNo="+list.muGpNo)).attr("target",linkTarget).attr("title",linkTitle).append(linkImg);
+					}else{
+						if(list.muNo == "192"){
+							$("<a></a>").addClass(muNo == list.muNo ? "lnb1-item on" : "lnb1-item").text(list.muNm).appendTo("#lnb1-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"")).attr("target",linkTarget).append(linkImg);
+						}else{
+							$("<a></a>").addClass(muNo == list.muNo ? "lnb1-item on" : "lnb1-item").text(list.muNm).appendTo("#lnb1-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"?stNo="+list.stNo+"&muNo="+list.muNo+"&muGpNo="+list.muGpNo)).attr("target",linkTarget).append(linkImg);
+						}
+					}
+					
+				}else if(list.lvl == 3 && muGpNo == list.muGpNo) {
+					if(list.ordNo == 1){
+						$("<ul class='lnb2-ul muNo_"+list.muPnNo+"'></ul>").appendTo("#lnb1-li_"+list.muPnNo);
+					}
+					$("<li class='lnb2-li'></li>").attr("id", "lnb2-li_"+list.muNo).appendTo(".muNo_"+list.muPnNo);
+					if(linkTitle != ""){
+						$("<a></a>").addClass(muNo == list.muNo ? "lnb2-item on" : "lnb2-item").text("- "+list.muNm).appendTo("#lnb2-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"?stNo="+list.stNo+"&muNo="+list.muNo+"&muGpNo="+list.muGpNo)).attr("target",linkTarget).attr("title",linkTitle).append(linkImg);
+					}else{
+						if(list.muNo == "109" || list.muNo == "114"){
+							$("<a></a>").addClass(muNo == list.muNo ? "lnb2-item on" : "lnb2-item").text("- "+list.muNm).appendTo("#lnb2-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"")).attr("target",linkTarget).append(linkImg);
+						}else{
+							$("<a></a>").addClass(muNo == list.muNo ? "lnb2-item on" : "lnb2-item").text("- "+list.muNm).appendTo("#lnb2-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"?stNo="+list.stNo+"&muNo="+list.muNo+"&muGpNo="+list.muGpNo)).attr("target",linkTarget).append(linkImg);
+						}
+					}
+					
+				}
+		
+			});
+		},
+	});
+}
+
+function fn_selectNaviList(stNo, muNo, muGpNo) {
+	$.ajax({
+		url: "/fsc_new/main/selectNaviList.do",
+		async: false,
+		type: "post",
+		data: {stNo:stNo, muNo:muNo, muGpNo:muGpNo},
+		dataType: "json",
+
+		success:function(data) {
+			var naviList = data.naviList;
+			var linkTarget;
+			//console.log(naviList);
+			
+			$(naviList).each(function(i, list) {
+				
+				if(list.linkTargetCd == "LINK0002"){
+					linkTarget = "_blank";
+				}else{
+					linkTarget = "_self";
+				}
+
+				if(list.lvl == 1){
+					if(muGpNo == list.muNo){
+						$("#naviDepth1").text(list.muNm);
+					}else{
+						$("<li class='snb2-li'></li>").attr("id", "navi1-li_"+list.muNo).appendTo("#naviUl1");
+						$("<a></a>").addClass("snb2-item").text(list.muNm).appendTo("#navi1-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"")).attr("target",linkTarget);
+					}
+				}else if(list.lvl != 1) {
+					if(muNo == list.muNo){
+						$("#naviDepth2").text(list.muNm);
+					}else{
+						
+						if(muGpNo == list.muGpNo){
+						$("<li class='snb2-li'></li>").attr("id", "navi2-li_"+list.muNo).appendTo("#naviUl2");
+						$("<a></a>").addClass("snb2-item").text(list.muNm).appendTo("#navi2-li_"+list.muNo).attr("href",urlCheck(list.linkUrl,"?stNo="+list.stNo+"&muNo="+list.muNo+"&muGpNo="+list.muGpNo)).attr("target",linkTarget);
+						}
+					}
+				}
+			});
+			if($(location).attr('pathname') == "/fsc_new/user/memberEdit.do"){
+				$("#naviDepth1").text("마이페이지");
+				$("#naviDepth2").text("회원정보 변경");
+			}else if(muNo == "198"){
+				$("#naviDepth1").text("사이트 이용안내");
+				$("#naviDepth2").text("사이트 이용안내");
+			}else if(muNo == "199"){
+				$("#naviDepth1").text("개인정보 처리방침");
+				$("#naviDepth2").text("개인정보 처리방침");
+			}else if(muNo == "200"){ 
+				$("#naviDepth1").text("저작권정책");
+				$("#naviDepth2").text("저작권정책");
+			}else if(muNo == "201"){
+				$("#naviDepth1").text("이메일무단수집거부");
+				$("#naviDepth2").text("이메일무단수집거부");
+			}
+		},
+	});
+}
+
+function fn_selectTitleTree(stNo, muNo, muGpNo) {
+	$.ajax({
+		url: "/fsc_new/main/selectTitleTree.do",
+		async: false,
+		type: "post",
+		data: {stNo:stNo, muNo:muNo, muGpNo:muGpNo},
+		dataType: "json",
+
+		success:function(data) {
+			var nowUrl = window.location.pathname;
+			nowUrl = nowUrl.toLowerCase();
+
+			if(nowUrl.indexOf("detail") !== -1){
+				var viewTitle = " > 상세";
+			}else{
+				var viewTitle = "";
+			}
+			
+			if(muNo != ""){
+				document.title = data.titleTree + viewTitle + " | 금융규제·법령해석포털";
+			}else if($(location).attr('pathname') == "/fsc_new/user/memberEdit.do"){
+				document.title =  "마이페이지 > 회원정보 변경 | 금융규제·법령해석포털";
+			}
+
+		},
+	});
+}
+
+function totalSearch() {
+	if($("#searchTxt").val() == ""){
+		alert("검색어를 입력하세요.");
+		$("#searchTxt").focus();
+		return false;
+	}
+	
+	var win = window.open("about:blank","searchPop")
+	var frm = $("#frmTotalSearch");
+	frm.attr("action","/fsc_new/search/search.do");
+	frm.attr("target","searchPop");
+	frm.submit();
+}
+
+function urlCheck(url,param){
+	if(url == "#"){
+		url = "javascript:void(0);";
+	}else{
+		if(!url.match("http://") && !url.match("https://")){
+			url = "/fsc_new"+url+param;
+		}
+	}
+	
+	return url;
+}
+</script>
+	<!-- 상단 시작  -->
+	 
+	
+		
+		
+			
+		
+	
+	
+	<header class="">
+		<div id="skip-to-container"><a href="#skip_main">본문 바로가기</a></div>
+		<div class="hd-wrap">
+			<a href="/fsc_new/main/main.do" title="홈으로 이동">
+				<h1 id="logo">
+					<strong>금융규제·법령해석포털</strong>
+					<img src="/fsc_new/img/comm/logo01.png" alt="금융위원회 로고" /> <img src="/fsc_new/img/comm/logo02.png" alt="금융감독원 로고" />
+				</h1>
+			</a>
+			<div class="hd-search">
+				<form method="post" name="frmTotalSearch" id="frmTotalSearch">
+					<label for="searchTxt" class="sound-only">검색어 입력</label><input type="text" name="searchTxt" id="searchTxt" placeholder="검색어를 입력하세요." onKeypress="javascript:if(event.keyCode==13) {totalSearch(); return false;}" title="검색어 입력">
+					<button type="button" onclick="totalSearch();"><img src="/fsc_new/img/comm/icon-search.png" alt="검색"></button>
+				</form>
+			</div>
+			<div class="hd-link">
+				
+					
+						<a href="/fsc_new/login/login.do?stNo=11&muNo=176&muGpNo=175"><img src="/fsc_new/img/comm/icon-user.png" alt=""> <span>로그인</span></a>
+						<a href="/fsc_new/user/memberForm.do?stNo=11&muNo=174&muGpNo=173"><img src="/fsc_new/img/comm/icon-list.png" alt=""> <span>아이디신청</span></a>
+					
+					
+				
+			</div>
+		</div>
+
+		<nav>
+			<div class="gnb-wrap">
+				<ul class="gnb1-ul" id="gnb1">
+					
+				</ul>
+				<span class="gnb-bg"></span>
+			</div>
+		</nav>
+		<button class="btn-menu" type="button"> <span class="m-menu-box"> <span class="m-menu-binner"><span class="sound-only">모바일 메뉴 버튼 </span></span></span></button>
+	</header>
+
+	<div id="wrapper">
+		
+
+		<div class="sub-ground">
+    		<div class="tit">
+    			<span>현장과 소통하는 <strong>금융규제혁신</strong><br /><strong>금융규제·법령해석포털</strong>이 함께 합니다.</span>
+    		</div>
+    	</div>
+    	<div class="snb-wrap">
+    		<ol class="snb1-ul">
+    			<li class="snb1-li"><a href="javascript:void(0)" class="snb1-item"><img src="/fsc_new/img/comm/icon-house.png" alt="홈"></a></li>
+    			<li class="snb1-li">
+    				<a href="javascript:;" class="snb1-item" id="naviDepth1"></a>
+    				<ul class="snb2-ul" id="naviUl1">
+    					
+    				</ul>
+    			</li>
+    			<li class="snb1-li">
+    				<a href="javascript:;" class="snb1-item" id="naviDepth2"></a>
+    				<ul class="snb2-ul" id="naviUl2">
+    					
+    				</ul>
+    			</li>
+    		</ol>
+    	</div>
+	    <div id="container_wr">
+			<div id="left-menu">
+				<h2 id="left-menu_nm"></h2>
+				<ul class="lnb1-ul" id="lnb1">
+				
+				</ul>
+			</div>
+
+
+		
+
+
+
+<div class="sub-con">
+	<h3>비조치의견서</h3>
+	<div class="board-view">
+		<table cellpadding="0" cellspacing="0" class="tbl-view two">
+			<caption class="sound-only">비조치 의견서 회신사례 상세보기 표 – 처리구분, 소관부서로 구성</caption>
+			<tr>
+				<td colspan="2" class="subject">대체거래소의 거래량 한도규제 관련 비조치의견서(기한 연장) 직권 발급</td>
+			</tr>
+			<tr>
+				<th scope="row">처리구분</th>
+				<td>완료</td>
+			</tr>
+			<tr>
+				<th scope="row">소관부서</th>
+				<td>금융위원회,금융산업국,보험과,자본시장감독국</td>
+			</tr>
+		</table>
+	</div>
+	<div class="btn-wrap mr10">
+		<a href="#" onclick="openOpinionList();" class="btn btn-save">목록</a>
+		<a href="javascript:void(0);" onclick="urlCopy('https://better.fsc.go.kr/fsc_new/replyCase/OpinionDetail.do?stNo=11&muNo=86&muGpNo=75&opinionIdx=2324');" class="btn btn-save">URL 복사</a>
+	</div>
+	
+	<div class="res-wrap">
+			<div class="tit">회신</div>
+			<div class="board-view">
+				<table cellpadding="0" cellspacing="0" class="tbl-write">
+					<caption class="sound-only">비조치 의견서 회신 내용 –  처리구분, 공개여부, 등록자, 회신일, 첨부파일, 질의요지, 회답, 이유로 구성</caption>
+					<tr>
+						<td class="subject" colspan="2" style="font-size: 1.175rem;">대체거래소의 거래량 한도규제 관련 비조치의견서(기한 연장) 직권 발급 </td>
+					</tr>
+					<tr>
+						<th scope="row">처리구분</th>
+						<td>완료</td>
+					</tr>
+					<tr>
+						<th scope="row">공개여부</th>
+						<td>Y</td>
+					</tr>
+					<!-- <tr>
+						<th>소관부서</th>
+						<td>-</td>
+					</tr> -->
+					<tr>
+						<th scope="row">등록자</th>
+						<td>금융감독원</td>
+					</tr>
+					<tr>
+						<th scope="row">회신일</th>
+						<td>2026-08-31</td>
+					</tr>
+					<tr>
+						<th scope="row">첨부파일</th>
+						<td>
+							
+								<a href="/fsc_new/file/displayFile.do?filePath=/2026/08/31&orgFileName=(붙임) 대체거래소의 거래량 한도규제 관련 비조치의견서(기한 연장).hwp&sysFileName=5b227e7a00f3420b8f61fa9f3ca531a1.hwp" title="(붙임) 대체거래소의 거래량 한도규제 관련 비조치의견서(기한 연장).hwp 새창으로 다운로드">
+									<img src="/fsc_new/img/comm/icon-files.png" alt="첨부파일 있음" /> (붙임) 대체거래소의 거래량 한도규제 관련 비조치의견서(기한 연장).hwp
+								</a> 
+								<br />
+							
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">질의요지</th>
+						<td>
+							<p><!--rhwp-studio-clipboard:79febd6b-9288-4861-a173-218fb0bd713f--></p>
+
+<p> □ &rsquo;25.3.4. 대체거래소(법상 &lsquo;다자간매매체결회사&rsquo;) 출범으로 「자본시장과 금융투자업에 관한 법률」제8조의2제5항제1호, 제78조제1항 및 동법 시행령 제7조의3제2항제1호&middot;제2호, 제78조제1항제12호에 따른 거래량 한도* 규제가 적용되나,</p>
+
+<p>ㅇ 대체거래소의 거래량이 규제 마련 당시 예상하지 못했던 수준으로 급증하여 한도관리를 위해 일시에 대규모 거래중단조치를 실시할 경우 투자자 불편이 초래될 수 있는 상황이며, 증시상황에 따라 거래량이 급변하여 사전 한도관리에 한계가 있음</p>
+
+<p>* (전체 한도) 과거 6개월간 평균 거래량이 같은 기간 중 한국거래소의 15% 이하일 것</p>
+
+<p>(종목별 한도) 과거 6개월간 평균 거래량이 같은 기간 중 한국거래소의 30% 이하일 것</p>
+
+<p> □ 현행 한도규제는 증시상황에 따라 전체시장 또는 개별종목의 거래량이 급변하면 충분한 한도관리기간*이 확보되지 못해 급격한 거래중단조치가 실시되거나 불가피한 위반이 발생할 우려가 있음</p>
+
+<p>* 일본의 경우 정규거래소의 5개월간 거래량을 기준으로 대체거래소가 6개월간 거래량을 관리하도록 하여 1개월의 추가 관리기간(5+1)을 부여하는 방향으로 &rsquo;24.11월 규제 개선</p>
+
+<p> □ 종목별 한도규제의 경우, 테마주&middot;급등주 등 거래량이 단기간에 집중되는 종목이 다수 발생하므로 이후 거래정지하더라도 30%의 한도준수가 어려운 경우가 있고,</p>
+
+<p>ㅇ 대체거래소의 거래량 급증으로 한도규제 준수를 위해 현재 메인마켓(09:00~15:20)에서 최소 70% 이상의 종목을 거래정지하여야 하며,</p>
+
+<p>- 이 경우 프리마켓(08:00~08:50)에서 호가를 제출한 투자자의 재주문 기회보장을 위해 메인마켓 거래정지 전 프리마켓 잔여호가 취소가 필요하나 대량의 호가 취소과정에서 전산 과부하 발생 우려*가 있어 프리마켓까지 연쇄적으로 운영을 중단하여야 하는 등,</p>
+
+<p>* 증권사 모의테스트 결과 100만건 이상의 호가 누적으로 인한 전산과부하가 우려됨</p>
+
+<p>- 거래량 한도 관리로 인한 증시 혼란과 투자자 불편이 예상되므로, 안정적인 거래량 관리방안이 마련될 때까지 대체거래소의 거래량 한도 규제의 유예를 요청함</p>
+
+						</td>
+					</tr>
+					<tr>
+						<th class="bc-yellow" scope="row">회답</th>
+						<td class="bc-yellow">
+							<p><!--rhwp-studio-clipboard:040695a2-0faf-4390-ad23-218e7e8ac364--></p>
+
+<p>□  증시 인프라의 안정적 운영 및 투자자 거래편의, 증시상황으로 인한 거래량 관리의 한계 등을 고려하여 대체거래소의 거래량 한도 위반에 대해 아래와 같이 한시적&middot;조건부 비조치 실시</p>
+
+<p>(1) (비조치기간) &ldquo;2년&rdquo; 또는 &ldquo;거래한도 관리방안* 마련&middot;시행&rdquo; 중 먼저 도래하는 시기까지 아래 조건을 준수하면 조치하지 않음</p>
+
+<p>* 한국거래소&middot;넥스트레이드 등 유관기관은 공동으로 거래량 관리를 위한 합리적인 개선방안을 마련하여 관련 전산시스템 구축과 시장운영제도 개편을 추진할 예정</p>
+
+<p>(2) (유형별 준수사항) 전체 한도의 경우 원칙적으로 현행 한도 15%를 준수하여야 하고, 종목별 한도의 경우 각 종목의 거래량을 KRX 정규시장 거래량의 100% 미만으로 유지하여야 함</p>
+
+<p>- (공통요건) 예측하지 못한 거래량 변동 등에 따라 월말 기준으로 일시적으로 상기 한도를 초과한 경우, 자체관리를 통해 2개월 내 초과를 해소하였다면 비조치*</p>
+
+<p>* ① 예측하지 못한 상황 : 한도관리를 위해 일단위 예측기록을 관리하였음에도 당초 예측하지 못한 정당한 사유(시장충격, 증시랠리, 테마주 등)로 인해 위반이 발생하였음을 입증할 것</p>
+
+<p>② 자체 관리 : 2개월 내 한도초과를 해소하기 위해 구체적이고 달성가능한 관리계획을 마련하여 금융감독원에 제출할 것</p>
+
+<p>③ 2개월 내 초과 해소 : 2개월 내 실제로 한도초과 상태를 해소하였을 것</p>
+
+<p>(3) (부대조건) 상기 비조치 사유는 대체거래소가 전체 매매체결종목 수를 현행 700여개 이하 수준으로 유지하고, 실효성 있는 거래량 예측&middot;관리방안*과 월별 관리현황을 금융감독원에 보고하며, 새로운 호가 체계 개발에 착수하는 등 자구노력을 이행한 경우에 한하여 적용</p>
+
+<p>* 1)거래량 급변에 대비한 보수적인 관리목표 설정, 2)거래량 예측‧관리를 위한 내부 관리체계 구축, 3)투자자 불편을 최소화하는 분산적‧단계적인 종목 편출‧안내 계획 등 포함</p>
+
+<p>※ &rsquo;25.9.3에 회신한 기존 비조치의견서(일련번호: 250043)와 내용 및 논리 동일</p>
+
+						</td>
+					</tr>
+					<tr>
+						<th class="bc-blue" scope="row">이유</th>
+						<td class="bc-blue">
+							<p><!--rhwp-studio-clipboard:5852e9e1-e6e9-4aa5-8646-a5654987030d--></p>
+
+<p>□ &rsquo;26.8월 현재 넥스트레이드(NXT) 시장에서 종목별 한도 30%를 초과하는 종목이 전체의 70% 이상으로 법령상 한도규제 적용시 대규모 거래정지가 불가피</p>
+
+<p>ㅇ 종목별 한도는 현행 기준상 NXT 메인마켓에만 적용되어 다수 종목을 거래정지하더라도 투자자들은 같은 시간대의 KRX 정규시장을 이용할 수 있으나,</p>
+
+<p>ㅇ 프리마켓은 대체거래소만 운영하고 있으며 메인마켓의 거래정지시 대량의 프리마켓 잔여호가 취소로 인한 전산과부하 우려가 있어 프리마켓까지 연쇄적으로 정지할 수 밖에 없는 상황임</p>
+
+<p>  □ 한도규제 강행에 따른 증시 혼란과 투자자 불편을 방지하기 위해 대체거래소의 거래량 한도규제 비조치를 연장할 필요성이 여전히 인정되므로,</p>
+
+<p>ㅇ 금융위&middot;금감원은 KRX가 프리마켓 신설 추진 중인 상황 등을 감안하여 당초 부여한 비조치기간* 중 &ldquo;1년&rdquo;을 &ldquo;2년&rdquo;으로 연장 결정함</p>
+
+<p>* &ldquo;1년&rdquo; 또는 &ldquo;거래한도 관리방안 마련&middot;시행&rdquo; 중 선도래시점까지 비조치</p>
+
+						</td>
+					</tr>
+				</table>
+			</div>
+		</div>
+</div>
+
+<script type="text/javascript">
+
+
+/* 이름: openOpinionList
+ * 설명: 리스트페이지로 이동
+ */
+function openOpinionList(){
+	goUrl("/fsc_new/replyCase/OpinionList.do", {muNo:"86", stNo: "11", actCd: 'R'});
+}
+
+/* 이름: goUrl
+ * 설명: 페이지 이동
+ */
+function goUrl(url, param, option){
+	var $form = $('<form>').attr($.extend({
+		method : 'get'
+	}, option, {
+		action : url
+	}));
+	for ( var key in param) {
+		try {
+			$.each($.makeArray(param[key]), function(index, value) {
+				var input = document.createElement('input');
+			    input.type = 'hidden';
+			    input.name = key;
+			    input.value = typeof value === 'object' ? JSON.stringify(value) : value;
+			    $form.append(input);
+			});
+		} catch (e) {
+			console.log(e);
+		}
+	}
+	$form.appendTo(document.body).submit().remove();
+}
+
+function urlCopy(url){
+	var dummy = document.createElement("textarea");
+	document.body.appendChild(dummy);
+	dummy.value = url;
+	dummy.select();
+	document.execCommand("copy");
+	document.body.removeChild(dummy);
+	alert('URL 주소가 복사되었습니다.');
+}
+</script>
+
+	</div>
+	
+
+
+	</div><!--} #container_wr-->
+	<footer class="main">
+		<div class="flink">
+			<ul>
+				<li><a href="/fsc_new/page/selectPage.do?stNo=11&muNo=198&muGpNo=195" target="_blank" title="새창 열림">사이트 이용안내</a></li>
+				<li><a href="/fsc_new/page/selectPage.do?stNo=11&muNo=199&muGpNo=195" target="_blank" title="새창 열림" style="color:#3BE5E5;">개인정보처리방침</a></li>
+				<li><a href="/fsc_new/page/selectPage.do?stNo=11&muNo=200&muGpNo=195" target="_blank" title="새창 열림">저작권정책</a></li>
+				<li><a href="/fsc_new/page/selectPage.do?stNo=11&muNo=201&muGpNo=195" target="_blank" title="새창 열림">이메일무단수집거부</a></li>
+				<li><a href="mailto:betterfsc@korea.kr" title="메일 보내기">운영자에게</a></li>
+			</ul>
+		</div>
+		<div class="footer-inner">
+			<address>
+				<dl>
+					<dt>금융위원회</dt>
+					<dd>서울특별시 종로구 세종대로 209 금융위원회 대표전화 <a href="tel:0221002500" title="금융위원회 전화걸기">02-2100-2500</a></dd>
+				</dl>
+				<dl>
+					<dt>금융감독원</dt>
+					<dd>서울특별시 영등포구 여의도동 여의대로 38 대표전화 <a href="tel:0231455114" title="금융감독원 전화걸기">02-3145-5114</a></dd>
+				</dl>
+			</address>
+			<p>COPYRIGHT 2009 FINANCIAL SERVICES COMMISSION.ALL RIGHTS RESERVED.<br />COPYRIGHT FINANCIAL SUPERVISORY SERVICE. ALL RIGHTS RESERVED.</p>
+			<div class="fsite">
+				​<a href="http://kwacc.or.kr/CertificationSite/WA/2407/Detail?page=3" target="_blank" title="한국웹접근성평가센터 인증현황 바로가기_새창" class="web_logo">
+                    <img src="/fsc_new/img/comm/web_mark.png" alt="국가공인 정보통신접근성 품질인증마크">
+                </a>
+				<select id="relSites" title="패밀리 사이트 옵션 선택">
+					<option>Family Site</option>
+					<option value="https://www.fsc.go.kr/">금융위원회</option>
+					<option value="https://www.fss.or.kr/">금융감독원</option>
+					<option value="https://www.fcsc.kr/">e-금융민원센터</option>
+				</select>
+				<input type="button" value="이동" onclick="window.open(document.getElementById('relSites').value);" style="padding:6px;" title="새창"/>
+			</div>
+		</div>
+</footer>
+<div id="bg-dark"></div>
+<script type="text/javascript">
+$(document).ready(function(){
+	
+	$(".sub-con").attr("id","skip_main");
+	//<!--20220324: S-->
+	$('.gnb1-ul > li').hover(function() {
+        $('.gnb1-ul > li').removeClass('on');
+        $('nav').addClass('on');
+        $(this).addClass('on');
+    });
+	$('.gnb1-ul > li').on('focusin',function() {
+        $('.gnb1-ul > li').removeClass('on');
+        $('nav').addClass('on');
+        $(this).addClass('on');
+    });
+
+    $('.gnb-bg').mouseleave(function() {
+        $('.gnb1-ul > li').removeClass('on');
+        $('nav').removeClass('on');
+    });
+    
+    $('.gnb1-ul > li:last-child  li.gnb2-li:last-child > a').on('focusout', function() {
+        $('.gnb1-ul > li').removeClass('on');
+        $('nav').removeClass('on');
+        $(this).removeClass('on');
+    });
+    
+   //<!--//20220324: E-->
+	$('.btn-menu').click(function(){
+    	$('header').toggleClass('menu-open');               
+   	});
+       
+    $('.gnb1-item').click(function(){
+    	$(this).next().toggleClass('smenu-open');
+    });
+    
+    //sub-menu
+    $('.snb1-item').click(function(){
+    	$(this).next().slideToggle('fast');
+    });
+    
+    //fixed
+    $(window).scroll(function(){ 
+    	var height = $(document).scrollTop(); //실시간으로 스크롤의 높이를 측정
+    	//var el = $('header').height(); // header높이
+    	if(height > 0){ 
+      		$('header').addClass('fixed'); 
+    	}else if(height < 0){ 
+      		$('header').removeClass('fixed'); 
+    	} 
+  	});
+
+});
+	
+	function change_gnb(status){
+		if(status){
+			$('header').removeClass('main');
+			$('.logo01').attr("src","/fsc_new/img/comm/logo01.png");
+			$('.logo02').attr("src","/fsc_new/img/comm/logo02.png");
+			$('.icon01').attr("src","/fsc_new/img/comm/icon-user.png");
+			$('.icon02').attr("src","/fsc_new/img/comm/icon-list.png");	
+		}else{
+			if(!$('header').hasClass('fixed')){
+				$('header').addClass('main');
+				$('.logo01').attr("src","/fsc_new/img/comm/mlogo01.png");
+				$('.logo02').attr("src","/fsc_new/img/comm/mlogo02.png");
+				$('.icon01').attr("src","/fsc_new/img/comm/icon-muser.png");
+				$('.icon02').attr("src","/fsc_new/img/comm/icon-mlist.png");	
+			}
+		}
+	}
+	
+	function scroll_smooth() {
+		 $(".panel_list a[href^='#']").click(function (event) {
+			 var windowWidth = $(window).width();
+			 var offset_top = $(this.hash).offset().top - $('header').height();
+			 var offset_top_m = $(this.hash).offset().top - $('header').height() - 50;
+			 event.preventDefault();
+			  if (windowWidth < 768) {
+				$('html, body').animate({ scrollTop: offset_top_m }, 900);
+			} else {
+				$('html, body').animate({ scrollTop: offset_top }, 900);
+			} });
+		}
+	scroll_smooth();
+	</script>
+	
+ 	<!-- 	//저장팝업 -->
+<!-- 	<div class="overlay"></div> -->
+<!-- 	//팝업용 dim -->
+</body>
+</html>

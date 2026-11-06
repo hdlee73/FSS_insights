@@ -1,0 +1,1232 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta name="description" content="자본시장연구원의 보고서 자료를 소개합니다.">
+    <meta property="og:type" content="WebPage">
+    <meta property="og:title" content="최신보고서 |  보고서 | 자본시장연구원">
+    <meta property="og:description" content="자본시장연구원의 보고서 자료를 소개합니다.">
+    <meta property="og:image" content="https://www.kcmi.re.kr//res/img/report_img_d01.jpg">
+    <meta property="og:url" content="https://www.kcmi.re.kr/report/report_list">
+    <meta property="og:site_name" content="자본시장연구원">
+    <meta property="og:locale" content="ko_KR">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="최신보고서 |  보고서 | 자본시장연구원">
+    <meta name="twitter:description" content="자본시장연구원의 보고서 자료를 소개합니다.">
+    <meta name="twitter:image" content="https://www.kcmi.re.kr//res/img/report_img_d01.jpg">
+	<meta charset="utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
+<meta name="viewport" class="meta" content="width=device-width,initial-scale=1.0,minimum-scale=0.25,maximum-scale=3.0">
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="format-detection" content="telephone=no, address=no, email=no"/>
+<link rel="canonical" href="https://www.kcmi.re.kr/report/report_list?pg=1&pp=40">
+<link rel="shortcut icon" href="/res/img/favicon.ico" />
+<link rel="apple-touch-icon" sizes="114x114" href="/res/img/favicon.png"/>
+<link rel="preload" href="/res/font/woff2/Pretendard-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/res/font/woff2/Pretendard-Medium.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/res/css/style.css?t=2026102301"/>
+<script src="/res/lib/jquery-2.2.4.min.js"></script>
+<script defer src="/res/lib/slick.min.js?t=2026070601"></script>
+<script defer src="/res/js/kcmi_ui.js?t=2026070601"></script>
+<script defer src="/res/js/kcmi_item.js?t=2026070601"></script>
+<script defer src="/res/dev/js/common.js?t=2026081903"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.1.2/handlebars.js"></script>
+<title>최신보고서 |  보고서 | 자본시장연구원 | 자본시장연구원의 보고서 자료를 소개합니다.</title>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-TJZQJ79YZW"></script>
+<script>
+
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-TJZQJ79YZW');
+</script>
+
+	<script>
+		var tPage = 1;
+		var tPageParam = 0;
+		var totalCount = "667";
+		var reportSubject = "";
+		var reportType = "";
+		var reportParamStr = "s_report_subject=\u0026s_report_type=";
+		var reportItemTemplate = null;
+		function addmore(){
+			setCookie("rsidx", "", 0);
+			tPage++;
+			$("#thisPage").val(tPage);
+			var scTop = $(window).scrollTop();
+			$.ajax({
+				url: 'json_report_list'
+				, type: 'post'
+				, dataType: 'json'
+				, data: {
+					'thispage' : tPage,
+					'perpage' : 4,
+					's_report_subject' : reportSubject,
+					's_report_type' : reportType
+				}
+				, success: function(jsonData) {
+					$.each(jsonData, function(key, item){						
+						fnAddDstReport(item);
+						$('html,body').scrollTop( scTop );
+					});
+
+					// 더이상 데이터가 없는 경우 더보기 삭제..
+					if(jsonData.length  < 4 || Number(tPage)*4 >= Number(totalCount)){
+						$("#divBtnMore").hide();
+					}
+				}
+				, error: function(response, text){ }
+			});
+		}
+
+		function fnAddDstReport(reportData){
+			if(reportData && typeof reportData == 'object'){
+				var data;
+				var html;
+
+				if(reportItemTemplate === null){
+					reportItemTemplate = Handlebars.compile($("#tagReportItem").html());
+				}
+				var tagList = reportData.tag_list || [];
+				for (var ti = 0; ti < tagList.length; ti++) {
+					if (tagList[ti]) {
+						tagList[ti].tag_title_enc = encodeURIComponent(tagList[ti].tag_title || '');
+					}
+				}
+				data = {
+					'report_no':reportData.report_no,
+					'img_src':reportData.img_src,
+					'report_title':reportData.report_title,
+					'report_num':reportData.report_num,
+					'author':reportData.author,
+					'pub_date':reportData.pub_date,
+					'summary':reportData.summary,
+					'report_pdf_download_link':reportData.report_pdf_download_link,
+					'report_pdf_preview_link':reportData.report_pdf_preview_link,
+					'report_bodo_download_link':reportData.report_bodo_download_link,
+					'report_bodo_preview_link':reportData.report_bodo_preview_link,
+					'tag_list':tagList,
+					'displayset':reportData.displayset,
+					'bodo_displayset':reportData.bodo_displayset
+				};
+				html = reportItemTemplate(data);
+				$(".report_list-box").append(html);
+				// 각 게시물 해시태그 노출 여부를 스크립트에서 제어
+				kcmiUi.mobInitTag();
+			}
+		}
+
+		function fnSearch(gubun, obj){
+			setCookie("rsidx", "", 0);
+			$("#thisPage").val(1);
+			var s_report_type = reportType;
+			var s_report_subject = reportSubject;
+			if(gubun == 's_report_type'){
+				s_report_type = $(obj).val();
+			}else if(gubun == 's_report_subject'){
+				s_report_subject = $(obj).attr("data_value") ? $(obj).attr("data_value") : "";
+			}
+
+			location.href = window.location.pathname+"?s_report_type="+encodeURIComponent(s_report_type)+"&s_report_subject="+encodeURIComponent(s_report_subject);
+		}
+
+		function getCookie(name){
+			var nameOfCookie = name + "=";
+			var x = 0;
+			while ( x <= document.cookie.length ){
+				var y = (x+nameOfCookie.length);
+				if ( document.cookie.substring( x, y ) == nameOfCookie ) {
+					if ( (endOfCookie=document.cookie.indexOf( ";", y )) == -1 ) endOfCookie = document.cookie.length;
+					return unescape( document.cookie.substring( y, endOfCookie ) );
+				}
+				x = document.cookie.indexOf( " ", x ) + 1;
+				if ( x == 0 )
+					break;
+			}
+			return "";
+		}
+
+		function setCookie( name, value, expiredays ){
+			var todayDate = new Date();
+			todayDate.setDate( todayDate.getDate() + expiredays );
+			if (expiredays != 0) document.cookie = name + "=" + escape( value ) + ";path=/;expires=" + todayDate.toGMTString() + ";"
+			else document.cookie = name + "=" + escape( value ) + ";path=/;"
+		}
+        function viewpage(idx,u,t,p){
+			var
+				stype = $('#stype').val(),
+				skey = $('#skey').val(),
+				thisPage = $("#thisPage").val();
+
+			setCookie("rsidx", idx, 0);
+			history.pushState(null, null, location.pathname+"?thispage="+encodeURIComponent(thisPage));
+            if(u!="") u = u+"?report_no="+encodeURIComponent(idx)+"&"+reportParamStr+"&thispage="+encodeURIComponent(thisPage);
+            if(t=='_blank') window.open(u);
+            else location.href = u;
+		}
+
+        //앵커이동
+		function moveTag(id){
+			var tag = document.getElementById(id);
+			var pos_y = 0;
+			var obj = tag;
+
+			if(obj != null){
+				while(obj.offsetParent){
+				    pos_y += parseInt(obj.offsetTop);
+				    obj = obj.offsetParent;
+				}
+				pos_y += parseInt(obj.offsetTop);
+				pos_y -= parseInt(tag.offsetHeight);
+				document.documentElement.scrollTop = pos_y;
+
+			}
+
+		}
+
+        $(document).ready(function() {
+
+            var HashLocationName = document.location.hash;
+			//console.log('HashLocationName',HashLocationName);
+			if(HashLocationName != ''){
+				document.location.hash = '';
+				HashLocationName = HashLocationName.replaceAll("#", "");
+				location.href = './report_list' + HashLocationName;
+			}
+
+            var rsidx = getCookie("rsidx");
+			//console.log('rsidx',rsidx);
+			//console.log(document.referrer);
+			if ( document.referrer.match(/\/report\/(report_view|report_list)/i)) {
+				//console.log(document.referrer);
+				//여기에 걸리면 view갔다가 돌아온 페이지만 자동이동한다 / 스크롤 내린거 기억
+				if(rsidx != "" && tPageParam>0){					
+					moveTag("rsidx_"+rsidx);
+				}			
+			}
+        });
+
+		function endlist(value) {
+			if(value){
+				location.href="./report_list?s_report_type=" +value;
+			}
+		}
+	</script>
+</head>
+<body>
+<div id="ui_wrap">
+	<input type="hidden" id="thisPage" name="thisPage" value="1"/>
+	<script>
+	function fnSearchEnterKeyTop(e){
+		if(e.keyCode === 13) {
+			fnSearchTop(e);
+		}
+	}
+
+	function fnSearchTop(e){
+		var keyword = $.trim($("#top_search_word").val());
+		if(keyword.length > 0 && keyword.length < 2){
+			alert("검색어는 2자 이상 입력해 주세요.");
+			return false;
+		}
+		if(keyword.length >= 2){
+			e.stopPropagation();
+			e.preventDefault();
+			location.href='/community/search_basic?topkey='+encodeURIComponent(keyword);
+			return false;
+		}
+	}
+</script>
+<div id="skipNav"><a href="#bodyContents">본문 내용 바로 이동합니다.</a></div>
+<header id="pageTopMenu">
+	<section class="guide_box-center nav_gnb">
+		<h1><a href="/" title="자본시장연구원 Korea Capital Market Institute">자본시장연구원 Korea Capital Market Institute</a></h1>
+		<nav>
+			<ul>
+				<li><button type="button">보고서</button></li>
+				<li><button type="button">정기간행물</button></li>
+				<li><button type="button">세미나ㆍ영상자료</button></li>
+				<li><button type="button">연구원 소개</button></li>
+			</ul>
+		</nav>
+		<div class="btns_function">
+			<button type="button" class="kakao" title="카카오채널 친구추가" onclick="location.href='https://pf.kakao.com/_fxnrYK';"><img src="/res/img/kakaoplusb.png" alt="카카오채널 친구추가" style="width:65%"></button>
+			<a href="/en/main.php" class="lang" title="영문사이트로 이동">ENG</a>
+			<button type="button" class="search" id="searchBtnBox" title="검색">검색</button>
+			<button type="button" class="mob_gnb" id="mobGnbOpen"><span>모바일 GNB 메뉴 열기</span></button>
+		</div>
+	</section>
+	<section class="search_wrap">
+		<div class="guide_box-center">
+			<h2>SEARCH</h2>
+			<div class="head_search-comm">
+				<label><input type="text" placeholder="검색어를 입력해주세요" id="top_search_word" value=""  autocomplete="off" onkeydown="fnSearchEnterKeyTop(event)"></label>
+				<button type="button" onclick="fnSearchTop(event)">검색</button>
+			</div>
+			<div class="search_word">
+				<a href="/community/search_basic?topkey=%ED%95%B4%EC%99%B8%EC%A6%9D%EA%B6%8C%ED%88%AC%EC%9E%90">해외증권투자</a>
+				<a href="/community/search_basic?topkey=%EA%B8%88%EC%9C%B5%EB%B6%84%EC%9F%81">금융분쟁</a>
+				<a href="/community/search_basic?topkey=%EC%A3%BC%EC%A3%BC%EA%B0%80%EC%B9%98%20%EC%A0%9C%EA%B3%A0">주주가치 제고</a>
+				<a href="/community/search_basic?topkey=%EC%8B%9C%EC%9E%A5%EC%A0%91%EA%B7%BC%EC%84%B1">시장접근성</a>
+				<a href="/community/search_basic?topkey=%EC%9C%A0%EB%8B%88%EC%BD%98%20%EA%B8%B0%EC%97%85">유니콘 기업</a>
+			</div>
+		</div>
+	</section>
+	<section class="depth_menu-wrap">
+		<div class="guide_box-center">
+			<div class="add_link">
+				<a href="/newsletters/newsletters_apply" class="banner_link">
+					<strong><em>NEWS</em> LETTERS</strong>
+					<span>자본시장연구원의 <br>다양한 소식 및 자료를 <br>이메일로 받아보세요</span>
+				</a>
+				<ul>
+					<li><a class="k" href="https://pf.kakao.com/_fxnrYK" target="_blank">KAKAO</a></li>
+					<li><a class="t" href="https://www.youtube.com/user/TheKCMIofficial" target="_blank">YOUTUBE</a></li>
+				</ul>
+			</div>
+			<div class="menu_box">
+				<div class="mob_depth">
+					<ul>
+						<li><button type="button" onclick="kcmiUi.mobGnbOpen(0)" class="on">보고서</button></li>
+						<li><button type="button" onclick="kcmiUi.mobGnbOpen(1)" class="">정기간행물</button></li>
+						<li><button type="button" onclick="kcmiUi.mobGnbOpen(2)" class="">세미나ㆍ영상자료</button></li>
+						<li><button type="button" onclick="kcmiUi.mobGnbOpen(3)" class="">연구원소개</button></li>
+					</ul>
+				</div>
+				<div class="pc_depth">
+					<ul class="open">
+						<li><a href="/report/report_list" class="on">최신보고서</a></li>
+															<li>
+										<a class="" href="/report/report_list?s_report_type=002002002012">
+											연구총서										</a>
+									</li> <!-- 클래스 on 추가 -->
+																		<li>
+										<a class="" href="/report/report_list?s_report_type=002002002001">
+											연구보고서										</a>
+									</li> <!-- 클래스 on 추가 -->
+																		<li>
+										<a class="" href="/report/report_list?s_report_type=002002002002">
+											조사보고서										</a>
+									</li> <!-- 클래스 on 추가 -->
+																		<li>
+										<a class="" href="/report/report_list?s_report_type=002002002013">
+											이슈보고서										</a>
+									</li> <!-- 클래스 on 추가 -->
+															<li><a href="/report/report_list?s_report_type=002002002003" class="">종간 보고서</a></li>
+					</ul>
+					<ul class="">
+						<li><a href="/publications/publications_list" class="" >자본시장포커스</a></li>
+						<li><a href="/publications/publications3_list" class="" >자본시장 제도동향</a></li>
+						<!-- <li><a href="/publications/publications_da_list" class="" >디지털자산시장 제도 동향</a></li> -->
+						<!-- <li><a href="/publications/publications2_list" class="" >경제 및 자본시장 전망</a></li> -->
+						<li><a href="/publications/pubend2_list?zcd=002001018" class="" >종간 발간물</a></li>
+					</ul>
+					<ul class="">
+						<li><a href="../seminar/seminar_list" class="">세미나</a></li>
+						<li><a href="../seminar/video_list" class="">영상보고서</a></li>
+						<li><a href="../seminar/seminar_kgi" class="">KGI</a></li>					</ul>
+					<ul class="">
+						<li><a href="/researcher/vision_mission"  class="">미션 & 비전</a></li>
+						<li><a href="/researcher/introduce_tab01"  class="">연구원 소개</a></li>
+						<li><a href="/researcher/researcher_organ"  class="">조직 및 연구위원</a></li>
+						<li><a href="/researcher/annual_report_list"  class="">연차보고서</a></li>
+						<li><a href="/researcher/researcher_agency"  class="">연구협력 국제기관</a></li>
+						<li><a href="/researcher/hire_tab01"  class="">채용안내</a></li>
+						<li><a href="/researcher/researcher_purchase"  class="">간행물 구입안내</a></li>
+						<li><a href="/researcher/meeting_list"  class="">연구회</a></li>
+						<li><a href="/community/all_list" class="">KCMI 소식</a></li>
+					</ul>
+				</div>
+			</div>
+		</div>
+	</section>
+</header>	<main>
+	<script src="/res/dev/js/clipboard.js"></script>
+<script>
+	function log_share(share_type, share_url)
+	{
+			$.ajax({
+				url: '/common/log_share'
+				, type: 'get'
+				, dataType: 'json'
+				, data: {
+					'share_type' : share_type,
+					'share_url' : share_url
+					}
+				, success: function(jsonData) {
+				}
+				, error: function(response, text){ }
+			});
+	}
+	function fnClickCopyUrl(){
+		$("#btnCopyUrl").trigger('click');
+	}
+	function fnCopyCurrentUrl(thisobj, thisclass, toastPopYn) {
+
+		if ($(thisobj).attr("data-clipboard-text") == "") {           
+              $(thisobj).attr("data-clipboard-text", document.location.href);           			
+			  var clipboard = new Clipboard('.'+thisclass);
+			$(thisobj).trigger('click');
+		}else {            
+			if(toastPopYn == 'Y'){
+
+            // 현재 보고서 상세 페이지인 경우 복사 시 해당 탭으로 이동
+            var nowUrlPath = '/ko/report/report_list.php';            
+            if(nowUrlPath == '/ko/report/report_view.php' || nowUrlPath == '/en/report/report_view.php') {
+                $(".report_view_mid").find(".init_tab").find('button').each(function(idx){
+                    if ($(this).hasClass('on')) {
+                        var $box = $(".report_view_mid .report_tab-box").eq(idx);
+                        var slot = $box.attr('data-tab-slot');
+                        var param = (slot !== undefined && slot !== null && String(slot) !== '') ? String(slot) : String(idx);
+                        $(thisobj).attr("data-clipboard-text", document.location.href + "&tabIdx=" + param);
+                    }
+                });
+            }
+            //$("#emToast").text("복사");
+            alert('현재 주소가 복사되었습니다.');
+            //alertOpenSt1("온라인 구매하기","현재 주소가 복사되었습니다");
+			}
+		}
+		log_share('u', document.location.href);
+	}
+	function fbshare(){
+		log_share('f', 'https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(location.href));
+		window.open('https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(location.href),'_blank');
+		return false;
+	}
+	function twtshare(){
+		log_share('t','http://twitter.com/share?text=%EC%B5%9C%EC%8B%A0%EB%B3%B4%EA%B3%A0%EC%84%9C+-+%EC%9E%90%EB%B3%B8%EC%8B%9C%EC%9E%A5%EC%97%B0%EA%B5%AC%EC%9B%90%EC%9D%98+%EB%B3%B4%EA%B3%A0%EC%84%9C+%EC%9E%90%EB%A3%8C%EB%A5%BC+%EC%86%8C%EA%B0%9C%ED%95%A9%EB%8B%88%EB%8B%A4.&url='+encodeURIComponent(location.href)+'&hashtags=kcmi,%EC%9E%90%EB%B3%B8%EC%8B%9C%EC%9E%A5%EC%97%B0%EA%B5%AC%EC%9B%90');
+		window.open('http://twitter.com/share?text=%EC%B5%9C%EC%8B%A0%EB%B3%B4%EA%B3%A0%EC%84%9C+-+%EC%9E%90%EB%B3%B8%EC%8B%9C%EC%9E%A5%EC%97%B0%EA%B5%AC%EC%9B%90%EC%9D%98+%EB%B3%B4%EA%B3%A0%EC%84%9C+%EC%9E%90%EB%A3%8C%EB%A5%BC+%EC%86%8C%EA%B0%9C%ED%95%A9%EB%8B%88%EB%8B%A4.&url='+encodeURIComponent(location.href)+'&hashtags=kcmi,%EC%9E%90%EB%B3%B8%EC%8B%9C%EC%9E%A5%EC%97%B0%EA%B5%AC%EC%9B%90','_blank');
+		return false;
+	}
+	function kkoshare(){
+		log_share('k','https://story.kakao.com/s/share?url='+encodeURIComponent(location.href));
+		window.open('https://story.kakao.com/s/share?url='+encodeURIComponent(location.href),'_blank');
+		return false;
+	}
+</script>
+
+<section class="line_map-menu">
+    <div class="guide_box-center">
+        <div class="page-move-btns" id="subPageMenu">
+            <a href="/" title="HOME" class="home">HOME</a>
+            <!--
+                현재 위치 라인 메뉴는  "A" 태그에 "on" 에 맞춰서 텍스트 입력값이 들어갑니다.
+                3depth 까지 나오는 메뉴도 모바일에서 자동으로 1depth는 히든 처리됩니다 ( 스크립트 작동 )
+                ETC 에서 하나만 노출 되는 메뉴도 "menu_slide" 메뉴 제외 하면 자동 처리 됩니다.
+                ex :
+                <div class="page_menu">
+                    <button type="button">뉴스레터 신청</button>
+                </div>
+             -->
+
+                        <div class="page_menu">
+                <button type="button">뉴스레터 신청</button>
+                <div class="menu_slide">
+                    <div class="motion_guide">
+                        <ul>
+                            <li><a href="/report/report_list" class="on">보고서</a></li>
+                            <li><a href="/publications/publications_list" class="">정기간행물</a></li>
+                            <li><a href="/seminar/seminar_list" class="">세미나ㆍ영상자료</a></li>
+                            <li><a href="/researcher/vision_mission" class="">연구원 소개</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+                                    <div class="page_menu">
+                <button type="button"></button>
+                <div class="menu_slide">
+                    <div class="motion_guide">
+                        <ul>
+                                                        <li><a href="/report/report_list" class="on">최신보고서</a></li>
+                                                                        <li>
+                                            <a class="" href="/report/report_list?s_report_type=002002002012">
+                                                연구총서                                            </a>
+                                        </li> <!-- 클래스 on 추가 -->
+                                                                                <li>
+                                            <a class="" href="/report/report_list?s_report_type=002002002001">
+                                                연구보고서                                            </a>
+                                        </li> <!-- 클래스 on 추가 -->
+                                                                                <li>
+                                            <a class="" href="/report/report_list?s_report_type=002002002002">
+                                                조사보고서                                            </a>
+                                        </li> <!-- 클래스 on 추가 -->
+                                                                                <li>
+                                            <a class="" href="/report/report_list?s_report_type=002002002013">
+                                                이슈보고서                                            </a>
+                                        </li> <!-- 클래스 on 추가 -->
+                                                                    <li><a href="/report/report_list?s_report_type=002002002003" class="">종간 보고서</a></li>
+                                                </ul>
+                    </div>
+                </div>
+            </div>
+            
+                                                
+            <!-- 종간 발간물 -->
+               
+
+        </div>
+        <div class="page_each-btns">
+            <button type="button" class="mob_sns">SNS 버튼 노출 모바일전용</button>
+            <div class="eh_btns">
+                <button type="button" class="eh_f" onclick="fbshare();"><span>Facebook</span></button>
+                <button type="button" class="eh_t" onclick="twtshare();"><span>Twitter</span></button>
+                <button type="button" id="btnCopyUrl" class="eh_l clipboard2" data-clipboard-text=""  onclick="fnCopyCurrentUrl(this, 'clipboard2','Y');"><span>Copy link</span></button>
+                <button type="button" class="eh_s"><span>글자 작게</span></button>
+                <button type="button" class="eh_b"><span>글자 크게</span></button>
+            </div>
+        </div>
+    </div>
+    <div class="page_scroll-progress">
+        <div class="page_scroll-bar"></div>
+    </div>
+</section>		<section class="page_sub-top bg_type01">						
+			<!--종간보고서일 경우 -->
+											<h1>최신보고서</h1>
+									<p>자본시장연구원의 보고서 자료를 소개합니다.</p>
+									</section>		
+		<section id="bodyContents" class="guide_box-center page_body-conts">
+
+			<!--종간보고서일 경우 -->
+			
+			<!-- 페이지 본문 영역 //  start-->
+			<!-- 주제별 -->
+			<div class="sub_page-select" id="pageMoveScroll">
+								<a href="javascript:void(0);" id="s_report_subject_all" name="s_report_subejct" onclick="fnSearch('s_report_subject',this)" class="on">전체</a>
+
+									<a href="javascript:;" id="s_report_subject_002002001009" class="" data_value="002002001009" name="s_report_subject" onclick="fnSearch(&#039;s_report_subject&#039;,this)">자본시장</a>
+									<a href="javascript:;" id="s_report_subject_002002001010" class="" data_value="002002001010" name="s_report_subject" onclick="fnSearch(&#039;s_report_subject&#039;,this)">금융산업</a>
+									<a href="javascript:;" id="s_report_subject_002002001011" class="" data_value="002002001011" name="s_report_subject" onclick="fnSearch(&#039;s_report_subject&#039;,this)">자산운용/연금</a>
+									<a href="javascript:;" id="s_report_subject_002002001015" class="" data_value="002002001015" name="s_report_subject" onclick="fnSearch(&#039;s_report_subject&#039;,this)">거시금융</a>
+									<a href="javascript:;" id="s_report_subject_002002001013" class="" data_value="002002001013" name="s_report_subject" onclick="fnSearch(&#039;s_report_subject&#039;,this)">기업재무</a>
+									<a href="javascript:;" id="s_report_subject_002002001008" class="" data_value="002002001008" name="s_report_subject" onclick="fnSearch(&#039;s_report_subject&#039;,this)">기타</a>
+								
+			</div>
+			<p class="sum_item-num">총 667 건</p>
+			<div class="report_list-box">
+				
+					<div class="list" id="rsidx_2344">
+						<div class="sign_guide">
+							<div class="img"><img src="/kcmifile/report_data/2344/reportpic_2344.jpg" width="170" height="242" decoding="async" fetchpriority="high" onerror="this.src='/res/img/report_img_d01.jpg'" alt="표지"></div>
+							<div class="link">
+								<div class="rpt_title">
+									<strong>전망공시의 현황과 특성 및 정보가치</strong>
+									<em>연구위원 이하윤 <span>2026.10.30</span></em>
+								</div>				
+								
+								<div class="init_tag">
+																			<a href="/community/search_basic?topkey=%EC%A0%84%EB%A7%9D%EA%B3%B5%EC%8B%9C">#전망공시</a>
+																			<a href="/community/search_basic?topkey=%EC%A0%95%EB%B3%B4%EA%B0%80%EC%B9%98">#정보가치</a>
+																</div>
+
+								<p class="txt">
+									본 보고서는 2002~2025년 국내 상장기업의 전망공시를 대상으로 활용 현황과 특성 및 자본시장에서의 정보가치를 분석한다. 전망공시는 기업의 미래 실적에 관한 정보를 시장에 직접 제공함으로써 정보비대칭을 완화하고 투자자의 기대 형성에 도움을 줄 수 있는 중요한 정보수단이다. 그러나 국내 상장기업의 전망공시 활용은 2000년대 중반 이후 장기적으로 감소해 왔으며, 산업별 활용도에도 상당한 차이가 나타난다. 공시 내용은 매출액과 영업이익 등 핵심...								</p>
+							</div>
+							<a href="javascript:void(0);" onclick='viewpage(2344, "./report_view", "_self");'>클릭하면 게시물로 이동합니다.</a>
+						</div>
+						<div class="init_btns">
+							<a href="/flexer/view?fid=29263&amp;fgu=002002&amp;fty=004010" class="viewBodoList" onclick="previewClick(event,this);" style="display:">바로보기</a>
+							<a href="/flexer/view?fid=29266&amp;fgu=002002&amp;fty=004003" class="view" onclick="previewClick(event,this);" style="display:">바로보기</a>
+							<a href="/common/downloadw?fid=29266&amp;fgu=002002&amp;fty=004003" class="down">다운로드</a>
+						</div>
+					</div>
+				
+					<div class="list" id="rsidx_2341">
+						<div class="sign_guide">
+							<div class="img"><img src="/kcmifile/report_data/2341/reportpic_2341.jpg" width="170" height="242" decoding="async" loading="lazy" onerror="this.src='/res/img/report_img_d01.jpg'" alt="표지"></div>
+							<div class="link">
+								<div class="rpt_title">
+									<strong>임팩트투자 생태계 현황과 과제</strong>
+									<em>선임연구위원 박창균 외 <span>2026.10.26</span></em>
+								</div>				
+								
+								<div class="init_tag">
+																			<a href="/community/search_basic?topkey=%EC%9E%84%ED%8C%A9%ED%8A%B8%ED%88%AC%EC%9E%90">#임팩트투자</a>
+																			<a href="/community/search_basic?topkey=%EC%82%AC%ED%9A%8C%EC%A0%81%20%EA%B0%80%EC%B9%98">#사회적 가치</a>
+																</div>
+
+								<p class="txt">
+									본 연구는 한국 임팩트투자 시장의 구조와 성과를 진단하고, 임팩트투자 생태계 강화를 위한 제도적·정책적 과제를 도출하는 것을 목적으로 한다. 이를 위하여 2002년부터 2024년까지 벤처투자회사 전자공시(DIVA) 시스템에 등록된 벤처캐피탈펀드 자료를 활용한 실증 분석과 함께 국내 22개 임팩트 투자기관을 대상으로 실시한 설문조사와 심층 면담 결과를 종합하였다.
+
+한국 임팩트투자 시장은 외형적으로 빠른 양적...								</p>
+							</div>
+							<a href="javascript:void(0);" onclick='viewpage(2341, "./report_view", "_self");'>클릭하면 게시물로 이동합니다.</a>
+						</div>
+						<div class="init_btns">
+							<a href="/flexer/view?fid=29240&amp;fgu=002002&amp;fty=004010" class="viewBodoList" onclick="previewClick(event,this);" style="display:">바로보기</a>
+							<a href="/flexer/view?fid=29238&amp;fgu=002002&amp;fty=004003" class="view" onclick="previewClick(event,this);" style="display:">바로보기</a>
+							<a href="/common/downloadw?fid=29238&amp;fgu=002002&amp;fty=004003" class="down">다운로드</a>
+						</div>
+					</div>
+				
+					<div class="list" id="rsidx_2337">
+						<div class="sign_guide">
+							<div class="img"><img src="/kcmifile/report_data/2337/reportpic_2337.jpg" width="170" height="242" decoding="async" loading="lazy" onerror="this.src='/res/img/report_img_d01.jpg'" alt="표지"></div>
+							<div class="link">
+								<div class="rpt_title">
+									<strong>미국 사모신용시장의 건전성, 유동성 및 시스템리스크</strong>
+									<em>선임연구위원 신보성 <span>2026.10.12</span></em>
+								</div>				
+								
+								<div class="init_tag">
+																</div>
+
+								<p class="txt">
+									사모신용펀드의 성과는 펀드에 담긴 중견기업의 상환능력에 달려 있다. 그런데 금리상승으로 이들 기업의 이자부담이 대폭 늘어난 가운데, 수익성 역시 빠른 속도로 악화되고 있다. 이로 인해 사모신용펀드의 순자산가치(NAV) 하락에 대한 우려가 크다. 최근 펀드에 대한 환매신청이 쇄도하는 현상은 이러한 우려를 반영한다.
+
+펀드가치 하락에도 불구하고 펀드 자체의 디폴트 가능성은 크지 않다. 사모신용펀드의 부채비율이 과도한 수준이...								</p>
+							</div>
+							<a href="javascript:void(0);" onclick='viewpage(2337, "./report_view", "_self");'>클릭하면 게시물로 이동합니다.</a>
+						</div>
+						<div class="init_btns">
+							<a href="" class="viewBodoList" onclick="previewClick(event,this);" style="display:none">바로보기</a>
+							<a href="/flexer/view?fid=29234&amp;fgu=002002&amp;fty=004003" class="view" onclick="previewClick(event,this);" style="display:">바로보기</a>
+							<a href="/common/downloadw?fid=29234&amp;fgu=002002&amp;fty=004003" class="down">다운로드</a>
+						</div>
+					</div>
+				
+					<div class="list" id="rsidx_2336">
+						<div class="sign_guide">
+							<div class="img"><img src="/kcmifile/report_data/2336/reportpic_2336.png" width="170" height="242" decoding="async" loading="lazy" onerror="this.src='/res/img/report_img_d01.jpg'" alt="표지"></div>
+							<div class="link">
+								<div class="rpt_title">
+									<strong>K-자본시장 정책시리즈 2: 자본시장 토큰화의 확산: 해외 주요 사례와 국내 도입 과제</strong>
+									<em>연구위원 정화영 <span>2026.10.06</span></em>
+								</div>				
+								
+								<div class="init_tag">
+																			<a href="/community/search_basic?topkey=K-%EC%9E%90%EB%B3%B8%EC%8B%9C%EC%9E%A5%20%EC%A0%95%EC%B1%85%EC%8B%9C%EB%A6%AC%EC%A6%88">#K-자본시장 정책시리즈</a>
+																			<a href="/community/search_basic?topkey=%ED%86%A0%ED%81%B0%ED%99%94">#토큰화</a>
+																			<a href="/community/search_basic?topkey=%EC%9E%90%EB%B3%B8%EC%8B%9C%EC%9E%A5">#자본시장</a>
+																			<a href="/community/search_basic?topkey=%EC%8B%9C%EC%9E%A5%EC%9D%B8%ED%94%84%EB%9D%BC">#시장인프라</a>
+																</div>
+
+								<p class="txt">
+									분산원장기술 기반의 토큰화를 활용한 상품과 관련 서비스가 점진적으로 늘어나면서, 금융기관과 정책당국의 주요 관심 사안으로 부상하고 있다. 글로벌 자본시장에서 토큰화는 개념검증이나 시범사업 단계를 지나 제도권 금융기관의 거래와 업무에 적용되며 실제 활용 사례가 축적되고 있다.
+
+지금까지 나타난 토큰화 확산의 특징을 살펴보면, 규제체계와 시장관행이 정립된 전통 금융상품이 주로 토큰화되는 가운데 도입 편익이 비교적 명확한 일...								</p>
+							</div>
+							<a href="javascript:void(0);" onclick='viewpage(2336, "./report_view", "_self");'>클릭하면 게시물로 이동합니다.</a>
+						</div>
+						<div class="init_btns">
+							<a href="/flexer/view?fid=29203&amp;fgu=002002&amp;fty=004010" class="viewBodoList" onclick="previewClick(event,this);" style="display:">바로보기</a>
+							<a href="/flexer/view?fid=29201&amp;fgu=002002&amp;fty=004003" class="view" onclick="previewClick(event,this);" style="display:">바로보기</a>
+							<a href="/common/downloadw?fid=29201&amp;fgu=002002&amp;fty=004003" class="down">다운로드</a>
+						</div>
+					</div>
+								
+			</div>
+
+							<div class="init_btns-mid" id="divBtnMore">
+					<button type="button" class="more" onclick="addmore();">더보기</button>
+				</div>
+						
+
+			<!-- 페이지 본문 영역 //  end-->
+		</section>
+	</main>
+	<footer>
+    <section class="newsletter_link">
+        <div class="guide_box-center">
+            <div class="info_txt">
+                <strong>NEWS<span>LETTERS</span></strong>                
+                <p>자본시장연구원의 다양한 소식 및 자료를 <br>이메일로 받아보세요</p>
+            </div>
+            <a href="/newsletters/newsletters_apply"><span>뉴스레터 신청</span></a>
+        </div>
+    </section>
+    <section class="map_menu">
+        <div class="guide_box-center">
+            <div class="menu_box">
+                <dl>
+                    <dt>보고서</dt>
+                    <dd>
+                        <ul>
+                            <li><a href="/report/report_list">최신보고서</a></li>
+																<li>
+										<a class="" href="/report/report_list?s_report_type=002002002012">
+											연구총서										</a>
+									</li> <!-- 클래스 on 추가 -->
+																		<li>
+										<a class="" href="/report/report_list?s_report_type=002002002001">
+											연구보고서										</a>
+									</li> <!-- 클래스 on 추가 -->
+																		<li>
+										<a class="" href="/report/report_list?s_report_type=002002002002">
+											조사보고서										</a>
+									</li> <!-- 클래스 on 추가 -->
+																		<li>
+										<a class="" href="/report/report_list?s_report_type=002002002013">
+											이슈보고서										</a>
+									</li> <!-- 클래스 on 추가 -->
+									                            <li><a href="/report/report_list?s_report_type=002002002003">종간 보고서</a></li>
+                        </ul>
+                    </dd>
+                </dl>
+                <dl>
+                    <dt>정기간행물</dt>
+                    <dd>
+                        <ul>
+                            <li><a href="/publications/publications_list">자본시장포커스</a></li>
+                            <li><a href="/publications/publications3_list">자본시장 제도동향</a></li>
+                            <!-- <li><a href="/publications/publications_da_list">디지털자산시장 제도 동향</a></li> -->
+                            <!-- <li><a href="/publications/publications2_list">경제 및 자본시장 전망</a></li> -->
+                            <li><a href="/publications/pubend2_list?zcd=002001010">종간 발간물</a></li>
+                        </ul>
+                    </dd>
+                </dl>
+                <dl>
+                    <dt>세미나 · 영상자료</dt>
+                    <dd>
+                        <ul>
+                            <li><a href="/seminar/seminar_list">세미나</a></li>
+                            <li><a href="/seminar/video_list">영상보고서</a></li>
+							<li><a href="/seminar/seminar_kgi">KGI</a></li>                        </ul>
+                    </dd>
+                </dl>
+                <dl>
+                    <dt>연구원 소개</dt>
+                    <dd>
+                        <ul>
+                            <li><a href="/researcher/vision_mission">미션 & 비전</a></li>
+                            <li><a href="/researcher/introduce_tab01">연구원 소개</a></li>
+                            <li><a href="/researcher/researcher_organ">조직 및 연구위원</a></li>
+                            <li><a href="/researcher/annual_report_list">연차보고서</a></li>
+                            <li><a href="/researcher/researcher_agency">연구협력 국제기관</a></li>
+                            <li><a href="/researcher/hire_tab01">채용안내</a></li>
+                            <li><a href="/researcher/researcher_purchase">간행물 구입안내</a></li>
+                            <li><a href="/researcher/meeting_list">연구회</a></li>
+                            <li><a href="/community/all_list">KCMI 소식</a></li>
+                        </ul>
+                    </dd>
+                </dl>
+            </div>
+            <div class="sns_link">
+                <a class="k" href="https://pf.kakao.com/_fxnrYK" target="_blank">KAKAO</a>
+                <a class="t" href="https://www.youtube.com/user/TheKCMIofficial" target="_blank">YOUTUBE</a>
+            </div>
+        </div>
+        <div class="footer_info">
+            <div class="guide_box-center">
+                <ul>
+                    <li><a href="../etc/policy_use">이용약관</a></li>
+                    <li><a href="../etc/policy_privacy">개인정보취급방침</a></li>
+                    <li><a href="../etc/policy_copyright">저작권 정책</a></li>
+                    <li><a href="../etc/policy_email">이메일 무단수집거부</a></li>
+                    <li><a href="../newsletters/service_mail">뉴스레터 탈퇴</a></li>
+                    <li><a href="https://www.kcmi.re.kr/manager/login/login" target="_blank">인트라넷</a></li>
+                </ul>
+                <address>(07332) 서울특별시 영등포구 의사당대로 143, 금투센터 9,10,18,19층 <i>T 02-3771-0600</i></address>
+                <span>COPYRIGHT © KCMI CO.,LTD ALL RIGHTS RESERVED.</span>
+            </div>
+        </div>
+        <button type="button" class="page_top fix" title="페이지 상단으로 이동"><span>페이지 상단이동</span></button>
+    </section>
+</footer>
+		
+
+<script id="tagReportItemPop" type="text/x-handlebars-template">	
+		<div class="list">
+			<div class="sign_guide">
+				<div class="link">
+					<div class="rpt_title">
+						<b>{{report_subject_name}}</b>
+						<strong>{{report_title}}</strong>
+						<em>{{author}} <span>{{pub_date}}</span></em>
+					</div>
+				</div>
+				<a href="/report/report_view?report_no={{report_no}}">클릭하면 게시물로 이동합니다.</a>
+			</div>
+			<div class="init_btns">
+				<a href="{{report_pdf_preview_link}}" class="view" onclick="previewClick(event,this);" style="display:{{displayset}}">바로보기</a>
+				<a href="{{report_pdf_download_link}}" class="down">다운로드</a>
+			</div>
+		</div>	
+</script>
+
+<script id="tagWebzineItemPop" type="text/x-handlebars-template">
+	<div class="list">
+		<div class="sign_guide">
+			<div class="link">
+				<div class="rpt_title">
+					<strong>{{title}}</strong>
+					<em>{{zine_pubdate}}</em>
+				</div>
+				<p class="txt">{{{content}}}</p>
+			</div>
+			<a href="{{viewUrl}}?syear={{syear}}&zcd={{zcd}}&zno={{zno}}&cno={{cno}}">클릭하면 게시물로 이동합니다.</a>
+		</div>
+		<div class="init_btns">
+			<a href="{{report_pdf_preview_link}}" class="view" onclick="previewClick(event,this);" style="display:{{displayset}}">바로보기</a>
+			<a href="{{report_pdf_download_link}}" class="down">다운로드</a>
+		</div>
+	</div>	
+</script>
+
+<script id="tagSeminarItemPop" type="text/x-handlebars-template">
+	<div class="month_item-seminar">
+		<a href="/seminar/seminar_presentation?syear={{syear}}&eno={{eno}}&bno={{bno}}&open_file_no={{file_no}}">클릭하면 게시물로 이동합니다.</a>
+		<div class="link_left">
+			<div class="date"><span>{{syear}}<em>{{smonth}}</em></span><strong>{{sday}}</strong></div>
+			<div class="img"><img src="{{ev_thumimg}}" alt="세미나"></div>
+		</div>
+		<div class="link_right">
+			<strong>{{data_title}}</strong>
+			<b>{{place}}</b>
+                <div class="init_btns">
+                    <a href="/flexer/viewdata.php?fid={{file_no}}&fgu={{savefgubun}}&fty={{saveftype}}" class="view" onclick="previewClick(event,this);" style="display:{{displayset}}">바로보기</a>
+                    <a href="/common/downloaddataw?fid={{file_no}}&fgu={{savefgubun}}&fty={{saveftype}}" class="down">다운로드</a>
+                </div>													            
+		</div>
+	</div>
+</script>
+
+<script id="tagNotisideItemPop" type="text/x-handlebars-template">
+	<li>
+		<a href="{{viewUrl}}?bno={{bno}}">
+			{{title}} <em>{{author}} / {{in_date}}</em>
+		</a>
+	</li>
+</script>	
+<div id="researcherPopup" class="init_popup">
+</div>
+<div id="member_email_layer" class="member_email_layer" hidden>
+	<div class="member_email_layer_dim" data-role="member-email-close"></div>
+	<div class="member_email_layer_box" role="dialog" aria-modal="true" aria-labelledby="member_email_layer_title">
+		<div class="member_email_layer_head">
+			<h3 id="member_email_layer_title">메일 주소 확인</h3>
+			<button type="button" class="member_email_layer_close" data-role="member-email-close" aria-label="레이어 닫기"></button>
+		</div>
+		<div class="member_email_layer_body">
+			<div class="member_email_step" data-step="verify">
+				<p class="member_email_kicker">자동입력 방지 인증</p>
+				<p class="member_email_desc">스팸 및 무단 수집을 방지하기 위해 인증을 완료해 주세요.<br>인증이 끝나면 메일 주소를 안내합니다.</p>
+				<div class="member_email_turnstile">
+					<div id="member_email_turnstile"></div>
+				</div>
+				<p class="member_email_error" data-role="member-email-error" hidden></p>
+			</div>
+			<div class="member_email_step" data-step="result" hidden>
+				<p class="member_email_name" data-role="member-email-name"></p>
+				<div class="member_email_address">
+					<a href="#" class="member_email_link" data-role="member-email-send"></a>
+					<button type="button" data-role="member-email-copy">복사</button>
+				</div>
+				<p class="member_email_guide">업무 관련 문의에만 사용해 주시기 바랍니다.</p>
+				<div class="member_email_actions">
+					<button type="button" data-role="member-email-close">닫기</button>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+<script>
+(function($){
+	var copy = {"title":"메일 주소 확인","verify_title":"자동입력 방지 인증","verify_desc":"스팸 및 무단 수집을 방지하기 위해 인증을 완료해 주세요.\u003Cbr\u003E인증이 끝나면 메일 주소를 안내합니다.","loading":"연락처를 확인하고 있습니다.","guide":"업무 관련 문의에만 사용해 주시기 바랍니다.","copy":"복사","copied":"복사되었습니다.","send":"메일 보내기","close":"닫기","aria_close":"레이어 닫기","error_default":"연락처를 확인할 수 없습니다.","contact_verify_desc":"스팸 및 무단 수집을 방지하기 위해 인증을 완료해 주세요. 인증이 끝나면 전화번호와 메일 주소가 표시됩니다."};
+	var csrfToken = "b55012933483e5c1f1b668fba942e97e4c34edba679115a35aec64862d6ce3e4";
+	var lang = "ko";
+	var sitekey = '0x4AAAAAAALdTnn7oJ0iOaaF';
+	var apiUrl = lang === 'en' ? '/en/researcher/json_member_email' : '/researcher/json_member_email';
+	var $layer = $('#member_email_layer');
+	var widgetId = null;
+	var popupWidgetId = null;
+	var currentMem = {memNo: '', memId: '', memName: ''};
+	var isOpen = false;
+	var requestSeq = 0;
+	var contactCache = {};
+
+	function cacheKey(mem) {
+		if (mem.memNo) {
+			return 'n:' + mem.memNo;
+		}
+		if (mem.memId) {
+			return 'i:' + mem.memId;
+		}
+		return '';
+	}
+
+	function memFromEl($el) {
+		return {
+			memNo: $el.attr('data-mem-no') || '',
+			memId: $el.attr('data-mem-id') || '',
+			memName: $el.attr('data-mem-name') || ''
+		};
+	}
+
+	function setError(message) {
+		var $error = $layer.find('[data-role="member-email-error"]');
+		if (!message) {
+			$error.attr('hidden', true).text('');
+			return;
+		}
+		$error.removeAttr('hidden').text(message);
+	}
+
+	function setPopupError($ul, message) {
+		var $error = $ul.find('.contact_verify_error');
+		if (!message) {
+			$error.attr('hidden', true).text('');
+			return;
+		}
+		$error.removeAttr('hidden').text(message);
+	}
+
+	function showStep(step) {
+		$layer.find('.member_email_step').attr('hidden', true);
+		$layer.find('.member_email_step[data-step="' + step + '"]').removeAttr('hidden');
+	}
+
+	function resetWidget() {
+		if (window.turnstile && widgetId !== null) {
+			try {
+				window.turnstile.reset(widgetId);
+			} catch (e) {}
+		}
+	}
+
+	function destroyPopupWidget() {
+		if (window.turnstile && popupWidgetId !== null) {
+			try {
+				window.turnstile.remove(popupWidgetId);
+			} catch (e) {}
+		}
+		popupWidgetId = null;
+	}
+
+	function renderWidget() {
+		if (!window.turnstile) {
+			return false;
+		}
+		var mount = document.getElementById('member_email_turnstile');
+		if (!mount) {
+			return false;
+		}
+		if (widgetId !== null) {
+			resetWidget();
+			return true;
+		}
+		widgetId = window.turnstile.render(mount, {
+			sitekey: sitekey,
+			callback: onTurnstileSuccess,
+			'expired-callback': function() {
+				setError(copy.error_default);
+			},
+			'error-callback': function() {
+				setError(copy.error_default);
+			}
+		});
+		return true;
+	}
+
+	function waitAndRender(retry) {
+		if (renderWidget()) {
+			return;
+		}
+		if (retry > 20) {
+			setError(copy.error_default);
+			return;
+		}
+		setTimeout(function() {
+			waitAndRender(retry + 1);
+		}, 250);
+	}
+
+	function copyEmail(email) {
+		if (!email) {
+			return;
+		}
+		if (navigator.clipboard && navigator.clipboard.writeText) {
+			navigator.clipboard.writeText(email).then(function() {
+				alert(copy.copied);
+			}).catch(function() {
+				fallbackCopy(email);
+			});
+			return;
+		}
+		fallbackCopy(email);
+	}
+
+	function fallbackCopy(email) {
+		var $temp = $('<textarea readonly></textarea>').css({position: 'fixed', left: '-9999px'}).val(email).appendTo('body');
+		$temp[0].select();
+		try {
+			document.execCommand('copy');
+			alert(copy.copied);
+		} catch (e) {}
+		$temp.remove();
+	}
+
+	function fetchContact(mem, token) {
+		return $.ajax({
+			url: apiUrl,
+			type: 'POST',
+			dataType: 'json',
+			data: {
+				csrf_token: csrfToken,
+				lang: lang,
+				mem_no: mem.memNo,
+				mem_id: mem.memId,
+				'cf-turnstile-response': token
+			}
+		});
+	}
+
+	function saveCache(mem, res) {
+		var key = cacheKey(mem);
+		if (key) {
+			contactCache[key] = res;
+		}
+		if (res.mem_no) {
+			contactCache['n:' + res.mem_no] = res;
+		}
+	}
+
+	function showOverlayResult(res, mem) {
+		var name = res.mem_name || (mem && mem.memName) || '';
+		$layer.find('[data-role="member-email-name"]').text(name);
+		$layer.find('[data-role="member-email-send"]')
+			.attr('href', res.mem_email ? ('mailto:' + res.mem_email) : '#')
+			.text(res.mem_email || '');
+		$layer.find('[data-role="member-email-copy"]').off('click.memberEmail').on('click.memberEmail', function() {
+			copyEmail(res.mem_email);
+		});
+		showStep('result');
+	}
+
+	function fillContact($ul, res) {
+		if (!$ul || !$ul.length) {
+			return;
+		}
+		destroyPopupWidget();
+		var html = '';
+		var tel = res.mem_tel || '';
+		var extras = $.isArray(res.extra_tels) ? res.extra_tels : [];
+		if (tel || extras.length) {
+			if (extras.length) {
+				html += '<li><div class="tel_link">';
+				if (tel) {
+					html += '<a href="tel:' + $('<div>').text(tel).html() + '">' + $('<div>').text(tel).html() + '</a>';
+				}
+				$.each(extras, function(_, item) {
+					var href = item.tel || '';
+					var label = item.display || ((item.label || '') + href);
+					html += '<a href="tel:' + $('<div>').text(href).html() + '">' + $('<div>').text(label).html() + '</a>';
+				});
+				html += '</div></li>';
+			} else {
+				html += '<li><a href="tel:' + $('<div>').text(tel).html() + '">' + $('<div>').text(tel).html() + '</a></li>';
+			}
+		}
+		if (res.mem_email) {
+			var email = $('<div>').text(res.mem_email).html();
+			html += '<li class="contact_mail">';
+			html += '<a href="mailto:' + email + '">' + email + '</a>';
+			html += '<button type="button" class="btn_email_copy" data-email="' + email + '">' + $('<div>').text(copy.copy).html() + '</button>';
+			html += '</li>';
+		}
+		$ul.removeClass('contact_locked').html(html);
+	}
+
+	function fillPopupIfMatch(res, mem) {
+		var $ul = $('#researcherPopup .contact.contact_locked');
+		if (!$ul.length) {
+			$ul = $('#researcherPopup .contact');
+		}
+		if (!$ul.length) {
+			return;
+		}
+		var popupMem = memFromEl($ul);
+		if (mem && popupMem.memNo && mem.memNo && popupMem.memNo !== mem.memNo) {
+			return;
+		}
+		fillContact($ul, res);
+	}
+
+	function onTurnstileSuccess(token) {
+		if (!isOpen) {
+			return;
+		}
+		var seq = ++requestSeq;
+		setError('');
+		$layer.find('[data-step="verify"] .member_email_desc').text(copy.loading);
+
+		fetchContact(currentMem, token).done(function(res) {
+			if (seq !== requestSeq) {
+				return;
+			}
+			if (!res || res.resultCode !== 'success' || !res.mem_email) {
+				$layer.find('[data-step="verify"] .member_email_desc').html(copy.verify_desc);
+				setError((res && res.message) ? res.message : copy.error_default);
+				resetWidget();
+				return;
+			}
+			saveCache(currentMem, res);
+			showOverlayResult(res, currentMem);
+			fillPopupIfMatch(res, currentMem);
+		}).fail(function() {
+			if (seq !== requestSeq) {
+				return;
+			}
+			$layer.find('[data-step="verify"] .member_email_desc').html(copy.verify_desc);
+			setError(copy.error_default);
+			resetWidget();
+		});
+	}
+
+	function openLayer(button) {
+		currentMem = memFromEl($(button));
+		var cached = contactCache[cacheKey(currentMem)];
+		isOpen = true;
+		setError('');
+		$layer.removeAttr('hidden').addClass('open');
+		$('body').addClass('member_email_layer_open');
+		if (cached && cached.mem_email) {
+			showOverlayResult(cached, currentMem);
+			fillPopupIfMatch(cached, currentMem);
+			return;
+		}
+		$layer.find('[data-step="verify"] .member_email_desc').html(copy.verify_desc);
+		$layer.find('[data-role="member-email-name"]').text(currentMem.memName);
+		showStep('verify');
+		waitAndRender(0);
+	}
+
+	function closeLayer() {
+		isOpen = false;
+		requestSeq += 1;
+		$layer.attr('hidden', true).removeClass('open');
+		$('body').removeClass('member_email_layer_open');
+		resetWidget();
+		$layer.find('[data-role="member-email-send"]').attr('href', '#').text('');
+	}
+
+	function renderPopupWidget($ul) {
+		if (!window.turnstile) {
+			return false;
+		}
+		var mount = $ul.find('.contact_turnstile')[0];
+		if (!mount) {
+			return false;
+		}
+		destroyPopupWidget();
+		popupWidgetId = window.turnstile.render(mount, {
+			sitekey: sitekey,
+			callback: function(token) {
+				var mem = memFromEl($ul);
+				$ul.find('.contact_verify_desc').text(copy.loading);
+				setPopupError($ul, '');
+				fetchContact(mem, token).done(function(res) {
+					if (!res || res.resultCode !== 'success' || (!res.mem_email && !res.mem_tel)) {
+						$ul.find('.contact_verify_desc').text(copy.contact_verify_desc);
+						setPopupError($ul, (res && res.message) ? res.message : copy.error_default);
+						if (window.turnstile && popupWidgetId !== null) {
+							try { window.turnstile.reset(popupWidgetId); } catch (e) {}
+						}
+						return;
+					}
+					saveCache(mem, res);
+					fillContact($ul, res);
+				}).fail(function() {
+					$ul.find('.contact_verify_desc').text(copy.contact_verify_desc);
+					setPopupError($ul, copy.error_default);
+					if (window.turnstile && popupWidgetId !== null) {
+						try { window.turnstile.reset(popupWidgetId); } catch (e) {}
+					}
+				});
+			},
+			'expired-callback': function() {
+				setPopupError($ul, copy.error_default);
+			},
+			'error-callback': function() {
+				setPopupError($ul, copy.error_default);
+			}
+		});
+		return true;
+	}
+
+	function waitAndRenderPopup($ul, retry) {
+		if (renderPopupWidget($ul)) {
+			return;
+		}
+		if (retry > 20) {
+			setPopupError($ul, copy.error_default);
+			return;
+		}
+		setTimeout(function() {
+			waitAndRenderPopup($ul, retry + 1);
+		}, 250);
+	}
+
+	function onPopupLoaded() {
+		var $ul = $('#researcherPopup .contact.contact_locked');
+		if (!$ul.length) {
+			return;
+		}
+		var mem = memFromEl($ul);
+		var cached = contactCache[cacheKey(mem)];
+		if (cached && (cached.mem_email || cached.mem_tel)) {
+			fillContact($ul, cached);
+			return;
+		}
+		waitAndRenderPopup($ul, 0);
+	}
+
+	$(document).on('click', '.btn_mail', function(e) {
+		e.preventDefault();
+		e.stopPropagation();
+		openLayer(this);
+	});
+	$(document).on('click', '[data-role="member-email-close"]', function(e) {
+		e.preventDefault();
+		closeLayer();
+	});
+	$(document).on('click', '.btn_email_copy', function(e) {
+		e.preventDefault();
+		e.stopPropagation();
+		copyEmail($(this).attr('data-email') || $(this).siblings('a[href^="mailto:"]').text());
+	});
+	$(document).on('keydown', function(e) {
+		if (e.key === 'Escape' && isOpen) {
+			closeLayer();
+		}
+	});
+
+	window.MemberEmailProtect = {
+		onPopupLoaded: onPopupLoaded
+	};
+})(jQuery);
+</script>
+</div>
+
+<script id="tagReportItem" type="text/x-handlebars-template">
+	<div class="list" id="rsidx_{{report_no}}">
+		<div class="sign_guide">
+			<div class="img"><img src="{{img_src}}" width="170" height="242" loading="lazy" decoding="async" onerror="this.src='/res/img/report_img_d01.jpg'" alt="표지"></div>
+			<div class="link">
+				<div class="rpt_title">
+					<strong>{{report_title}}</strong>
+					<em>{{author}}<span>{{pub_date}}</span></em>
+				</div>				
+				<div class="init_tag">
+				{{#each tag_list}}
+    				<a href="/community/search_basic?topkey={{tag_title_enc}}">#{{tag_title}}</a>
+  				{{/each}}					
+				</div>
+				<p class="txt">{{summary}}</p>
+			</div>
+			<a href="javascript:void(0)" onclick="viewpage({{report_no}}, './report_view', '_self');">클릭하면 게시물로 이동합니다.</a>
+		</div>
+		<div class="init_btns">
+			<a href="{{report_bodo_preview_link}}" class="viewBodoList" style="display:{{bodo_displayset}}" onclick="previewClick(event,this);">바로보기</a>
+			<a href="{{report_pdf_preview_link}}" class="view" style="display:{{displayset}}" onclick="previewClick(event,this);">바로보기</a>
+			<a href="{{report_pdf_download_link}}" class="down">다운로드</a>
+		</div>
+	</div>	
+</script>
+
+</body>
+</html>
