@@ -594,7 +594,8 @@ async function proxyFetch(request, url, ctx) {
     status: upstream.status,
     headers: {
       "Content-Type": upstream.headers.get("Content-Type") || "application/octet-stream",
-      "Cache-Control": "public, max-age=600",
+      // 시세는 1분, 그 밖의 목록은 10분 동안 캐시한다.
+      "Cache-Control": `public, max-age=${/(^|\.)(stock\.naver\.com|finance\.yahoo\.com)$/.test(target.hostname) ? 60 : 600}`,
       "X-Final-Url": finalUrl
     }
   });
