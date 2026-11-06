@@ -6,9 +6,12 @@
 //  - /dart    : 기업 개황 및 공시(DART). DART Open API(개황·최대주주·재무·정기/주요사항/기타 공시)를 중계한다. 인증키는 이 서버의 비밀값(DART_API_KEY)으로만 존재한다.
 //  - /usage   : 익명 사용 통계(일일 핑) 수집, /admin 은 관리자 통계 화면(usage-lib.js).
 //  - /fisis   : 금융통계정보시스템(FISIS) Open API 중계(금융회사 목록·총자산 순위·주요 경영정보). 인증키는 이 서버의 비밀값(FISIS_API_KEY)으로만 존재한다.
+//  - /fetch   : 웹 버전 전용. 브라우저가 직접 못 읽는(CORS) 기관·시세 사이트를 허용 목록 안에서만 대신 읽는다(web-lib.js).
+// 웹 버전(fss-insights-web)은 앱 토큰을 숨길 수 없어서, 허용 출처(WEB_ORIGINS)에서 온 요청은 토큰 없이 받고 IP별 요청 수를 제한한다.
 import fisisData from "./fisis-data.json";
 import { usagePing, adminApi, adminPage } from "./usage-lib.js";
 import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, withDartClass } from "./dart-lib.js";
+import { corsPreflight, proxyFetch, webAccess, withCors } from "./web-lib.js";
 import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos } from "./fisis-lib.js";
 
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
@@ -34,6 +37,20 @@ const ID = /^[A-Za-z0-9_-]{10,100}$/;
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    // 웹 버전: 허용 출처의 요청만 토큰 없이 받고, 응답에 CORS 머리글을 붙인다.
+    const web = webAccess(request, url, env);
+    if (web) {
+      if (request.method === "OPTIONS") return corsPreflight(web.origin);
+      const blocked = await web.check();
+      if (blocked) return withCors(blocked, web.origin);
+      return withCors(await route(request, url, env, ctx, true), web.origin);
+    }
+    return route(request, url, env, ctx, false);
+  },
+};
+
+async function route(request, url, env, ctx, fromWeb) {
+  {
     // 관리자 통계 화면은 자체 토큰(ADMIN_TOKEN)으로 보호한다(앱 토큰과 별개).
     if (url.pathname === "/admin" && request.method === "GET") return adminPage();
     if (url.pathname === "/admin/api" && request.method === "GET") {
@@ -43,8 +60,15 @@ export default {
         return fail(502, `통계 조회 오류: ${e.message}`);
       }
     }
-    if (!env.APP_TOKEN || request.headers.get("X-App-Token") !== env.APP_TOKEN) {
+    if (!fromWeb && (!env.APP_TOKEN || request.headers.get("X-App-Token") !== env.APP_TOKEN)) {
       return new Response("Unauthorized", { status: 401 });
+    }
+    if (url.pathname === "/fetch" && fromWeb) {
+      try {
+        return await proxyFetch(request, url, ctx);
+      } catch (e) {
+        return fail(502, `사이트 읽기 오류: ${e.message}`);
+      }
     }
     if (url.pathname === "/usage/ping" && request.method === "POST") {
       try {
@@ -90,8 +114,8 @@ export default {
       }
     }
     return new Response("Not found", { status: 404 });
-  },
-};
+  }
+}
 
 // 국가법령정보 공동활용 Open API(DRF) 중계. OC 인증값은 이 서버의 비밀값(LAW_OC)으로만 존재하고, 앱이 보낸 OC는 버린다.
 const LAW_ORIGIN = "https://www.law.go.kr";
