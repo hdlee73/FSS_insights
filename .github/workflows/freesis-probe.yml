@@ -6,23 +6,26 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: capture
+      - name: probe
         run: |
-          mkdir pw && cd pw && npm init -y >/dev/null && npm i playwright@1.49.0 >/dev/null 2>&1 && npx playwright install --with-deps chromium >/dev/null 2>&1
-          cat > cap.js <<'JS'
-          const { chromium } = require('playwright');
-          (async () => {
-            const b = await chromium.launch();
-            const p = await b.newPage({ locale: 'ko-KR', viewport: { width: 1400, height: 900 } });
-            p.on('request', r => { if (r.url().includes('getMetaDataList')) console.log('REQ', r.postData()); });
-            await p.goto('https://freesis.kofia.or.kr/stat/FreeSIS.do?parentDivId=MSIS40200000000000&serviceId=STATFND0200100130', { waitUntil: 'networkidle', timeout: 60000 });
-            await p.waitForTimeout(6000);
-            const info = await p.evaluate(() => [...document.querySelectorAll('*')].filter(e => e.children.length === 0 && ['공모', '사모', '조회'].includes((e.textContent || '').trim())).map(e => e.tagName + '.' + e.className + ' ' + (e.textContent || '').trim() + ' ' + JSON.stringify(e.getBoundingClientRect())));
-            console.log('FOUND', JSON.stringify(info, null, 1));
-            console.log('FRAMES', p.frames().map(f => f.url()).join(' | '));
-            const radios = await p.evaluate(() => [...document.querySelectorAll('input[type=radio], [role=radio]')].map(e => (e.name || e.id || e.className) + '=' + (e.value || e.getAttribute('aria-label') || '') + ' checked=' + e.checked + ' ' + JSON.stringify(e.getBoundingClientRect())));
-            console.log('RADIOS', radios.join('\n'));
-            await b.close();
-          })();
-          JS
-          node cap.js 2>&1 | cut -c1-400 | head -80
+          cat > p.py <<'PY'
+          import json, subprocess
+          B = "https://freesis.kofia.or.kr/meta/"
+          REF = "https://freesis.kofia.or.kr/stat/FreeSIS.do?parentDivId=MSIS40200000000000&serviceId=STATFND0200100130"
+          def post(body):
+              for i in range(5):
+                  p = subprocess.run(["curl", "-sS", "--compressed", "-m", "90", "-A", "Mozilla/5.0 Chrome/124", "-H", "Content-Type: application/json; charset=UTF-8", "-e", REF, "-d", json.dumps({"dmSearch": body}), B + "getMetaDataList.do"], capture_output=True)
+                  try: return json.loads(p.stdout.decode("utf-8", "replace"), strict=False)
+                  except Exception: pass
+              return {}
+          def show(name, body):
+              d = post(body)
+              rows = d.get("ds1", [])
+              pick = {r["TMPV1"]: [r.get(f"TMPV{i}") for i in range(2, 21)] for r in rows if r.get("TMPV1", "").startswith(("골든브릿지", "교보자산"))}
+              print(name, "rows", len(rows), "keys", [k for k in d if k != "ds1"], pick)
+          base = {"tmpV40": "100000000", "tmpV41": "1", "tmpV34": "20261105", "tmpV6": "2", "tmpV4": "", "tmpV5": "", "tmpV20": "Y", "OBJ_NM": "STATFND0200100130BO"}
+          show("PUB", dict(base, tmpV7="1"))
+          show("PRI", dict(base, tmpV7="2"))
+          show("PUB+V102", dict(base, tmpV7="1", tmpV102=""))
+          PY
+          python3 p.py 2>&1 | cut -c1-600
