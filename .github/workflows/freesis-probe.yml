@@ -11,7 +11,7 @@ jobs:
           cat > p.py <<'PY'
           import json, subprocess
           B = "https://freesis.kofia.or.kr/meta/"
-          REF = "https://freesis.kofia.or.kr/stat/FreeSIS.do?parentDivId=MSIS40200000000000&serviceId=STATFND0200100130"
+          REF = "https://freesis.kofia.or.kr/stat/FreeSIS.do?parentDivId=MSIS40200000000000&serviceId=STATFND0200100010"
           def post(body):
               for i in range(5):
                   p = subprocess.run(["curl", "-sS", "--compressed", "-m", "90", "-A", "Mozilla/5.0 Chrome/124", "-H", "Content-Type: application/json; charset=UTF-8", "-e", REF, "-d", json.dumps({"dmSearch": body}), B + "getMetaDataList.do"], capture_output=True)
@@ -22,10 +22,14 @@ jobs:
               d = post(body)
               rows = d.get("ds1", [])
               pick = {r["TMPV1"]: [r.get(f"TMPV{i}") for i in range(2, 21)] for r in rows if r.get("TMPV1", "").startswith(("골든브릿지", "교보자산"))}
-              print(name, "rows", len(rows), "keys", [k for k in d if k != "ds1"], pick)
-          base = {"tmpV40": "100000000", "tmpV41": "1", "tmpV34": "20261105", "tmpV6": "2", "tmpV4": "", "tmpV5": "", "tmpV20": "Y", "OBJ_NM": "STATFND0200100130BO"}
-          show("PUB", dict(base, tmpV7="1"))
+              print(name, "rows", len(rows), "unit", d.get("unit"), pick)
+              if rows and name == "PUB": print("KEYS", sorted(rows[0].keys()), json.dumps(d.get("dsmHeader"), ensure_ascii=False)[:1500])
+          base = {"tmpV40": "100000000", "tmpV41": "1", "tmpV34": "20261105", "tmpV6": "2", "tmpV4": "", "tmpV5": "", "tmpV7": "1", "tmpV20": "Y", "OBJ_NM": "STATFND0200100010BO"}
+          show("PUB", base)
           show("PRI", dict(base, tmpV7="2"))
-          show("PUB+V102", dict(base, tmpV7="1", tmpV102=""))
+          show("ALL-empty", dict(base, tmpV7=""))
+          show("ALL-0", dict(base, tmpV7="0"))
+          show("PUB-Q", dict(base, tmpV34="20260930"))
+          show("PUB-Y", dict(base, tmpV34="20251231"))
           PY
-          python3 p.py 2>&1 | cut -c1-600
+          python3 p.py 2>&1 | cut -c1-1800
