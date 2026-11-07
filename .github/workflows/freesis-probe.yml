@@ -6,13 +6,26 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: probe
+      - name: capture
         run: |
-          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
-          B=https://freesis.kofia.or.kr
-          curl -sSL -m 30 -A "$UA" -o main.js "$B/ui/app/com/main/Main.clx.js"
-          echo "== main.js: srv/service refs"; grep -oE '.{0,200}(getSrvData|getMenuData|serviceId).{0,300}' main.js | head -8
-          echo "== menu call"
-          curl -sS -m 30 -A "$UA" -X POST -H "Content-Type: application/json" -H "X-Requested-With: XMLHttpRequest" -d '{"dmSearch":{"serviceId":"STATFND0200100130"}}' -w "\nHTTP %{http_code}\n" "$B/meta/getMenuData.do" | head -c 1500
-          echo; echo "== srv call"
-          curl -sS -m 30 -A "$UA" -X POST -H "Content-Type: application/json" -H "X-Requested-With: XMLHttpRequest" -d '{"dmSearch":{"serviceId":"STATFND0200100130"}}' -w "\nHTTP %{http_code}\n" "$B/meta/getSrvData.do" | head -c 1500
+          mkdir pw && cd pw && npm init -y >/dev/null && npm i playwright@1.49.0 >/dev/null 2>&1 && npx playwright install --with-deps chromium >/dev/null 2>&1
+          cat > cap.js <<'JS'
+          const { chromium } = require('playwright');
+          (async () => {
+            const b = await chromium.launch();
+            const p = await b.newPage({ locale: 'ko-KR' });
+            p.on('response', async r => {
+              const u = r.url();
+              if (/\/meta\/|\.do/.test(u)) {
+                let body = ''; try { body = (await r.text()).slice(0, 1500); } catch (e) {}
+                const req = r.request();
+                console.log('>>', req.method(), u, r.status(), '\nREQ:', (req.postData() || '').slice(0, 1200), '\nRES:', body, '\n');
+              }
+            });
+            await p.goto('https://freesis.kofia.or.kr/stat/FreeSIS.do?parentDivId=MSIS40200000000000&serviceId=STATFND0200100130', { waitUntil: 'networkidle', timeout: 60000 });
+            await p.waitForTimeout(8000);
+            console.log('TEXT:', (await p.innerText('body')).slice(0, 1500));
+            await b.close();
+          })();
+          JS
+          node cap.js 2>&1 | head -c 12000
