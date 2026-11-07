@@ -34,8 +34,9 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq poppler-utils
-          python3 -m pip install --quiet olefile==0.47
+          # 스캔 문서는 글자 인식(OCR, tesseract 한국어)으로 읽는다. 글자 층이 있는 PDF·HWP는 OCR 없이 읽는다.
+          sudo apt-get install -y -qq poppler-utils tesseract-ocr tesseract-ocr-kor
+          python3 -m pip install --quiet olefile==0.47 pypdfium2 pdfminer.six pillow pycryptodome
       - name: Get previous data
         run: |
           if git fetch --depth=1 origin sanction-data 2>/dev/null; then
@@ -53,14 +54,29 @@ jobs:
           ARGS="--prev prev.json --cache sanction-cache --workers 6"
           if [ "${{ inputs.reparse }}" = "true" ]; then ARGS="$ARGS --reparse"; fi
           python3 server/sanction-data/build_sanctions.py sanctions.json $ARGS
-          python3 -c "import json; d=json.load(open('sanctions.json')); n=len(d['cases']); print('cases', n); assert n > 1000, 'too few cases'"
+          python3 - <<'PY'
+          import json, collections
+          d = json.load(open('sanctions.json')); cs = d['cases']; n = len(cs)
+          print('cases', n); assert n > 1000, 'too few cases'
+          no = [c for c in cs if not c.get('items')]
+          print('지적사항 미분류', len(no), dict(collections.Counter(c.get('why') for c in no)))
+          print('조치 미확인', sum(1 for c in cs if not (c['inst'] or c['exec'] or c['staff'])), 'OCR', sum(1 for c in cs if c.get('ocr')))
+          PY
       - name: Save text cache
         if: always()
         uses: actions/cache/save@v4
         with:
           path: sanction-cache
           key: sanction-text-${{ github.run_id }}
+      - name: Upload for review (PR only)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanctions-json
+          path: sanctions.json
       - name: Publish to sanction-data branch
+        # PR에서는 검토용 산출물만 올리고, 앱이 읽는 sanction-data 브랜치는 병합 뒤 정기·수동 실행에서만 갱신한다.
+        if: github.event_name != 'pull_request'
         run: |
           mkdir publish && cd publish
           git init -q

@@ -9,7 +9,7 @@ object SanctionExport {
 
     const val NOTICE = "2011년 이후 금융감독원 '금융회사 제재공시'의 공개 문서를 자동으로 읽어 정리한 참고용 자료입니다. " +
         "원문과 다르거나 누락·오분류가 있을 수 있으며, 권역은 회사명·담당부서로 추정했습니다. " +
-        "과태료·과징금은 공시(건) 단위 금액이며, 2013년 이전 일부 공시는 형식이 달라 지적사항이 미분류로 나올 수 있습니다. 업무에 인용할 때는 반드시 금감원 원문을 확인하세요."
+        "과태료·과징금은 공시(건) 단위 금액이며, 스캔 이미지 문서는 글자 인식(OCR)으로 읽어 일부 숫자·법조문이 다를 수 있고, 읽지 못한 공시는 해당 통계에 반영되지 않습니다. 업무에 인용할 때는 반드시 금감원 원문을 확인하세요."
 
     /** 세부내역 열. 기관·임원·직원 조치(4~6번 열)는 같은 공시의 지적사항끼리 세로로 합친다. */
     val DETAIL_HEADER = listOf("권역", "회사명", "조치요구일", "지적제목", "기관 조치", "임원 조치", "직원 조치", "위반 법률·조항", "담당부서")
@@ -57,6 +57,7 @@ object SanctionExport {
         block("위반 조항 상위(지적 건수)", s.topLaws.map { it.first to it.second })
         block("제재 공시가 많은 회사", s.topCompanies.map { it.first to it.second })
         block("금전제재 상위(원)", s.topMoney.map { "${it.company} (${it.date.format(ymd)})" to it.money })
+        rows += listOf<Any?>("미반영 안내", s.coverageNote() ?: "모든 공시를 읽었습니다.")
         rows += listOf<Any?>("유의사항", NOTICE)
         return XlsxWriter.Sheet("통계", listOf("항목", "값"), rows, widths = listOf(46, 60))
     }
