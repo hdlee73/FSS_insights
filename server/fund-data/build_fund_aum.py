@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """금융투자협회 종합통계 포털(FreeSIS) '회사별설정규모'(펀드 탭)에서 운용사·증권사별 펀드 순자산총액을 모은다.
 
-공모/사모를 나누고(투자지역 전체, 기금 포함), 최근일자·최직근 분기말·최직근 연말 세 시점을 받아
+공모/사모를 나누고(투자지역 전체), 최근일자·최직근 분기말·최직근 연말 세 시점을 받아
 fund-aum.json 하나로 정리한다. 앱·웹은 이 파일만 받아 금융회사 주요 현황의 '펀드 순자산' 탭에 보여 준다.
 요청은 시점 3개 x 공모/사모 2개 = 6건뿐이다.
 
@@ -19,6 +19,8 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Sa
 
 # 열 번호(TMPV): 합계 14, 전일대비 16, 전년대비 17 (펀드 탭, 단위 일억원 = 억원)
 COL_TOTAL = "TMPV14"
+# TMPV13 = 기관전용 사모펀드(차파트너스 등 PEF 운용사 열). 합계에서 빼서 저장한다.
+COL_PEF = "TMPV13"
 
 
 def post(endpoint, body, tries=6):
@@ -63,7 +65,10 @@ def fetch(date, kind):
         if not name or any(w in name for w in ("소계", "합계", "총계", "(기타)")) or name == "계":
             continue
         v = r.get(COL_TOTAL)
-        out[name] = int(v) if isinstance(v, (int, float)) else 0
+        v = v if isinstance(v, (int, float)) else 0
+        pef = r.get(COL_PEF)
+        pef = pef if isinstance(pef, (int, float)) else 0
+        out[name] = max(int(v) - int(pef), 0)
     return out
 
 
@@ -91,7 +96,7 @@ def main(path):
         "generatedAt": datetime.now(kst).strftime("%Y-%m-%dT%H:%M:%S+09:00"),
         "unit": "억원",
         "asOf": dates,
-        "source": "금융투자협회 종합통계 포털 '회사별설정규모'(펀드, 순자산총액, 투자지역 전체, 기금 포함)",
+        "source": "금융투자협회 종합통계 포털 '회사별설정규모'(펀드, 순자산총액, 투자지역 전체, 기관전용 사모펀드 제외)",
         "companies": companies,
     }
     with open(path, "w", encoding="utf-8") as f:
