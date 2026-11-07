@@ -10,12 +10,8 @@ jobs:
         run: |
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
           B=https://freesis.kofia.or.kr
-          echo "== robots(follow)"; curl -sSL -m 30 -A "$UA" -w "\nHTTP %{http_code} %{url_effective}\n" $B/robots.txt | head -15
-          curl -sSL -m 30 -A "$UA" -o main.js "$B/ui/app/com/main/Main.clx.js" || true
-          wc -c main.js
-          echo "== refs"; grep -oE '(STATFND[0-9A-Za-z]*|[A-Za-z0-9_/]+\.do|app/[A-Za-z0-9_/]+)' main.js | sort -u | head -80
-          echo "== service lookup"
-          grep -oE '.{150}STATFND0200100130.{150}' main.js | head -5
-          for p in "app/stat/STATFND0200100130" "app/stat/fund/STATFND0200100130"; do
-            curl -sSL -m 30 -A "$UA" -o x.js -w "$p HTTP %{http_code} %{size_download}\n" "$B/ui/$p.clx.js"
-          done
+          curl -sSL -m 30 -A "$UA" -o main.js "$B/ui/app/com/main/Main.clx.js"
+          echo "== robots body text"; curl -sSL -m 30 -A "$UA" "$B/robots.txt" | sed 's/<[^>]*>//g' | grep -v '^\s*$' | grep -v '{' | head -15
+          echo "== getSrvData usage"; grep -oE '.{300}getSrvData.{500}' main.js | head -3
+          echo "== getMenuData usage"; grep -oE '.{200}getMenuData.{400}' main.js | head -2
+          echo "== x.js"; curl -sSL -m 30 -A "$UA" "$B/ui/app/stat/STATFND0200100130.clx.js" | head -c 900
