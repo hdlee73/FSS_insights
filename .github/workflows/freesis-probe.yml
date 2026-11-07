@@ -15,17 +15,18 @@ jobs:
             const b = await chromium.launch();
             const p = await b.newPage({ locale: 'ko-KR' });
             p.on('response', async r => {
-              const u = r.url();
-              if (/\/meta\/|\.do/.test(u)) {
-                let body = ''; try { body = (await r.text()).slice(0, 1500); } catch (e) {}
-                const req = r.request();
-                console.log('>>', req.method(), u, r.status(), '\nREQ:', (req.postData() || '').slice(0, 1200), '\nRES:', body, '\n');
-              }
+              const req = r.request();
+              if (req.method() !== 'POST') return;
+              let body = ''; try { body = (await r.text()).slice(0, 700); } catch (e) {}
+              console.log('>>POST', r.url(), r.status(), '\nREQ:', (req.postData() || '').slice(0, 600), '\nRES:', body.replace(/\s+/g,' '), '\n');
             });
             await p.goto('https://freesis.kofia.or.kr/stat/FreeSIS.do?parentDivId=MSIS40200000000000&serviceId=STATFND0200100130', { waitUntil: 'networkidle', timeout: 60000 });
+            await p.waitForTimeout(5000);
+            console.log('=== CLICK 공모 + 조회');
+            await p.getByText('공모', { exact: true }).first().click().catch(e => console.log('click1', e.message));
+            await p.getByText('조회', { exact: true }).first().click().catch(e => console.log('click2', e.message));
             await p.waitForTimeout(8000);
-            console.log('TEXT:', (await p.innerText('body')).slice(0, 1500));
             await b.close();
           })();
           JS
-          node cap.js 2>&1 | head -c 12000
+          node cap.js 2>&1 | head -c 20000
