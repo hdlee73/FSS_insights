@@ -54,7 +54,9 @@ data class SanctionCase(
     /** 지적사항을 못 뽑은 이유 코드(missing·download·nofile·scan·format). */
     val why: String? = null,
     /** 글자 인식(OCR)으로 읽은 공시: 숫자·법조문이 원문과 조금 다를 수 있다. */
-    val ocr: Boolean = false
+    val ocr: Boolean = false,
+    /** 스캔 문서의 금액을 글자 인식 결과끼리 맞춰 보지 못해 비워 둔 공시. */
+    val amountUnknown: Boolean = false
 ) {
     /** 기관·임원·직원 조치를 하나도 읽지 못한 공시(조치 종류·금전제재 통계에서 빠진다). */
     val noAction: Boolean get() = inst.isBlank() && exec.isBlank() && staff.isBlank()
@@ -253,13 +255,16 @@ object SanctionStats {
         /** 기관·임원·직원 조치를 못 읽어 조치 종류·금전제재 통계에서 빠진 공시 수. */
         val noActionCount: Int = 0,
         /** 글자 인식(OCR)으로 읽은 공시 수(숫자·법조문 오인식 가능). */
-        val ocrCount: Int = 0
+        val ocrCount: Int = 0,
+        /** 스캔 문서라 금액을 확실히 읽지 못해 금전제재 합계에서 뺀 공시 수. */
+        val amountUnknownCount: Int = 0
     ) {
         /** 통계에 다 반영되지 않은 공시가 있을 때 보여 줄 안내(없으면 null). */
         fun coverageNote(): String? {
             val parts = mutableListOf<String>()
             if (unparsedCount > 0) parts += "지적사항을 읽지 못한 ${unparsedCount}건은 지적사항·위반 법률·조항 통계에 반영되지 않았습니다(공시 건수·권역·회사 통계에는 포함)"
             if (noActionCount > 0) parts += "조치 내용을 읽지 못한 ${noActionCount}건은 조치 종류·금전제재 통계에서 빠졌습니다"
+            if (amountUnknownCount > 0) parts += "스캔 문서의 과태료·과징금 금액을 확실히 읽지 못한 ${amountUnknownCount}건은 금전제재 금액 합계에서 빠졌습니다"
             if (ocrCount > 0) parts += "스캔 문서를 글자 인식(OCR)으로 읽은 ${ocrCount}건은 숫자·법조문이 원문과 다를 수 있습니다"
             return parts.takeIf { it.isNotEmpty() }?.joinToString(". ", postfix = ". 정확한 내용은 원문보기로 확인하세요.")
         }
@@ -296,7 +301,8 @@ object SanctionStats {
             topMoney = cases.filter { it.money > 0 }.sortedByDescending { it.money }.take(10),
             unparsedCount = cases.count { it.items.isEmpty() },
             noActionCount = cases.count { it.noAction },
-            ocrCount = cases.count { it.ocr }
+            ocrCount = cases.count { it.ocr },
+            amountUnknownCount = cases.count { it.amountUnknown }
         )
     }
 
@@ -345,7 +351,8 @@ object SanctionJson {
                 },
                 parsed = c.optBoolean("ok"),
                 why = c.optString("why").takeIf { it.isNotBlank() && it != "null" },
-                ocr = c.optBoolean("ocr")
+                ocr = c.optBoolean("ocr"),
+                amountUnknown = c.optString("amt") == "?"
             )
         }
         return SanctionDataset(o.optString("generatedAt"), o.optInt("from", SanctionDataset.FIRST_YEAR), cases)

@@ -140,6 +140,14 @@ def ocr_image_file(img: str) -> str:
     return ocr_fix(t6 if quality(t6) > quality(t) else t)
 
 
+def ocr_variants_pages(pages) -> list:
+    """쪽 그림 목록을 psm 4·6·3으로 각각 읽어 [(psm, 전체 글)]을 돌려준다. 금액처럼 한 글자 오인식이 통계 오류가 되는 값을 교차 확인하는 데 쓴다."""
+    outs = []
+    for psm in (4, 6, 3):
+        outs.append((psm, ocr_fix("\n".join(_tesseract(p, psm) for p in pages))))
+    return outs
+
+
 def ocr_pdf(path: str) -> str:
     with tempfile.TemporaryDirectory() as td:
         _run(["pdftoppm", "-r", "250", "-gray", "-l", str(MAX_OCR_PAGES), "-png", path, os.path.join(td, "p")], timeout=600)
@@ -195,6 +203,37 @@ def hwp_images_ocr(path: str) -> str:
 
 
 # ---------------------------------------------------------------- 진입점
+
+def extract_multi(path: str, name: str, ocr: bool = True):
+    """[(text, method, quality)]: 대표 결과 하나 + OCR로 읽었으면 방식만 다른 OCR 결과들(method 'ocr-alt')."""
+    best = extract(path, name, ocr)
+    res = [best]
+    if ocr and best[1].replace("zip:", "").startswith("ocr") and best[1] != "ocr-hwp":
+        try:
+            ext = os.path.splitext((name or path).lower())[1]
+            with tempfile.TemporaryDirectory() as td:
+                if ext == ".pdf":
+                    _run(["pdftoppm", "-r", "250", "-gray", "-l", str(MAX_OCR_PAGES), "-png", path, os.path.join(td, "p")], timeout=600)
+                    pages = [os.path.join(td, f) for f in sorted(os.listdir(td)) if f.endswith(".png")]
+                else:
+                    from PIL import Image, ImageSequence
+                    pages = []
+                    with Image.open(path) as im:
+                        for n, fr in enumerate(ImageSequence.Iterator(im)):
+                            if n >= MAX_OCR_PAGES:
+                                break
+                            g = fr.convert("L")
+                            if g.width < 2000:
+                                g = g.resize((g.width * 2, g.height * 2))
+                            p = os.path.join(td, f"f{n}.png")
+                            g.save(p)
+                            pages.append(p)
+                for psm, t in ocr_variants_pages(pages):
+                    res.append((t, "ocr-alt", quality(t)))
+        except Exception:  # noqa: BLE001
+            pass
+    return res
+
 
 def extract(path: str, name: str, ocr: bool = True):
     """(text, method, quality). 못 읽으면 ('', 'none', 0)."""

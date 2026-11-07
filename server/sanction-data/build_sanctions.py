@@ -105,7 +105,9 @@ def why_empty(texts, fields: dict, status: str) -> str:
         return "missing"
     if status == "failed":
         return "download"
-    best_q = max([t.get("q", 0) for t in texts] or [0])
+    # 읽을 만한 글이 OCR 결과뿐이거나 아예 없으면 스캔 문서로 본다(OCR로도 못 읽은 것).
+    real = [t for t in texts if t.get("text", "").strip() and not str(t.get("method", "")).replace("zip:", "").startswith("ocr")]
+    best_q = max([t.get("q", 0) for t in real] or [0])
     if best_q < 0.3 and len(fields.get("제재대상사실", "")) < 50:
         return "scan"
     return "format"
@@ -118,7 +120,7 @@ def score_parse(r: dict):
 def parse_best(texts, fields: dict, row: dict):
     """첨부가 여러 개이거나 첨부가 '과태료 산정내역' 같은 붙임뿐일 때(2011~2013년 공시는 본문이 상세 화면에 있다),
     후보(각 첨부 글 + 상세 화면 글)를 모두 파싱해 가장 잘 읽힌 것을 쓴다. 반환: (파싱 결과, 선택된 후보)."""
-    cands = [(t["text"], t) for t in texts if t.get("text", "").strip()
+    cands = [(t["text"], t) for t in texts if t.get("text", "").strip() and t.get("method") != "ocr-alt"
              and (not str(t.get("method", "")).replace("zip:", "").startswith("ocr") or extract_text.ocr_readable(t["text"]))]
     cands.append(("", {"method": "view-page", "q": 1.0}))  # parse_case가 상세 화면 '제재대상사실'을 쓴다
     best = None
@@ -142,9 +144,36 @@ def finish_case(row, url, fname, texts, fields, status):
             return hg >= 4 and hg / max(1, len(re.sub(r"\s", "", t))) >= 0.6 and not GENERIC_TITLE.search(t)
         case["items"] = [it for it in case["items"] if clean_title(it["t"])]
         case["ok"] = bool(case["items"])
+    if case.get("ocr"):
+        check_ocr_money(case, texts, fields)
     if not case.get("items"):
         case["why"] = why_empty(texts, fields, status)
     return case
+
+
+def check_ocr_money(case: dict, texts, fields: dict):
+    """OCR로 읽은 금액은 한 글자만 틀려도 통계가 어긋난다. 금감원 상세 화면에 조치가 적혀 있으면 그것이 우선이고(이미 반영됨),
+    없을 때는 OCR 방식 3가지가 같은 금액을 내야만 쓰고, 엇갈리면 금액을 비워 두고 amt='?'로 표시한다."""
+    if str(fields.get("기관 제재대상", "")).strip() not in ("", "-"):
+        return
+    alts = [t["text"] for t in texts if t.get("method") == "ocr-alt" and t.get("text")]
+    prim = (case["fine"], case["penalty"])
+    votes = [prim]
+    for a in alts:
+        r = parse_case(a, fields, {})
+        votes.append((r["fine"], r["penalty"]))
+    if len(votes) < 2:
+        return  # 비교할 다른 결과가 없다(이전 캐시)
+    from collections import Counter
+    top, n = Counter(votes).most_common(1)[0]
+    if n >= 2 and top == prim:
+        return
+    if n >= 2:
+        case["fine"], case["penalty"] = top  # 다수 결과를 따른다
+        return
+    mentions = bool(re.search(r"과태료|과징금", case.get("inst", "")))
+    if mentions or any(v != (0, 0) for v in votes):
+        case["fine"], case["penalty"], case["amt"] = 0, 0, "?"
 
 
 def needs_reread(case: dict, texts=()) -> bool:
@@ -188,11 +217,12 @@ def load_case(row: dict) -> dict:
                 tf.write(data)
                 tmp = tf.name
             try:
-                t, method, q = extract_text.extract(tmp, names[i])
+                multi = extract_text.extract_multi(tmp, names[i])
             finally:
                 os.unlink(tmp)
-            texts.append({"name": names[i], "text": t, "method": method, "q": q})
-            if first is None and t.strip():
+            for t, method, q in multi:
+                texts.append({"name": names[i], "text": t, "method": method, "q": q})
+            if first is None and multi[0][0].strip():
                 first = files[i]
         except Exception as e:  # noqa: BLE001
             failures += 1
