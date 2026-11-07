@@ -52,14 +52,21 @@ data class SanctionCase(
     /** 지적사항을 원문에서 뽑아냈는지. false면 원문을 직접 봐야 한다. */
     val parsed: Boolean,
     /** 지적사항을 못 뽑은 이유 코드(missing·download·nofile·scan·format). */
-    val why: String? = null
+    val why: String? = null,
+    /** 글자 인식(OCR)으로 읽은 공시: 숫자·법조문이 원문과 조금 다를 수 있다. */
+    val ocr: Boolean = false,
+    /** 스캔 문서의 금액을 글자 인식 결과끼리 맞춰 보지 못해 비워 둔 공시. */
+    val amountUnknown: Boolean = false
 ) {
+    /** 기관·임원·직원 조치를 하나도 읽지 못한 공시(조치 종류·금전제재 통계에서 빠진다). */
+    val noAction: Boolean get() = inst.isBlank() && exec.isBlank() && staff.isBlank()
+
     /** 지적사항이 없는 이유(짧게). */
     fun whyShort(): String = when (why) {
         "missing" -> "금감원 사이트에 첨부 파일 없음(사이트 오류)"
         "download" -> "첨부 문서 내려받기 실패"
         "nofile" -> "첨부 문서 없음"
-        "scan" -> "스캔 이미지 문서"
+        "scan" -> "스캔 문서(글자 인식 불가)"
         "format" -> "문서 형식 자동 인식 불가"
         else -> "원문 참조"
     }
@@ -69,7 +76,7 @@ data class SanctionCase(
         "missing" -> "금감원 공시 사이트에서 첨부 문서가 열리지 않아(‘해당 파일이 존재하지 않습니다’ 오류) 지적사항을 읽지 못했습니다. 사이트가 고치면 자동으로 채워집니다."
         "download" -> "금감원 사이트에서 첨부 문서를 받지 못했습니다(일시 오류). 다음 갱신 때 다시 읽습니다."
         "nofile" -> "공시에 첨부 문서가 없어 지적사항을 읽지 못했습니다."
-        "scan" -> "첨부 문서가 스캔 이미지라 글자를 읽을 수 없습니다."
+        "scan" -> "첨부 문서가 흐린 스캔 이미지라 글자 인식(OCR)으로도 읽지 못했습니다. 이 공시는 지적사항·법률·조항 통계에 반영되지 않습니다."
         else -> "문서 형식이 달라 지적사항을 자동으로 나누지 못했습니다."
     } + " 원문보기로 확인해 주세요."
 
@@ -242,8 +249,26 @@ object SanctionStats {
         val topLaws: List<Pair<String, Int>>,
         val topLawNames: List<Pair<String, Int>>,
         val topCompanies: List<Pair<String, Int>>,
-        val topMoney: List<SanctionCase>
-    )
+        val topMoney: List<SanctionCase>,
+        /** 지적사항을 못 읽어 지적사항·법률·조항 통계에서 빠진 공시 수. */
+        val unparsedCount: Int = 0,
+        /** 기관·임원·직원 조치를 못 읽어 조치 종류·금전제재 통계에서 빠진 공시 수. */
+        val noActionCount: Int = 0,
+        /** 글자 인식(OCR)으로 읽은 공시 수(숫자·법조문 오인식 가능). */
+        val ocrCount: Int = 0,
+        /** 스캔 문서라 금액을 확실히 읽지 못해 금전제재 합계에서 뺀 공시 수. */
+        val amountUnknownCount: Int = 0
+    ) {
+        /** 통계에 다 반영되지 않은 공시가 있을 때 보여 줄 안내(없으면 null). */
+        fun coverageNote(): String? {
+            val parts = mutableListOf<String>()
+            if (unparsedCount > 0) parts += "지적사항을 읽지 못한 ${unparsedCount}건은 지적사항·위반 법률·조항 통계에 반영되지 않았습니다(공시 건수·권역·회사 통계에는 포함)"
+            if (noActionCount > 0) parts += "조치 내용을 읽지 못한 ${noActionCount}건은 조치 종류·금전제재 통계에서 빠졌습니다"
+            if (amountUnknownCount > 0) parts += "스캔 문서의 과태료·과징금 금액을 확실히 읽지 못한 ${amountUnknownCount}건은 금전제재 금액 합계에서 빠졌습니다"
+            if (ocrCount > 0) parts += "스캔 문서를 글자 인식(OCR)으로 읽은 ${ocrCount}건은 숫자·법조문이 원문과 다를 수 있습니다"
+            return parts.takeIf { it.isNotEmpty() }?.joinToString(". ", postfix = ". 정확한 내용은 원문보기로 확인하세요.")
+        }
+    }
 
     /** 거른 지적사항 [rows]로 통계를 낸다. 금액·조치 종류는 공시(건) 단위로 중복 없이 센다. */
     fun summarize(rows: List<SanctionRow>, allYears: List<Int>, filter: SanctionFilter = SanctionFilter()): Summary {
@@ -273,7 +298,11 @@ object SanctionStats {
             topLaws = count(laws).take(20),
             topLawNames = count(laws.map { it.substringBeforeLast(" 제") }).take(10),
             topCompanies = count(cases.map { it.company }).take(10),
-            topMoney = cases.filter { it.money > 0 }.sortedByDescending { it.money }.take(10)
+            topMoney = cases.filter { it.money > 0 }.sortedByDescending { it.money }.take(10),
+            unparsedCount = cases.count { it.items.isEmpty() },
+            noActionCount = cases.count { it.noAction },
+            ocrCount = cases.count { it.ocr },
+            amountUnknownCount = cases.count { it.amountUnknown }
         )
     }
 
@@ -321,7 +350,9 @@ object SanctionJson {
                     SanctionItem(it.optString("t"), it.optString("cat").takeIf { s -> s.isNotBlank() && s != "null" }, strings(it.optJSONArray("laws")))
                 },
                 parsed = c.optBoolean("ok"),
-                why = c.optString("why").takeIf { it.isNotBlank() && it != "null" }
+                why = c.optString("why").takeIf { it.isNotBlank() && it != "null" },
+                ocr = c.optBoolean("ocr"),
+                amountUnknown = c.optString("amt") == "?"
             )
         }
         return SanctionDataset(o.optString("generatedAt"), o.optInt("from", SanctionDataset.FIRST_YEAR), cases)

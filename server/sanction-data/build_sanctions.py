@@ -91,37 +91,105 @@ def clean_html(s: str) -> str:
     return re.sub(r"[ \t]+", " ", s).strip()
 
 
-def attachment_text(path: str, name: str) -> str:
-    low = name.lower()
-    if low.endswith(".pdf"):
-        r = subprocess.run(["pdftotext", "-raw", "-enc", "UTF-8", path, "-"], capture_output=True, timeout=120)
-        return r.stdout.decode("utf-8", "ignore")
-    if low.endswith(".hwp"):
-        return hwp_text.extract(path)
-    if low.endswith(".hwpx"):
-        import zipfile
-        with zipfile.ZipFile(path) as z:
-            parts = sorted(n for n in z.namelist() if re.match(r"Contents/section\d+\.xml", n))
-            xml = "\n".join(z.read(n).decode("utf-8", "ignore") for n in parts)
-        xml = re.sub(r"</hp:p>", "\n", xml)
-        return html.unescape(re.sub(r"<[^>]+>", "", xml))
-    return ""
+import extract_text  # noqa: E402
 
-
+EXTRACT_VERSION = 3  # 캐시에 이 값 미만이면, 지적사항·조치를 못 뽑은 건은 첨부를 새 방식으로 다시 읽는다.
 CACHE_DIR = None
 
 
-def why_empty(text: str, fields: dict, status: str) -> str:
-    """지적사항을 못 뽑은 이유(앱에 그대로 보여 준다)."""
+def why_empty(texts, fields: dict, status: str) -> str:
+    """지적사항을 못 뽑은 이유(앱에 그대로 보여 준다). scan은 OCR까지 해 보고도 글자를 못 읽은 경우만이다."""
     if status == "nofile" and len(fields.get("제재대상사실", "")) < 50:
         return "nofile"
     if status == "missing":
         return "missing"
     if status == "failed":
         return "download"
-    if len(text.strip()) <= 50 and len(fields.get("제재대상사실", "")) < 50:
+    # 읽을 만한 글이 OCR 결과뿐이거나 아예 없으면 스캔 문서로 본다(OCR로도 못 읽은 것).
+    real = [t for t in texts if t.get("text", "").strip() and not str(t.get("method", "")).replace("zip:", "").startswith("ocr")]
+    best_q = max([t.get("q", 0) for t in real] or [0])
+    if best_q < 0.3 and len(fields.get("제재대상사실", "")) < 50:
         return "scan"
     return "format"
+
+
+def score_parse(r: dict):
+    return (bool(r["items"]), len(r["items"]), bool(r["inst"] or r["exec"] or r["staff"]))
+
+
+def parse_best(texts, fields: dict, row: dict):
+    """첨부가 여러 개이거나 첨부가 '과태료 산정내역' 같은 붙임뿐일 때(2011~2013년 공시는 본문이 상세 화면에 있다),
+    후보(각 첨부 글 + 상세 화면 글)를 모두 파싱해 가장 잘 읽힌 것을 쓴다. 반환: (파싱 결과, 선택된 후보)."""
+    cands = [(t["text"], t) for t in texts if t.get("text", "").strip() and t.get("method") != "ocr-alt"
+             and (not str(t.get("method", "")).replace("zip:", "").startswith("ocr") or extract_text.ocr_readable(t["text"]))]
+    cands.append(("", {"method": "view-page", "q": 1.0}))  # parse_case가 상세 화면 '제재대상사실'을 쓴다
+    best = None
+    for text, meta in cands:
+        if str(meta.get("method", "")).replace("zip:", "").startswith("ocr"):
+            text = extract_text.ocr_numfix(text)
+        r = parse_case(text, fields, row)
+        sc = score_parse(r)
+        if best is None or sc > best[0]:
+            best = (sc, r, meta)
+    return best[1], best[2]
+
+
+def finish_case(row, url, fname, texts, fields, status):
+    case = {"id": row["id"], "co": row["co"], "date": row["date"], "dept": row["dept"], "view": url, "file": fname}
+    r, meta = parse_best(texts, fields, row)
+    case.update(r)
+    if str(meta.get("method", "")).replace("zip:", "").startswith("ocr"):
+        case["ocr"] = True  # 글자 인식(OCR)으로 읽은 건: 숫자·법조문에 오인식이 있을 수 있다
+        # 제목이 뭉개진 항목은 버린다(남는 게 없으면 못 읽은 것으로 본다).
+        def clean_title(t):
+            hg = len(re.findall(r"[가-힣]", t))
+            return hg >= 4 and hg / max(1, len(re.sub(r"\s", "", t))) >= 0.6 and not GENERIC_TITLE.search(t)
+        case["items"] = [it for it in case["items"] if clean_title(it["t"])]
+        case["ok"] = bool(case["items"])
+    if case.get("ocr"):
+        check_ocr_money(case, texts, fields)
+    if not case.get("items"):
+        case["why"] = why_empty(texts, fields, status)
+    return case
+
+
+def check_ocr_money(case: dict, texts, fields: dict):
+    """OCR로 읽은 금액은 한 글자만 틀려도 통계가 어긋난다. 금감원 상세 화면에 조치가 적혀 있으면 그것이 우선이고(이미 반영됨),
+    없을 때는 OCR 방식 3가지가 같은 금액을 내야만 쓰고, 엇갈리면 금액을 비워 두고 amt='?'로 표시한다."""
+    if str(fields.get("기관 제재대상", "")).strip() not in ("", "-"):
+        return
+    alts = [t["text"] for t in texts if t.get("method") == "ocr-alt" and t.get("text")]
+    prim = (case["fine"], case["penalty"])
+    votes = [prim]
+    for a in alts:
+        r = parse_case(extract_text.ocr_numfix(a), fields, {})
+        votes.append((r["fine"], r["penalty"]))
+    if len(votes) < 2:
+        return  # 비교할 다른 결과가 없다(이전 캐시)
+    from collections import Counter
+    top, n = Counter(votes).most_common(1)[0]
+    if n >= 2 and top == prim:
+        return
+    if n >= 2:
+        case["fine"], case["penalty"] = top  # 다수 결과를 따른다
+        return
+    mentions = bool(re.search(r"과태료|과징금", case.get("inst", "")))
+    if mentions or any(v != (0, 0) for v in votes):
+        case["fine"], case["penalty"], case["amt"] = 0, 0, "?"
+
+
+def needs_reread(case: dict, texts=()) -> bool:
+    if not case.get("items") or not (case.get("inst") or case.get("exec") or case.get("staff")):
+        return True
+    # OCR로 읽은 건은 금액 교차 확인용 OCR 결과(ocr-alt)가 있어야 한다.
+    if case.get("ocr") and not any(t.get("method") == "ocr-alt" for t in texts):
+        return True
+    # 글자 층이 있어도 쪽당 글자가 너무 적으면 일부가 그림일 수 있어 새 방식으로 다시 읽는다.
+    for t in texts:
+        x = t.get("text", "")
+        if x and len(re.sub(r"\s+", "", x)) / max(1, x.count("\f") or 1) < 350 and not str(t.get("method", "")).startswith("ocr"):
+            return True
+    return False
 
 
 def load_case(row: dict) -> dict:
@@ -133,25 +201,18 @@ def load_case(row: dict) -> dict:
             raw = json.load(open(cpath, encoding="utf-8"))
         except ValueError:
             raw = None
-        # 예전 캐시 중 본문이 비어 있고 상태 기록이 없는 것은 사이트 오류였을 수 있어 다시 받는다.
-        if raw is not None and "status" not in raw and len(raw.get("text", "").strip()) <= 50 \
-                and len(raw.get("fields", {}).get("제재대상사실", "")) < 50:
-            raw = None
     if raw is not None:
-        case = {"id": row["id"], "co": row["co"], "date": row["date"], "dept": row["dept"], "view": url, "file": raw["file"]}
-        case.update(parse_case(raw["text"], raw["fields"], row))
-        if not case.get("items"):
-            case["why"] = why_empty(raw["text"], raw["fields"], raw.get("status", "ok"))
-        return case
+        texts = raw.get("texts") or [{"text": raw.get("text", ""), "method": "legacy", "q": extract_text.quality(raw.get("text", ""))}]
+        case = finish_case(row, url, raw.get("file"), texts, raw["fields"], raw.get("status", "ok"))
+        # 예전 방식으로 읽은 캐시 중 못 뽑은 건은 새 추출기로 다시 읽는다(사이트 오류였을 수도 있다).
+        if raw.get("xv", 1) >= EXTRACT_VERSION or not needs_reread(case, texts):
+            return case
     h = fetch(url).decode("utf-8", "ignore")
     fields = {k.strip(): clean_html(v) for k, v in DD.findall(h)}
     files = [html.unescape(f) for f in FILE.findall(h)]
     names = [urllib.parse.unquote_plus(f.split("file=")[-1]) for f in files]
-    text, fname = "", None
-    failures = missing = 0
-    # PDF > HWPX > HWP 순으로 하나만 읽는다.
-    order = sorted(range(len(files)), key=lambda i: {".pdf": 0, "hwpx": 1, ".hwp": 2}.get(names[i].lower()[-4:], 9))
-    for i in order:
+    texts, failures, missing, first = [], 0, 0, None
+    for i in range(len(files)):
         try:
             data = fetch(BASE + files[i])
             if data[:200].lstrip().startswith(b"<") and "존재하지".encode() in data[:600]:
@@ -161,33 +222,28 @@ def load_case(row: dict) -> dict:
                 tf.write(data)
                 tmp = tf.name
             try:
-                text = attachment_text(tmp, names[i])
+                multi = extract_text.extract_multi(tmp, names[i])
             finally:
                 os.unlink(tmp)
-            if len(text.strip()) > 50:
-                fname = files[i]
-                break
+            for t, method, q in multi:
+                texts.append({"name": names[i], "text": t, "method": method, "q": q})
+            if first is None and multi[0][0].strip():
+                first = files[i]
         except Exception as e:  # noqa: BLE001
             failures += 1
             print(f"  ! {row['id']} 첨부 실패: {e}", file=sys.stderr)
-    status = "ok" if fname else ("nofile" if not files else (
+    got = any(t["text"].strip() for t in texts)
+    status = "ok" if got else ("nofile" if not files else (
         "missing" if missing == len(files) else "failed" if failures == len(files) else "empty"))
     # 내려받기에 실패한 것은 캐시에 남기지 않아 다음 실행 때 다시 받는다(사이트가 고치면 저절로 채워진다).
     if cpath and status not in ("failed", "missing"):
         tmp_path = cpath + ".tmp"
         with open(tmp_path, "w", encoding="utf-8", errors="replace") as f:
-            json.dump({"file": (BASE + fname) if fname else None, "fields": fields, "text": text, "status": status}, f, ensure_ascii=False)
+            json.dump({"file": (BASE + first) if first else None, "fields": fields, "texts": texts, "status": status,
+                       "xv": EXTRACT_VERSION}, f, ensure_ascii=False)
         os.replace(tmp_path, cpath)
-    if fname is None and files:
-        fname = files[order[0]] if order else files[0]
-    case = {
-        "id": row["id"], "co": row["co"], "date": row["date"], "dept": row["dept"],
-        "view": url, "file": (BASE + fname) if fname else None,
-    }
-    case.update(parse_case(text, fields, row))
-    if not case.get("items"):
-        case["why"] = why_empty(text, fields, status)
-    return case
+    fname = first or (files[0] if files else None)
+    return finish_case(row, url, (BASE + fname) if fname else None, texts, fields, status)
 
 
 # ---------------------------------------------------------------- 파싱
@@ -431,7 +487,8 @@ def art_label(m):
 
 def _marks(t: str):
     br = [(m.start(), m.end(), m.group(1)) for m in LAW_BRACKET.finditer(t)]
-    pl = [(m.start(1), m.end(), m.group(1)) for m in PLAIN_LAW.finditer(t)]
+    # 띄어쓰기 없이 길게 이어진 글(OCR이 뭉갠 줄)에서는 이 식이 한없이 오래 걸리므로 건너뛴다.
+    pl = [] if re.search(r"[가-힣A-Za-z·ㆍ]{30,}", t) else [(m.start(1), m.end(), m.group(1)) for m in PLAIN_LAW.finditer(t)]
     pl = [x for x in pl if not any(b0 <= x[0] < b1 or x[0] <= b0 < x[1] for b0, b1, _ in br)]
     return sorted(br + pl)
 
@@ -467,7 +524,13 @@ def cites_in(text: str, per_line: bool = False):
 BOX = re.compile(r"<\s*관\s*련\s*(?:규\s*정|법\s*규|법\s*령|조\s*문)\s*>|【\s*관\s*련\s*(?:규\s*정|법\s*규)\s*】|\[\s*관\s*련\s*(?:규\s*정|법\s*규)\s*\]|관\s*련\s*(?:규\s*정|법\s*규)\s*[:：]")
 
 
-def items_of(sec: str):
+SENT_STRICT = re.compile(r"(음|함|임|였으며|하였고|하고|있고|었고|으며|였는데|는데|바|등|,)\s*$")
+SENT_LOOSE = re.compile(r"(였음|었음|았음|했음|있음|없음|하였음|였으며|하였고|하고|있고|었고|으며|였는데|는데|바|,)\s*$")
+NUM_STRICT = re.compile(r"^[\d,.\s]+(?:원|건|명|%)")
+NUM_LOOSE = re.compile(r"^[\d,.\s]+(?:원|건|명|%)[\s\S]{0,6}$")
+
+
+def items_of(sec: str, strict: bool = True):
     lines = [l.rstrip() for l in sec.splitlines()]
     heads = []  # (줄 번호, 단계, 제목)
     for i, l in enumerate(lines):
@@ -476,8 +539,8 @@ def items_of(sec: str):
             body = m.group(2).strip() if m else ""
             # 문장(…하였음, …있음)이나 아주 긴 줄은 제목이 아니라 본문의 나열 항목이다.
             if m and len(body) >= 5 and len(body) <= 90 and "(생략)" not in body and not body.startswith("~") \
-                    and not re.search(r"부터\s*\S{0,4}\s*까지", body) and not re.match(r"^[\d,.\s]+(?:원|건|명|%)", body) \
-                    and not re.search(r"(음|함|임|였으며|하였고|하고|있고|었고|으며|였는데|는데|바|등|,)\s*$", body):
+                    and not re.search(r"부터\s*\S{0,4}\s*까지", body) and not (NUM_STRICT if strict else NUM_LOOSE).match(body) \
+                    and not (SENT_STRICT if strict else SENT_LOOSE).search(body):
                 heads.append((i, level, m.group(2).strip()))
                 break
     items = []
@@ -510,6 +573,76 @@ def items_of(sec: str):
     return items
 
 
+ALT_NUM = re.compile(r"^\s*(\d{1,2})\s*[.)]\s*(.+)$")
+ALT_BOX = re.compile(r"^\s*[□■]\s*(.+)$")
+SENT_END = re.compile(r"(?:는데도|함에도|음에도|으며|하며|하고|였고|니다|하였음|있음|였음|었음|았음|없음|다|도|고|며|서)\s*[,.]?\s*$")
+GENERIC_TITLE = re.compile(r"^(?:제재|조치|재조치|재심)\s*(?:조치\s*)?(?:대상\s*)?(?:사실|내용|일자?|취지|사유)\s*[:：]?|제재조치일|재조치일자|^[가-하]$|^제\s*[재제]\s*(?:조치|대상|내용|데상)|^(?:관계\s*법규|부과\s*금액|산정|금융기관명|금융회사명|통보일|제재조치\s*등|제재\s*대상|제재\s*내용|제재\s*개요|부과\s*(?:근거|기준)|조치\s*의뢰\s*사항)")
+PLACEHOLDER = re.compile(r"^(?:붙임|첨부|별첨|별지|첨부\s*(?:화일|파일|문서))[^\n]{0,15}같음\.?$")
+
+
+def items_alt(sec: str):
+    """'가.'·'(1)' 번호가 없는 양식: '1. 제목'이나 '□ 제목'으로 지적사항을 나눈다. 제목을 못 찾아도 본문이 있으면 한 건으로 묶는다."""
+    sec = sec.strip()
+    if len(sec) < 30 or PLACEHOLDER.match(sec):
+        return []
+    lines = [l.rstrip() for l in sec.splitlines()]
+
+    def usable(i, m, body):
+        body = body.strip()
+        return 3 <= len(body) <= 70 and not LAW_BRACKET.search(body) and not ARTICLE.search(body) \
+            and not SENT_END.search(body) and not re.match(r"^[\d,.\s]+(?:원|건|명|%)[\s\S]{0,6}$", body)
+
+    def collect(rx):
+        hs = []
+        for i, l in enumerate(lines):
+            m = rx.match(l)
+            if m and usable(i, m, m.group(m.lastindex)):
+                hs.append((i, m.group(m.lastindex).strip()))
+        return hs
+
+    def generic(h):
+        return [x for x in h if not GENERIC_TITLE.search(x[1]) and not is_group(x[1])]
+
+    heads = generic(collect(ALT_NUM))
+    if not heads:
+        heads = generic(collect(ALT_BOX))
+    items = []
+    if heads:
+        for k, (i, title) in enumerate(heads):
+            end = heads[k + 1][0] if k + 1 < len(heads) else len(lines)
+            body = "\n".join(lines[i + 1:end])
+            parts = BOX.split(body, maxsplit=1)
+            laws = cites_in(parts[1], per_line=True) if len(parts) > 1 else []
+            if not laws:
+                laws = cites_in(body)
+            items.append({"t": norm_space(title)[:150], "cat": None, "laws": laws[:12]})
+        return items
+    # 제목 없이 '가. 문책사항' 아래 본문만 있는 양식: 묶음마다 한 건으로 본다.
+    blocks, cur_cat, cur = [], None, []
+    for l in lines:
+        m = HEADS[0][1].match(l)
+        if m and is_group(m.group(2).strip()):
+            if cur:
+                blocks.append((cur_cat, cur))
+            cur_cat, cur = category(m.group(2)), []
+        else:
+            cur.append(l)
+    blocks.append((cur_cat, cur))
+    out = []
+    for cat, ls in blocks:
+        body = "\n".join(ls).strip()
+        if len(body) < 30:
+            continue
+        flat = re.sub(r"^[\s□■◦○ㆍ•\-]+", "", body)
+        first = norm_space(flat.split("\n", 1)[0])
+        parts = BOX.split(body, maxsplit=1)
+        laws = cites_in(parts[1], per_line=True) if len(parts) > 1 else []
+        if not laws:
+            laws = cites_in(body)
+        out.append({"t": first[:150], "cat": cat, "laws": laws[:12]})
+    return out
+
+
 def old_brackets(t: str) -> str:
     """2011~2013년 공시는 「」가 '?'로 깨져 있다: ?은행법? → 「은행법」."""
     return re.sub(r"\?\s*([가-힣A-Za-z·ㆍ\s]{2,40}?(?:법률|법|시행령|시행규칙|규정|세칙|규칙|기준))\s*\?", r"「\1」", t)
@@ -522,7 +655,7 @@ def parse_case(text: str, fields: dict, row: dict) -> dict:
         if len(fact) > 80:
             text = old_brackets(fact)
     t = text.replace("\r", "")
-    t = re.sub(r"\n\s*-\s*\d+\s*-\s*\n", "\n", t)  # 쪽 번호
+    t = re.sub(r"(?m)^\s*-\s*\d+\s*-\s*$", "", t)  # 쪽 번호
     # 연금감독실 공시처럼 '3. 조치내용', '4. 조치대상사실'로 적은 양식도 있다.
     a = re.search(r"제\s*재\s*조\s*치\s*내\s*용|\n\s*3\s*\.\s*(?:제\s*재|조\s*치)\s*내\s*용", t)
     b = re.search(r"\n\s*4\s*\.\s*(?:제\s*재|조\s*치)\s*대\s*상\s*사\s*실|제\s*재\s*대\s*상\s*사\s*실", t[a.end():]) if a else None
@@ -543,6 +676,10 @@ def parse_case(text: str, fields: dict, row: dict) -> dict:
         acts = {k: ("" if re.fullmatch(r"[-–—\s]*|해당\s*사항\s*없음|없음", v) else v) for k, v in table_actions(t).items()}
     fine, penalty = money(acts["inst"] or act_sec)
     items = items_of(fact_sec) if text else []
+    if text and not items:  # 제목 판별을 느슨하게 해서 한 번 더(예: 제목이 '…위반 등'·'…미선임'으로 끝나는 공시)
+        items = items_of(fact_sec, strict=False)
+    if text and not items:
+        items = items_alt(fact_sec)
     return {
         "inst": acts["inst"], "exec": acts["exec"], "staff": acts["staff"],
         "instK": kinds(acts["inst"], INST_KINDS),

@@ -43,18 +43,50 @@ def _para_text(data: bytes) -> str:
     return "".join(out).encode("utf-16-le", "surrogatepass").decode("utf-16-le", "ignore")
 
 
+def _distribution_key(payload: bytes) -> bytes:
+    """배포용 문서(ViewText)의 AES 키: 앞 4바이트 seed로 만든 난수열과 XOR한 뒤 일부를 키로 쓴다(공개된 HWP 5.0 규격)."""
+    seed = int.from_bytes(payload[:4], "little")
+    s, i, rnd = seed, 0, bytearray(256)
+    while i < 256:
+        s = (s * 214013 + 2531011) & 0xFFFFFFFF
+        a = ((s >> 16) & 0x7FFF) & 0xFF
+        s = (s * 214013 + 2531011) & 0xFFFFFFFF
+        n = (((s >> 16) & 0x7FFF) & 0xF) + 1
+        for _ in range(n):
+            if i < 256:
+                rnd[i] = a
+                i += 1
+    dec = bytes(a ^ b for a, b in zip(payload, rnd))
+    off = (seed & 0xF) + 4
+    return dec[off:off + 16]
+
+
+def _decrypt_view(raw: bytes) -> bytes:
+    from Crypto.Cipher import AES  # pycryptodome
+    (hdr,) = struct.unpack_from("<I", raw, 0)
+    size = (hdr >> 20) & 0xFFF
+    key = _distribution_key(raw[4:4 + size])
+    body = raw[4 + size:]
+    body = body[: len(body) // 16 * 16]
+    return AES.new(key, AES.MODE_ECB).decrypt(body)
+
+
 def extract(path: str) -> str:
     ole = olefile.OleFileIO(path)
     try:
         header = ole.openstream("FileHeader").read()
         compressed = bool(header[36] & 1)
+        distribution = bool(header[36] & 4)
+        root = "ViewText" if distribution else "BodyText"
         sections = sorted(
-            (e for e in ole.listdir() if len(e) == 2 and e[0] == "BodyText" and e[1].startswith("Section")),
+            (e for e in ole.listdir() if len(e) == 2 and e[0] == root and e[1].startswith("Section")),
             key=lambda e: int(e[1][7:] or 0),
         )
         paras = []
         for entry in sections:
             raw = ole.openstream(entry).read()
+            if distribution:
+                raw = _decrypt_view(raw)
             if compressed:
                 raw = zlib.decompress(raw, -15)
             pos = 0
