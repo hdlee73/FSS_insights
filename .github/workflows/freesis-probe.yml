@@ -1,0 +1,22 @@
+name: freesis-probe
+on:
+  push:
+    branches: [claude/freesis-probe]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: probe
+        run: |
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
+          B=https://freesis.kofia.or.kr
+          echo "== robots"; curl -sS -m 30 -A "$UA" -w "\nHTTP %{http_code}\n" $B/robots.txt | head -20
+          echo "== page"; curl -sSL -m 30 -A "$UA" -o page.html -w "HTTP %{http_code} size %{size_download}\n" "$B/stat/FreeSIS.do?parentDivId=MSIS40200000000000&serviceId=STATFND0200100130"
+          head -c 800 page.html; echo
+          grep -oE '(src|href)="[^"]+\.(js)[^"]*"' page.html | head -30
+          echo "== grep service"; grep -rn "STATFND0200100130" page.html | head
+          for j in $(grep -oE 'src="[^"]+\.js[^"]*"' page.html | sed 's/src="//;s/"//' | head -15); do
+            curl -sSL -m 30 -A "$UA" "$B$j" -o j.js 2>/dev/null; grep -l "STATFND0200100130" j.js >/dev/null 2>&1 && echo "FOUND in $j"; grep -oE '/meta/[A-Za-z]+\.do' j.js | sort -u | head
+          done
+          echo "== api try"
+          curl -sS -m 30 -A "$UA" -X POST -H "Content-Type: application/xml" -d '<?xml version="1.0" encoding="utf-8"?><message><proframeHeader><pfmAppName>FS-COM</pfmAppName><pfmSvcName>COMFundUnitSvc</pfmSvcName><pfmFnName>subFundUnit</pfmFnName></proframeHeader><systemHeader></systemHeader></message>' -w "\nHTTP %{http_code}\n" $B/meta/getMetaDataList.do | head -c 1500
