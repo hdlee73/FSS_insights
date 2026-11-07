@@ -1,9 +1,9 @@
 // FISIS(금융통계정보시스템) 공용 로직. 서버(worker.js)와 배포할 때 자료를 미리 만드는 build-fisis-data.mjs가 함께 쓴다.
-// 금융권역코드(lrgDiv/partDiv): A 국내은행, F 증권사, G 자산운용사, H 생명보험, I 손해보험, E 상호저축은행, C 신용카드사.
+// 금융권역코드(lrgDiv/partDiv): A 국내은행, F 증권사, G 자산운용사, H 생명보험, I 손해보험, E 상호저축은행, C 신용카드사, M 부동산신탁, L 금융지주회사.
 
 export const FISIS_API = "https://fisis.fss.or.kr/openapi";
 // 선물사(W)는 화면에서 증권사(F)에 포함해 보여 주지만 통계표는 따로 있어 권역으로 따로 만든다.
-export const FISIS_SECTORS = ["F", "W", "G", "A", "H", "I", "E", "C"];
+export const FISIS_SECTORS = ["F", "W", "G", "A", "H", "I", "E", "C", "M", "L"];
 export const FISIS_TERMS = ["Q", "H", "Y"];
 export const CLOSED = /\[폐\]|\(폐\)|［폐］/; // 폐업한 회사는 이름 끝에 [폐]가 붙는다.
 
@@ -91,6 +91,10 @@ export const RATIO_SPECS = {
   ],
   H: [{ key: "solv", label: "지급여력비율", pats: [/K-?ICS|킥스|신지급여력/, /지급여력비율/] }],
   I: [{ key: "solv", label: "지급여력비율", pats: [/K-?ICS|킥스|신지급여력/, /지급여력비율/] }],
+  // 부동산신탁(부신사): 영업용순자본비율 통계가 있으면 보여 준다(없으면 재무 항목만 나온다).
+  // 금융지주회사: 연결 재무 중심(경영지표 통계가 있으면 함께 표시).
+  L: [],
+  M: [{ key: "ncr", label: "영업용순자본비율", pats: [/^영업용순자본비율/, /영업용순자본비율|순자본비율|NCR/] }],
 };
 RATIO_SPECS.W = RATIO_SPECS.F;
 const ANY_ACCT = /^(합계|계|총계|전체|펀드합계|전체펀드)$/;

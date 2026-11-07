@@ -360,6 +360,10 @@ private fun SanctionCaseCard(c: SanctionCase, matched: Set<SanctionItem>, onOpen
                 SanctionText.line(c.exec).takeIf { it.isNotBlank() }?.let { add("임원" to it) }
                 SanctionText.line(c.staff).takeIf { it.isNotBlank() }?.let { add("직원" to it) }
             }
+            SectionHeading("[조치내용]")
+            if (actions.isEmpty()) {
+                Text("표시할 조치내용이 없습니다. 원문보기로 확인해 주세요.", style = MaterialTheme.typography.bodySmall, color = muted)
+            }
             actions.forEach { (label, text) ->
                 Text(
                     buildAnnotatedString {
@@ -370,6 +374,7 @@ private fun SanctionCaseCard(c: SanctionCase, matched: Set<SanctionItem>, onOpen
                     style = MaterialTheme.typography.bodySmall
                 )
             }
+            SectionHeading("[지적사항]", top = 6.dp)
             if (c.items.isEmpty()) {
                 Text(c.whyText(), style = MaterialTheme.typography.bodySmall, color = muted)
             } else {
@@ -400,6 +405,18 @@ private fun SanctionCaseCard(c: SanctionCase, matched: Set<SanctionItem>, onOpen
             }
         }
     }
+}
+
+/** 제재공시 카드의 구획 제목([조치내용]·[지적사항]). */
+@Composable
+private fun SectionHeading(text: String, top: androidx.compose.ui.unit.Dp = 4.dp) {
+    Text(
+        text,
+        Modifier.padding(top = top),
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.ExtraBold,
+        color = MaterialTheme.colorScheme.primary
+    )
 }
 
 @Composable

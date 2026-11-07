@@ -17,8 +17,8 @@ import java.time.YearMonth
  * 지적사항 단위로 정리한 sanctions.json을 저장소의 sanction-data 브랜치에 올려 두고 앱은 그것만 받는다.
  */
 object SanctionSectors {
-    /** 권역(사용자 지정 순서). */
-    val all = listOf("은행", "보험", "증권", "운용", "자문일임", "저축은행", "상호금융", "여신전문", "대부", "기타")
+    /** 권역(사용자 지정 순서 + FISIS 금융권역 준용: 금융지주·부신사(부동산신탁사)). */
+    val all = listOf("은행", "금융지주", "보험", "증권", "운용", "자문일임", "부신사", "저축은행", "상호금융", "여신전문", "대부", "기타")
 }
 
 data class SanctionItem(
