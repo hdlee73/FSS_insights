@@ -59,7 +59,8 @@ def fetch(date, kind):
     out = {}
     for r in rows:
         name = (r.get("TMPV1") or "").strip()
-        if not name or name in ("합계", "총계", "계"):
+        # 표 중간의 소계·합계 줄은 회사가 아니다.
+        if not name or any(w in name for w in ("소계", "합계", "총계", "(기타)")) or name == "계":
             continue
         v = r.get(COL_TOTAL)
         out[name] = int(v) if isinstance(v, (int, float)) else 0
