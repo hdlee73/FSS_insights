@@ -18,15 +18,17 @@ jobs:
                   try: return json.loads(p.stdout.decode("utf-8", "replace"), strict=False)
                   except Exception as e: print("retry", i, len(p.stdout), p.stderr[:100])
               return {}
-          d = post("getSrvData.do", {"dmSearchData": {"strSvrId": "STATFND0200100130", "strDivId": "MSIS40000000000000", "app_peron_yn": "Y", "language_gb": "KOR", "strGetCode": "Y"}})
-          for r in d.get("dsSearch", []):
-              print("COND", r.get("INPUT_SEQ"), r.get("CONDITION_NM"), r.get("SRCH_METAVAR"), r.get("ITEM_DMNID"), r.get("D_DISPLAY_DSPVLU"), r.get("PARENT_CONDID"))
-          seen = set()
-          for r in d.get("dsSearchCd", []) + d.get("dsSearchCdList", []):
-              g = r.get("GROUP_CD")
-              if g in ("C0221", "C4024", "C4052", "C4053", "T2050", "T1100", "T3017", "T4005", "T4035", "T3014", "T3045", "T3076", "YN001"): continue
-              print("CD", g, r.get("COMMON_CD"), r.get("CODE_NM"))
-          for h in d.get("dsGrid", []):
-              print("HDR", h.get("HEADER_ID"), h.get("HEADER_NM"), h.get("PARENT_HEADERID") or h.get("PARENT_ID"), h.get("COLUMN_ID") or h.get("DATA_ID") or "")
+          def q(**kw):
+              b = {"tmpV40": "100000000", "tmpV41": "1", "tmpV34": "20261105", "tmpV100": "2", "tmpV102": "", "tmpV5": "", "tmpV20": "Y", "OBJ_NM": "STATFND0200100130BO"}
+              b.update(kw)
+              d = post("getMetaDataList.do", {"dmSearch": b})
+              rows = d.get("ds1", [])
+              g = [r for r in rows if r.get("TMPV1", "").startswith("골든브릿지")]
+              tot = sum((r.get("TMPV15") or 0) for r in rows)
+              print(kw, "rows", len(rows), "합계합", tot, "골든", [g[0].get(f"TMPV{i}") for i in range(2, 21)] if g else None)
+          for v in ["1", "2", "3", "4"]: q(tmpV41=v)
+          q(tmpV41="2", tmpV102="*")
+          q(tmpV41="2", tmpV34="20260930")
+          q(tmpV41="2", tmpV34="20251231")
           PY
           python3 p.py 2>&1 | cut -c1-200
