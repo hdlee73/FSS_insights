@@ -23,13 +23,15 @@ jobs:
           d = post(base)
           print("HEADER", json.dumps(d.get("dsmHeader"), ensure_ascii=False)[:3000])
           rows = d.get("ds1", [])
-          # 값이 있는 열 번호별 최대값
-          mx = {}
+          bad = 0
           for r in rows:
-              for k, v in r.items():
-                  if k.startswith("TMPV") and isinstance(v, (int, float)): mx[k] = max(mx.get(k, 0), v)
-          print("MAX", sorted(mx.items(), key=lambda x: int(x[0][4:])))
+              v = lambda i: r.get(f"TMPV{i}") or 0
+              if sum(v(i) for i in range(2, 14)) != v(14): bad += 1
+          print("SUM2-13 != TMPV14 rows:", bad, "of", len(rows))
+          for col in (13, 18, 19, 15, 16, 17):
+              hits = [(r["TMPV1"], r.get(f"TMPV{col}")) for r in rows if (r.get(f"TMPV{col}") or 0) > 0]
+              print("COL", col, len(hits), hits[:8])
           for r in rows:
-              if r["TMPV1"].startswith(("삼성에스알에이", "교보자산", "골든")): print(r["TMPV1"], [r.get(f"TMPV{i}") for i in range(2, 21)])
+              if (r.get("TMPV13") or 0) > 0: print("T13", r["TMPV1"], [r.get(f"TMPV{i}") for i in range(2, 21)]); break
           PY
           python3 p.py
