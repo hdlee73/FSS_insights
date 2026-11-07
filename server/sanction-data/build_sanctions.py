@@ -29,7 +29,7 @@ BASE = "https://www.fss.or.kr"
 LIST = BASE + "/fss/job/openInfo/list.do?menuNo=200476&sdate={s}&edate={e}&pageIndex={p}&pageUnit=100"
 VIEW = BASE + "/fss/job/openInfo/view.do?menuNo=200476&examMgmtNo={m}&emOpenSeq={q}"
 UA = {"User-Agent": "Mozilla/5.0 (FSS Insights sanction-data builder)"}
-PARSER_VERSION = 1
+PARSER_VERSION = 2
 
 
 def fetch(url: str, tries: int = 4) -> bytes:
@@ -253,7 +253,7 @@ def kinds(text: str, vocab):
 
 
 LABEL = re.compile(r"^\s*[◦○•ㆍ\-]?\s*(기\s*관|임\s*원|직\s*원(?:\s*등)?|임\s*직\s*원|설\s*계\s*사|(?:개인|법인)?\s*보험대리점|대리점|"
-                   r"(?:개인\s*)?보험설계사|금융회사|회\s*사|법\s*인)\s*(.*)$")
+                   r"(?:개인\s*)?보험설계사|투자권유대행인|금융회사|회\s*사|법\s*인)\s*(.*)$")
 
 
 def split_actions(sec: str):
@@ -267,14 +267,14 @@ def split_actions(sec: str):
         m = LABEL.match(line)
         if m:
             lab = m.group(1).replace(" ", "")
-            cur = "exec" if lab == "임원" else "staff" if lab in ("직원", "직원등", "임직원", "설계사", "보험설계사") else "inst"
+            cur = "exec" if lab == "임원" else "staff" if lab in ("직원", "직원등", "임직원", "설계사", "보험설계사", "투자권유대행인") else "inst"
             line = m.group(2).strip()
         if cur and line:
             buckets[cur].append(line.lstrip("◦○•ㆍ￭▪- ").strip())
     return {k: norm_space(" / ".join(v)) for k, v in buckets.items()}
 
 
-TABLE_HEAD = re.compile(r"제\s*재\s*대\s*상\s+제\s*재\s*내\s*용")
+TABLE_HEAD = re.compile(r"제\s*재\s*대\s*상\s+제\s*재\s*내\s*용|(?m:^)\s*대\s*상\s+내\s*용\s*$")
 TABLE_STOP = re.compile(r"^\s*(?:[가-하]\s*[.．]\s|\(\s*\d|\(\s*[가-하]\s*\)|\d{1,2}\s*[.)]\s|[⑴-⒇㈎-㈛]|<|＜|\(\*|\*|※|제\s*재\s*대\s*상)")
 ACTION_WORDS = re.compile("|".join(INST_KINDS + EXEC_KINDS + STAFF_KINDS))
 
@@ -285,6 +285,7 @@ def table_actions(t: str):
     for m in TABLE_HEAD.finditer(t):
         cur = None
         taken = 0
+        skipped_name = False
         for line in t[m.end():].splitlines():
             line = line.strip()
             if not line:
@@ -300,10 +301,40 @@ def table_actions(t: str):
                 line = lm.group(2).strip()
             elif cur is None and ACTION_WORDS.search(line):
                 cur = "inst"
+            elif cur is None and taken == 0 and not skipped_name and len(line) <= 40:
+                skipped_name = True  # 표 첫 줄이 회사 이름만 적힌 양식(㈜OO 다음 줄부터 조치)
+                continue
+            if cur is None and skipped_name:
+                cur = "inst"
             if cur is None:
                 break
             taken += 1
-            v = line.lstrip("◦○•ㆍ￭▪- ").strip()
+            v = line.lstrip("◦○•ㆍ￭▪-: ").strip()
+            if v and v not in buckets[cur]:
+                buckets[cur].append(v)
+    return {k: norm_space(" / ".join(v)) for k, v in buckets.items()}
+
+
+OVERVIEW_HEAD = re.compile(r"제\s*재\s*대\s*상\s*자\s*(?:및|와)\s*제\s*재\s*(?:종\s*류|내\s*용)|조\s*치\s*대\s*상\s*자\s*(?:및|와)\s*조\s*치\s*(?:종\s*류|내\s*용)")
+
+
+def overview_actions(t: str):
+    """재심·재조치 공시처럼 '1. 조치개요 … □ 제재대상자 및 제재종류' 아래에 조치를 적은 양식."""
+    buckets = {"inst": [], "exec": [], "staff": []}
+    m = OVERVIEW_HEAD.search(t)
+    if m:
+        taken = 0
+        for line in t[m.end():].splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if re.match(r"^(?:\d{1,2}\s*[.)]\s|[Ⅰ-Ⅹ]\s*[.]|[□■]\s)", line) or taken >= 8:
+                break
+            lm = LABEL.match(line.lstrip("◦○•ㆍ-").strip())
+            lab = lm.group(1).replace(" ", "") if lm else "기관"
+            v = (lm.group(2) if lm else line).strip().lstrip("◦○•ㆍ￭▪-: ").strip()
+            cur = "exec" if lab == "임원" else "staff" if lab in ("직원", "직원등", "임직원", "설계사", "보험설계사", "투자권유대행인") else "inst"
+            taken += 1
             if v and v not in buckets[cur]:
                 buckets[cur].append(v)
     return {k: norm_space(" / ".join(v)) for k, v in buckets.items()}
@@ -493,7 +524,7 @@ def parse_case(text: str, fields: dict, row: dict) -> dict:
     t = text.replace("\r", "")
     t = re.sub(r"\n\s*-\s*\d+\s*-\s*\n", "\n", t)  # 쪽 번호
     # 연금감독실 공시처럼 '3. 조치내용', '4. 조치대상사실'로 적은 양식도 있다.
-    a = re.search(r"제\s*재\s*조\s*치\s*내\s*용|\n\s*3\s*\.\s*조\s*치\s*내\s*용", t)
+    a = re.search(r"제\s*재\s*조\s*치\s*내\s*용|\n\s*3\s*\.\s*(?:제\s*재|조\s*치)\s*내\s*용", t)
     b = re.search(r"\n\s*4\s*\.\s*(?:제\s*재|조\s*치)\s*대\s*상\s*사\s*실|제\s*재\s*대\s*상\s*사\s*실", t[a.end():]) if a else None
     act_sec = t[a.end(): a.end() + b.start()] if a and b else ""
     fact_sec = t[a.end() + b.end():] if a and b else t
@@ -506,6 +537,8 @@ def parse_case(text: str, fields: dict, row: dict) -> dict:
     for key in acts:
         if re.fullmatch(r"[-–—\s]*|해당\s*사항\s*없음|없음", acts[key] or ""):
             acts[key] = ""
+    if not (acts["inst"] or acts["exec"] or acts["staff"]):
+        acts = overview_actions(t)
     if not (acts["inst"] or acts["exec"] or acts["staff"]):
         acts = {k: ("" if re.fullmatch(r"[-–—\s]*|해당\s*사항\s*없음|없음", v) else v) for k, v in table_actions(t).items()}
     fine, penalty = money(acts["inst"] or act_sec)
