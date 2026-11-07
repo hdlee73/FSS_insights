@@ -340,15 +340,25 @@ private fun ColumnScope.CompanyDetail(
     val profile = state.profiles[key]
 
     BackHeader(company.name, onBack = viewModel::back)
-    UnderlineTabs(listOf("재무현황", "주요경영지표", "최근 제재내역"), tab, { tab = it })
+    // 증권사·운용사는 금융투자협회의 펀드 순자산 탭을 더한다.
+    val tabs = remember(sectorCode) {
+        buildList {
+            add("재무현황"); add("주요경영지표")
+            if (sectorCode == "F" || sectorCode == "G") add("펀드 순자산")
+            add("최근 제재내역")
+        }
+    }
+    val tabName = tabs.getOrElse(tab) { tabs.first() }
+    UnderlineTabs(tabs, tabs.indexOf(tabName), { tab = it })
     Box(Modifier.weight(1f).fillMaxWidth()) {
         when {
-            tab == 2 -> CompanySanctionPane(company.name, sanctionViewModel, onOpenLaw)
+            tabName == "펀드 순자산" -> FundAumPane(company.name)
+            tabName == "최근 제재내역" -> CompanySanctionPane(company.name, sanctionViewModel, onOpenLaw)
             key in state.loading || (profile == null && key !in state.errors) -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             key in state.errors -> CenterMessage(state.errors[key].orEmpty(), isError = true, actionLabel = "다시 시도", onAction = { viewModel.retry(sectorCode, company) })
             profile == null || profile.metrics.isEmpty() -> CenterMessage("이 회사는 ${sector.label} 자료를 찾지 못했습니다.")
             else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                if (tab == 0) {
+                if (tabName == "재무현황") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         BASES.forEach { b -> PillChip("$b 재무제표", onClick = { basis = b; financeMonth = null }, selected = b == basis, onPanel = true) }
                     }
@@ -356,7 +366,7 @@ private fun ColumnScope.CompanyDetail(
                 } else {
                     RatioTab(sectorCode, profile, ratioMonth, onMonth = { ratioMonth = it })
                 }
-                if (tab == 0) HomepageButton(company)
+                if (tabName == "재무현황") HomepageButton(company)
                 Note("$FISIS_SOURCE. 금액은 억원 단위입니다. $DATA_NOTICE")
             }
         }
