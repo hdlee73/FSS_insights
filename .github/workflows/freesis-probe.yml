@@ -1,0 +1,33 @@
+name: freesis-probe
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: probe
+        run: |
+          cat > p.py <<'PY'
+          import json, subprocess
+          REF = "https://freesis.kofia.or.kr/stat/FreeSIS.do?parentDivId=MSIS40200000000000&serviceId=STATFND0200100010"
+          def post(body):
+              for i in range(6):
+                  p = subprocess.run(["curl", "-sS", "--compressed", "-m", "90", "-A", "Mozilla/5.0 Chrome/124", "-H", "Content-Type: application/json; charset=UTF-8", "-e", REF, "-d", json.dumps({"dmSearch": body}), "https://freesis.kofia.or.kr/meta/getMetaDataList.do"], capture_output=True)
+                  try: return json.loads(p.stdout.decode("utf-8", "replace"), strict=False)
+                  except Exception: pass
+              return {}
+          base = {"tmpV40": "100000000", "tmpV41": "1", "tmpV34": "20261105", "tmpV6": "2", "tmpV4": "", "tmpV5": "", "tmpV7": "2", "tmpV20": "Y", "OBJ_NM": "STATFND0200100010BO"}
+          d = post(base)
+          print("HEADER", json.dumps(d.get("dsmHeader"), ensure_ascii=False)[:3000])
+          rows = d.get("ds1", [])
+          # 값이 있는 열 번호별 최대값
+          mx = {}
+          for r in rows:
+              for k, v in r.items():
+                  if k.startswith("TMPV") and isinstance(v, (int, float)): mx[k] = max(mx.get(k, 0), v)
+          print("MAX", sorted(mx.items(), key=lambda x: int(x[0][4:])))
+          for r in rows:
+              if r["TMPV1"].startswith(("삼성에스알에이", "교보자산", "골든")): print(r["TMPV1"], [r.get(f"TMPV{i}") for i in range(2, 21)])
+          PY
+          python3 p.py
