@@ -2,6 +2,7 @@ name: Fund AUM screenshot
 on:
   push:
     branches: [claude/fund-aum-shot]
+    paths-ignore: [".github/workflows/freesis-probe.yml"]
 jobs:
   shot:
     runs-on: ubuntu-latest

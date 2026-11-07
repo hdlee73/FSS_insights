@@ -1,6 +1,8 @@
 name: freesis-probe
 on:
-  workflow_dispatch:
+  push:
+    branches: [claude/fund-aum-shot]
+    paths: [".github/workflows/freesis-probe.yml"]
 jobs:
   probe:
     runs-on: ubuntu-latest
