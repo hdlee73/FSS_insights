@@ -26,7 +26,7 @@ data class FundAumDataset(val generatedAt: String, val asOf: FundAumDates, val c
         companies.firstOrNull { FundAumNames.key(it.name) == k }?.let { return it }
         // 이름 끝의 "자산운용" 등을 뗀 형태가 하나로 맞을 때만 허용
         val s = FundAumNames.stem(company)
-        if (s.length < 3) return null
+        if (s.length < 2) return null
         val hits = companies.filter { FundAumNames.stem(it.name) == s }
         return hits.singleOrNull()
     }
