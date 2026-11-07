@@ -87,15 +87,21 @@ fun FundAumPane(company: String, modifier: Modifier = Modifier) {
         data == null && state.loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp) }
         data == null -> CenterMessage(state.error ?: "자료가 없습니다.", isError = true, actionLabel = "다시 시도", onAction = { vm.load(force = true) })
         found == null -> CenterMessage("금융투자협회 회사별 펀드 설정규모에서 '$company' 이름으로 된 자료를 찾지 못했습니다.\n(펀드를 설정·운용하지 않는 회사이거나 회사명 표기가 다를 수 있습니다.)")
-        else -> Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            FundAumTable(found, data)
-            Text(
-                "금융투자협회 종합통계 포털 '회사별설정규모'(펀드, 순자산총액, 투자지역 전체, 기금 포함) 기준이며 단위는 억원입니다. " +
-                    "최직근 분기말·연말은 그 일자의 값입니다. 금융투자협회 자료를 매일 자동으로 모아 보여 주므로 원문과 다를 수 있습니다. 갱신: ${data.generatedAt.take(16).replace('T', ' ')}",
-                Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline
-            )
-        }
+        else -> FundAumBody(found, data, modifier)
+    }
+}
+
+/** 찾은 회사의 순자산 표와 안내 문구(화면 캡처 시험에서도 이 부분만 그린다). */
+@Composable
+internal fun FundAumBody(found: FundAumCompany, data: FundAumDataset, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        FundAumTable(found, data)
+        Text(
+            "금융투자협회 종합통계 포털 '회사별설정규모'(펀드, 순자산총액, 투자지역 전체, 기금 포함) 기준이며 단위는 억원입니다. " +
+                "최직근 분기말·연말은 그 일자의 값입니다. 금융투자협회 자료를 매일 자동으로 모아 보여 주므로 원문과 다를 수 있습니다. 갱신: ${data.generatedAt.take(16).replace('T', ' ')}",
+            Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline
+        )
     }
 }
 
@@ -126,7 +132,7 @@ private fun AumRow(label: String, values: List<Long>, bold: Boolean) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
             Text(label, Modifier.weight(0.8f), style = MaterialTheme.typography.bodyLarge, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal)
             values.forEach { v ->
-                Text(eokText(v), Modifier.weight(1.1f), style = MaterialTheme.typography.bodyMedium, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal, textAlign = TextAlign.End, maxLines = 1)
+                Text(eokText(v), Modifier.weight(1.1f), style = MaterialTheme.typography.bodyMedium, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal, textAlign = TextAlign.End)
             }
         }
         RowDivider()
