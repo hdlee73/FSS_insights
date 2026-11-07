@@ -252,8 +252,8 @@ def kinds(text: str, vocab):
     return found
 
 
-LABEL = re.compile(r"^\s*[◦○•ㆍ\-]?\s*(기\s*관|임\s*원|직\s*원(?:\s*등)?|임\s*직\s*원|설\s*계\s*사|보험대리점|대리점|"
-                   r"보험설계사|금융회사|회\s*사|법\s*인)\s*(.*)$")
+LABEL = re.compile(r"^\s*[◦○•ㆍ\-]?\s*(기\s*관|임\s*원|직\s*원(?:\s*등)?|임\s*직\s*원|설\s*계\s*사|(?:개인|법인)?\s*보험대리점|대리점|"
+                   r"(?:개인\s*)?보험설계사|금융회사|회\s*사|법\s*인)\s*(.*)$")
 
 
 def split_actions(sec: str):
@@ -262,7 +262,7 @@ def split_actions(sec: str):
     cur = None
     for line in sec.splitlines():
         line = line.strip()
-        if not line or re.match(r"^제\s*재\s*대\s*상", line):
+        if not line or re.match(r"^(?:제\s*재\s*대\s*상|대\s*상\s*내\s*용)", line):
             continue
         m = LABEL.match(line)
         if m:
@@ -271,6 +271,41 @@ def split_actions(sec: str):
             line = m.group(2).strip()
         if cur and line:
             buckets[cur].append(line.lstrip("◦○•ㆍ￭▪- ").strip())
+    return {k: norm_space(" / ".join(v)) for k, v in buckets.items()}
+
+
+TABLE_HEAD = re.compile(r"제\s*재\s*대\s*상\s+제\s*재\s*내\s*용")
+TABLE_STOP = re.compile(r"^\s*(?:[가-하]\s*[.．]\s|\(\s*\d|\(\s*[가-하]\s*\)|\d{1,2}\s*[.)]\s|[⑴-⒇㈎-㈛]|<|＜|\(\*|\*|※|제\s*재\s*대\s*상)")
+ACTION_WORDS = re.compile("|".join(INST_KINDS + EXEC_KINDS + STAFF_KINDS))
+
+
+def table_actions(t: str):
+    """'3. 제재조치내용'이 비어 있고 지적사항마다 '제재대상 제재내용' 표가 붙은 양식(본문 중간에 표가 있는 공시)."""
+    buckets = {"inst": [], "exec": [], "staff": []}
+    for m in TABLE_HEAD.finditer(t):
+        cur = None
+        taken = 0
+        for line in t[m.end():].splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if re.fullmatch(r"-\s*\d+\s*-", line):  # 쪽 번호는 건너뛴다
+                continue
+            if TABLE_STOP.match(line) or taken >= 8:
+                break
+            lm = LABEL.match(line)
+            if lm:
+                lab = lm.group(1).replace(" ", "")
+                cur = "exec" if lab == "임원" else "staff" if lab in ("직원", "직원등", "임직원", "설계사", "보험설계사", "개인보험설계사") else "inst"
+                line = lm.group(2).strip()
+            elif cur is None and ACTION_WORDS.search(line):
+                cur = "inst"
+            if cur is None:
+                break
+            taken += 1
+            v = line.lstrip("◦○•ㆍ￭▪- ").strip()
+            if v and v not in buckets[cur]:
+                buckets[cur].append(v)
     return {k: norm_space(" / ".join(v)) for k, v in buckets.items()}
 
 
@@ -457,8 +492,9 @@ def parse_case(text: str, fields: dict, row: dict) -> dict:
             text = old_brackets(fact)
     t = text.replace("\r", "")
     t = re.sub(r"\n\s*-\s*\d+\s*-\s*\n", "\n", t)  # 쪽 번호
-    a = re.search(r"제\s*재\s*조\s*치\s*내\s*용", t)
-    b = re.search(r"\n\s*4\s*\.\s*제\s*재\s*대\s*상\s*사\s*실|제\s*재\s*대\s*상\s*사\s*실", t[a.end():]) if a else None
+    # 연금감독실 공시처럼 '3. 조치내용', '4. 조치대상사실'로 적은 양식도 있다.
+    a = re.search(r"제\s*재\s*조\s*치\s*내\s*용|\n\s*3\s*\.\s*조\s*치\s*내\s*용", t)
+    b = re.search(r"\n\s*4\s*\.\s*(?:제\s*재|조\s*치)\s*대\s*상\s*사\s*실|제\s*재\s*대\s*상\s*사\s*실", t[a.end():]) if a else None
     act_sec = t[a.end(): a.end() + b.start()] if a and b else ""
     fact_sec = t[a.end() + b.end():] if a and b else t
     acts = split_actions(act_sec) if act_sec else {"inst": "", "exec": "", "staff": ""}
@@ -470,6 +506,8 @@ def parse_case(text: str, fields: dict, row: dict) -> dict:
     for key in acts:
         if re.fullmatch(r"[-–—\s]*|해당\s*사항\s*없음|없음", acts[key] or ""):
             acts[key] = ""
+    if not (acts["inst"] or acts["exec"] or acts["staff"]):
+        acts = {k: ("" if re.fullmatch(r"[-–—\s]*|해당\s*사항\s*없음|없음", v) else v) for k, v in table_actions(t).items()}
     fine, penalty = money(acts["inst"] or act_sec)
     items = items_of(fact_sec) if text else []
     return {
@@ -486,8 +524,13 @@ def parse_case(text: str, fields: dict, row: dict) -> dict:
 # ---------------------------------------------------------------- 권역
 
 # 이름만으로 확실한 것(먼저 본다). "미래에셋증권"이 '에셋' 때문에 보험이 되지 않도록 업종 낱말을 앞에 둔다.
+# 권역은 FISIS 금융권역(국내은행·외은지점 / 금융지주회사 / 생명·손해보험 / 투자매매중개업자 / 집합투자업자 / 투자자문일임업자 /
+# 부동산신탁 / 상호저축은행 / 신협·농협·수협·산림조합 / 카드·리스·할부·신기술금융)을 따르고, FISIS에 없는 대부업·기타를 더한다.
+# 등록하지 않은 '유사투자자문업자'는 금융투자업자가 아니므로 기타다.
 SECTOR_BY_NAME = [
     ("기타", r"신용정보|신용평가|평가정보|협회|거래소|결제원|예탁결제|신용보증"),
+    ("부신사", r"부동산신탁|(?<!투자)신탁(?!운용)"),
+    ("금융지주", r"금융지주|지주회사"),
     ("저축은행", r"저축은행"),
     ("대부", r"대부"),
     ("증권", r"증권|금융투자|미래에셋대우|선물(?!환)|종합금융|종금"),
@@ -513,6 +556,8 @@ SECTOR_WEAK = [
 
 def sector(co: str, dept: str, text_hint: str = "") -> str:
     name = co.replace(" ", "")
+    if "유사투자자문" in text_hint or "자본시장법 제101조" in text_hint:
+        return "기타"
     for s, rx in SECTOR_BY_NAME:
         if re.search(rx, name):
             return s
@@ -616,7 +661,8 @@ def main():
         c = done.get(r["id"]) or prev.get(r["id"])
         if not c:
             continue
-        c["sector"] = sector(c["co"], c.get("dept", ""))
+        hint = " ".join(it["t"] + " " + " ".join(it["laws"]) for it in c.get("items", []))
+        c["sector"] = sector(c["co"], c.get("dept", ""), hint)
         cases.append(c)
     unify_law_names(cases)
     cases.sort(key=lambda c: (c["date"], c["id"]), reverse=True)

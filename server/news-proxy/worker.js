@@ -461,7 +461,7 @@ async function stats(url, env, ctx) {
 // (권역별 회사 목록, 총자산 순위, 통계표·계정 찾기)은 배포할 때 build-fisis-data.mjs가 미리 해서 fisis-data.json에 넣어 둔다.
 // 서버는 그 자료로 순위·목록을 바로 돌려주고, 회사 상세만 실시간으로 받는다(통계표 몇 개).
 // 화면의 권역: 증권사(F)에는 선물사(W)를 합쳐 보여 준다. 선물사는 FISIS에서 통계표가 따로라 자료도 따로 만든다.
-const FISIS_SET = new Set(["F", "G", "A", "H", "I", "E", "C"]);
+const FISIS_SET = new Set(["F", "G", "A", "H", "I", "E", "C", "M"]);
 const subSectors = (sector) => (sector === "F" ? ["F", "W"] : [sector]);
 const bundled = (sector) => (fisisData && fisisData.sectors && fisisData.sectors[sector]) || null;
 

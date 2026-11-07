@@ -7,7 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
 
-/** FISIS 금융권역. [code]는 FISIS 금융권역코드(A 은행, F 증권사, G 자산운용사, H 생명보험, I 손해보험, E 저축은행, C 카드사). */
+/** FISIS 금융권역. [code]는 FISIS 금융권역코드(A 은행, F 증권사, G 자산운용사, H 생명보험, I 손해보험, E 저축은행, C 카드사, M 부동산신탁사). */
 data class FisisSector(val code: String, val label: String)
 
 /** 화면에 보여 주는 권역 순서. */
@@ -18,7 +18,8 @@ val FISIS_SECTORS: List<FisisSector> = listOf(
     FisisSector("H", "생보"),
     FisisSector("I", "손보"),
     FisisSector("C", "카드"),
-    FisisSector("E", "저축은행")
+    FisisSector("E", "저축은행"),
+    FisisSector("M", "부신사")
 )
 
 data class FisisCompany(val code: String, val name: String)
