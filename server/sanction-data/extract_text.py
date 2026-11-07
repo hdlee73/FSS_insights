@@ -121,6 +121,11 @@ def _tesseract(img: str, psm: int) -> str:
     return r.stdout.decode("utf-8", "ignore")
 
 
+def ocr_numfix(text: str) -> str:
+    """OCR가 천 단위 쉼표를 마침표로 읽은 숫자('2.195,009원'·'9.760만원'·'225.061주')를 바로잡는다. 마침표 뒤가 정확히 세 자리일 때만."""
+    return re.sub(r"(?<![\d.])(\d{1,3})\.(\d{3})(?!\d)(?!\.\d)", r"\1,\2", text)
+
+
 def ocr_fix(text: str) -> str:
     """OCR가 자주 틀리는 번호 머리를 바로잡는다: '(3 제목'·'(01) 제목'·'0) 제목' → '(1) 제목'. 번호 값은 중요하지 않고 모양만 맞춘다."""
     out = []

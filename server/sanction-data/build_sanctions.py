@@ -125,6 +125,8 @@ def parse_best(texts, fields: dict, row: dict):
     cands.append(("", {"method": "view-page", "q": 1.0}))  # parse_case가 상세 화면 '제재대상사실'을 쓴다
     best = None
     for text, meta in cands:
+        if str(meta.get("method", "")).replace("zip:", "").startswith("ocr"):
+            text = extract_text.ocr_numfix(text)
         r = parse_case(text, fields, row)
         sc = score_parse(r)
         if best is None or sc > best[0]:
@@ -160,7 +162,7 @@ def check_ocr_money(case: dict, texts, fields: dict):
     prim = (case["fine"], case["penalty"])
     votes = [prim]
     for a in alts:
-        r = parse_case(a, fields, {})
+        r = parse_case(extract_text.ocr_numfix(a), fields, {})
         votes.append((r["fine"], r["penalty"]))
     if len(votes) < 2:
         return  # 비교할 다른 결과가 없다(이전 캐시)
