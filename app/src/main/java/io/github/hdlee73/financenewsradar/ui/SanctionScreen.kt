@@ -375,6 +375,9 @@ private fun SanctionCaseCard(c: SanctionCase, matched: Set<SanctionItem>, onOpen
                 )
             }
             SectionHeading("[지적사항]", top = 6.dp)
+            if (c.ocr && c.items.isNotEmpty()) {
+                Text("스캔 문서를 글자 인식(OCR)으로 읽었습니다. 숫자·법조문이 원문과 다를 수 있으니 원문보기로 확인하세요.", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB26A00))
+            }
             if (c.items.isEmpty()) {
                 Text(c.whyText(), style = MaterialTheme.typography.bodySmall, color = muted)
             } else {
@@ -456,6 +459,14 @@ private fun StatsPane(
                 }
                 Text("범위: ${scopeLabel(f, data)} · 자료 기준 ${data.generatedAt.take(16).replace('T', ' ')}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(SanctionExport.NOTICE, style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 16.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        s.coverageNote()?.let { note ->
+            Surface(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), shape = RoundedCornerShape(14.dp), color = Color(0xFFFFF4E0)) {
+                Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(Icons.Default.Info, contentDescription = null, Modifier.size(16.dp), tint = Color(0xFFB26A00))
+                    Text("통계 미반영 안내: $note", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp), color = Color(0xFF6B4300))
+                }
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.hdlee73.financenewsradar"
         minSdk = 26
         targetSdk = 36
-        versionCode = 63
-        versionName = "2.2.2"
+        versionCode = 64
+        versionName = "2.2.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
