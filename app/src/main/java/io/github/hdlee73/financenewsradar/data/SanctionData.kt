@@ -363,7 +363,7 @@ object SanctionJson {
 
 /** sanctions.json을 받아 기기에 보관한다. 12시간 안에 받은 것이 있으면 다시 받지 않는다. */
 class SanctionRepository(private val context: Context) {
-    private val file get() = File(context.filesDir, "sanctions-2011-r2.json").also { File(context.filesDir, "sanctions-2011.json").delete() }
+    private val file get() = File(context.filesDir, "sanctions-2011-r3.json").also { File(context.filesDir, "sanctions-2011.json").delete() }
 
     suspend fun cached(): SanctionDataset? = withContext(Dispatchers.IO) {
         runCatching { if (file.exists()) SanctionJson.parse(file.readText()) else null }.getOrNull()
@@ -379,7 +379,7 @@ class SanctionRepository(private val context: Context) {
             throw IllegalStateException("제재공시 세부내역 자료를 받지 못했습니다. 인터넷 연결을 확인해 주세요. (${e.message})")
         }
         val data = SanctionJson.parse(text)
-        File(context.filesDir, "sanctions-2011-r2.json.tmp").apply { writeText(text); renameTo(file) }
+        File(context.filesDir, "sanctions-2011-r3.json.tmp").apply { writeText(text); renameTo(file) }
         data
     }
 
