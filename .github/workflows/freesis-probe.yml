@@ -6,27 +6,35 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: capture
+      - name: probe
         run: |
-          mkdir pw && cd pw && npm init -y >/dev/null && npm i playwright@1.49.0 >/dev/null 2>&1 && npx playwright install --with-deps chromium >/dev/null 2>&1
-          cat > cap.js <<'JS'
-          const { chromium } = require('playwright');
-          (async () => {
-            const b = await chromium.launch();
-            const p = await b.newPage({ locale: 'ko-KR' });
-            p.on('response', async r => {
-              const req = r.request();
-              if (req.method() !== 'POST') return;
-              let body = ''; try { body = (await r.text()).slice(0, 700); } catch (e) {}
-              console.log('>>POST', r.url(), r.status(), '\nREQ:', (req.postData() || '').slice(0, 600), '\nRES:', body.replace(/\s+/g,' '), '\n');
-            });
-            await p.goto('https://freesis.kofia.or.kr/stat/FreeSIS.do?parentDivId=MSIS40200000000000&serviceId=STATFND0200100130', { waitUntil: 'networkidle', timeout: 60000 });
-            await p.waitForTimeout(5000);
-            console.log('=== CLICK 공모 + 조회');
-            await p.getByText('공모', { exact: true }).first().click().catch(e => console.log('click1', e.message));
-            await p.getByText('조회', { exact: true }).first().click().catch(e => console.log('click2', e.message));
-            await p.waitForTimeout(8000);
-            await b.close();
-          })();
-          JS
-          node cap.js 2>&1 | head -c 20000
+          cat > p.py <<'PY'
+          import json, urllib.request
+          B = "https://freesis.kofia.or.kr/meta/"
+          H = {"Content-Type": "application/json; charset=UTF-8", "User-Agent": "Mozilla/5.0 Chrome/124", "Referer": "https://freesis.kofia.or.kr/stat/FreeSIS.do?parentDivId=MSIS40200000000000&serviceId=STATFND0200100130"}
+          def post(ep, body):
+              r = urllib.request.Request(B + ep, json.dumps(body).encode(), H)
+              return json.load(urllib.request.urlopen(r, timeout=60))
+          d = post("getSrvData.do", {"dmSearchData": {"strSvrId": "STATFND0200100130", "strDivId": "MSIS40000000000000", "app_peron_yn": "Y", "language_gb": "KOR", "strGetCode": "Y"}})
+          print("keys", list(d.keys()))
+          for r in d.get("dsSearchCdList", []):
+              print("CD", r.get("GROUP_CD"), r.get("COMMON_CD"), r.get("CODE_NM"))
+          for k in d:
+              if k not in ("dsSearchCdList", "dsGridSQL"): print(k, json.dumps(d[k], ensure_ascii=False)[:800])
+          def q(**kw):
+              b = {"tmpV40": "100000000", "tmpV41": "1", "tmpV34": "20261105", "tmpV100": "2", "tmpV102": "", "tmpV5": "", "tmpV20": "Y", "OBJ_NM": "STATFND0200100130BO"}
+              b.update(kw)
+              d = post("getMetaDataList.do", {"dmSearch": b})
+              rows = d.get("ds1", [])
+              g = [r for r in rows if r.get("TMPV1", "").startswith("골든브릿지")]
+              print(kw, "rows", len(rows), "골든브릿지", [g[0].get(f"TMPV{i}") for i in range(2, 21)] if g else None)
+              return d
+          q()
+          for v in ["1", "2", "3", "00", "01", "02", "10", "20"]: q(tmpV102=v)
+          for v in ["1", "2", "3", "4", "5"]: q(tmpV41=v)
+          for v in ["1", "2", "3"]: q(tmpV100=v)
+          for v in ["1", "2", "3"]: q(tmpV5=v)
+          q(tmpV20="N")
+          q(tmpV34="20251231"); q(tmpV34="20260930")
+          PY
+          python3 p.py
