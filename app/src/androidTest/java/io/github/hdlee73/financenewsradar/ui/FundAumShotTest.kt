@@ -48,6 +48,6 @@ class FundAumShotTest {
     }
 
     @Test fun kyobo() = shot("kyobo", FundAumCompany("교보자산운용", listOf(105356, 111726, 116710), listOf(137862, 137021, 141510)))
-    @Test fun mirae() = shot("mirae", FundAumCompany("미래에셋자산운용", listOf(1678481, 1850141, 1321777), listOf(985993, 932511, 795978)))
-    @Test fun koreaInvest() = shot("koreainvest", FundAumCompany("한국투자증권", listOf(0, 0, 0), listOf(10629, 10394, 37400)))
+    @Test fun mirae() = shot("mirae", FundAumCompany("미래에셋자산운용", listOf(1678481, 1850141, 1321777), listOf(977826, 924344, 786641)))
+    @Test fun koreaInvest() = shot("koreainvest", FundAumCompany("한국투자증권", listOf(0, 0, 0), listOf(10629, 10394, 3740)))
 }
