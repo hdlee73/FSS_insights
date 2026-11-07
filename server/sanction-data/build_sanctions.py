@@ -93,7 +93,7 @@ def clean_html(s: str) -> str:
 
 import extract_text  # noqa: E402
 
-EXTRACT_VERSION = 2  # 캐시에 이 값 미만이면, 지적사항·조치를 못 뽑은 건은 첨부를 새 방식으로 다시 읽는다.
+EXTRACT_VERSION = 3  # 캐시에 이 값 미만이면, 지적사항·조치를 못 뽑은 건은 첨부를 새 방식으로 다시 읽는다.
 CACHE_DIR = None
 
 
@@ -180,6 +180,9 @@ def check_ocr_money(case: dict, texts, fields: dict):
 
 def needs_reread(case: dict, texts=()) -> bool:
     if not case.get("items") or not (case.get("inst") or case.get("exec") or case.get("staff")):
+        return True
+    # OCR로 읽은 건은 금액 교차 확인용 OCR 결과(ocr-alt)가 있어야 한다.
+    if case.get("ocr") and not any(t.get("method") == "ocr-alt" for t in texts):
         return True
     # 글자 층이 있어도 쪽당 글자가 너무 적으면 일부가 그림일 수 있어 새 방식으로 다시 읽는다.
     for t in texts:
