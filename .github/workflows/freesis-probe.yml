@@ -11,7 +11,8 @@ jobs:
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
           B=https://freesis.kofia.or.kr
           curl -sSL -m 30 -A "$UA" -o main.js "$B/ui/app/com/main/Main.clx.js"
-          echo "== robots body text"; curl -sSL -m 30 -A "$UA" "$B/robots.txt" | sed 's/<[^>]*>//g' | grep -v '^\s*$' | grep -v '{' | head -15
-          echo "== getSrvData usage"; grep -oE '.{300}getSrvData.{500}' main.js | head -3
-          echo "== getMenuData usage"; grep -oE '.{200}getMenuData.{400}' main.js | head -2
-          echo "== x.js"; curl -sSL -m 30 -A "$UA" "$B/ui/app/stat/STATFND0200100130.clx.js" | head -c 900
+          echo "== main.js: srv/service refs"; grep -oE '.{0,200}(getSrvData|getMenuData|serviceId).{0,300}' main.js | head -8
+          echo "== menu call"
+          curl -sS -m 30 -A "$UA" -X POST -H "Content-Type: application/json" -H "X-Requested-With: XMLHttpRequest" -d '{"dmSearch":{"serviceId":"STATFND0200100130"}}' -w "\nHTTP %{http_code}\n" "$B/meta/getMenuData.do" | head -c 1500
+          echo; echo "== srv call"
+          curl -sS -m 30 -A "$UA" -X POST -H "Content-Type: application/json" -H "X-Requested-With: XMLHttpRequest" -d '{"dmSearch":{"serviceId":"STATFND0200100130"}}' -w "\nHTTP %{http_code}\n" "$B/meta/getSrvData.do" | head -c 1500
