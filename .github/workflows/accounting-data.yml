@@ -1,0 +1,62 @@
+name: Accounting data
+
+# 회계 데이터를 매일 수집해 accounting-data 브랜치에 JSON으로 올린다.
+#  - 금감원 회계감리결과제재(audit_actions.json)
+#  - 질의회신·해석·감리지적사례 게시판 색인(board_index.json)
+#  - 공시조사결과제재 2020년 이후, 첨부를 읽어 회사별로 나눈 것(disclosure_sanctions.json)
+on:
+  schedule:
+    - cron: "0 21 * * *"   # 매일 06:00 KST
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "server/accounting-data/**"
+      - ".github/workflows/accounting-data.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: accounting-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install olefile pycryptodome
+      - name: Parser tests
+        run: python3 -m unittest discover -s server/accounting-data/tests -p "test_*.py"
+      - name: Restore attachment cache
+        uses: actions/cache@v4
+        with:
+          path: server/accounting-data/cache
+          key: accounting-attachments-${{ github.run_id }}
+          restore-keys: accounting-attachments-
+      - name: Previous data (누적 보관)
+        run: |
+          mkdir -p server/accounting-data/prev
+          git fetch origin accounting-data || true
+          git show origin/accounting-data:audit_actions.json > server/accounting-data/prev/audit_actions.json 2>/dev/null || rm -f server/accounting-data/prev/audit_actions.json
+      - name: Collect
+        run: python3 server/accounting-data/build_accounting.py server/accounting-data/out --cache server/accounting-data/cache --delay 0.5 --prev server/accounting-data/prev/audit_actions.json
+      - name: Publish to accounting-data branch
+        if: github.event_name != 'pull_request'
+        run: |
+          set -e
+          git config user.name "accounting-data-bot"
+          git config user.email "noreply@github.com"
+          rm -rf /tmp/pub && mkdir /tmp/pub
+          cp server/accounting-data/out/*.json /tmp/pub/
+          git fetch origin accounting-data || true
+          if git rev-parse --verify origin/accounting-data >/dev/null 2>&1; then git checkout -B accounting-data origin/accounting-data; else git checkout --orphan accounting-data; fi
+          git rm -rf . >/dev/null 2>&1 || true
+          cp /tmp/pub/*.json .
+          git add audit_actions.json board_index.json disclosure_sanctions.json
+          git diff --cached --quiet || git commit -m "data: update $(date -u +%F)"
+          git push origin accounting-data

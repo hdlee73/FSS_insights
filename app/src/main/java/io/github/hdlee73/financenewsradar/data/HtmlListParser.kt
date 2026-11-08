@@ -440,4 +440,33 @@ object HtmlListParser {
             ParsedLink(title.take(maxTitle), card.url, date)
         }
     }
+
+    private val fssCardItem = Regex("<li\\b[^>]*class=\"[^\"]*structured-item[^\"]*\"[^>]*>(.*?)</li>\\s*(?=<li\\b[^>]*structured-item|</ul>)", options)
+    private val fssCardLink = Regex("<a\\b[^>]*href\\s*=\\s*\"([^\"]*nttId=\\d+[^\"]*)\"[^>]*>(.*?)</a>", options)
+    private val fssCardField = Regex("<dt[^>]*>(.*?)</dt>\\s*<dd[^>]*>(.*?)</dd>", options)
+
+    /**
+     * 금감원 게시판 가운데 카드형 목록(`structured-item`, 금융감독연구 자료실 등)에서 제목·저자·등록일을 읽는다.
+     * 카드마다 `저자(소속)·연월·권호·등록일` 항목이 있다. 등록일(2026-10-30)을 날짜로 쓰고 저자는 그대로 둔다.
+     */
+    fun extractFssCards(html: String, baseUrl: String): List<ParsedLink> {
+        val clean = noise.replace(html, " ")
+        val base = runCatching { URI(baseUrl) }.getOrNull()
+        val out = LinkedHashMap<String, ParsedLink>()
+        for (m in fssCardItem.findAll(clean)) {
+            val block = m.groupValues[1]
+            val link = fssCardLink.find(block) ?: continue
+            val url = resolve(base, decodeEntities(link.groupValues[1]).trim()) ?: continue
+            val title = compact(decodeEntities(tag.replace(link.groupValues[2], " ")))
+            if (title.isEmpty()) continue
+            val fields = fssCardField.findAll(block).associate {
+                compact(decodeEntities(tag.replace(it.groupValues[1], " "))) to compact(decodeEntities(tag.replace(it.groupValues[2], " ")))
+            }
+            val date = fields["등록일"]?.let { findDates(it).firstOrNull()?.date }
+                ?: fields.values.firstNotNullOfOrNull { findDates(it).firstOrNull()?.date }
+            val author = fields["저자(소속)"]?.takeIf { it.isNotBlank() }
+            out.putIfAbsent(url, ParsedLink(title, url, date, author))
+        }
+        return out.values.toList()
+    }
 }

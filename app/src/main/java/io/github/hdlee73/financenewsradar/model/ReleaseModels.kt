@@ -14,6 +14,7 @@ enum class AgencyId(val label: String, val shortLabel: String, val group: Agency
     MOEF("재정경제부", "재정경제부", AgencyGroup.PRESS, "https://www.mofe.go.kr/nw/nes/nesdta.do?bbsId=MOSFBBS_000000000028&menuNo=4010100", "보도자료"),
     BOK_PRESS("한국은행", "한국은행", AgencyGroup.PRESS, "https://www.bok.or.kr/portal/singl/newsData/list.do?targetDepth=3&menuNo=201263&depth2=200038&depth3=201263", "보도자료"),
     SEC("미국 SEC", "SEC", AgencyGroup.PRESS, "https://www.sec.gov/newsroom", "보도자료"),
+    FSS_RESEARCH("금융감독연구", "금융감독연구", AgencyGroup.RESEARCH, "https://www.fss.or.kr/fss/bbs/B0000332/list.do?menuNo=200807", "논문"),
     KCMI("자본시장연구원", "자본시장연구원", AgencyGroup.RESEARCH, "https://www.kcmi.re.kr/report/report_list", "보고서"),
     KIF("한국금융연구원", "금융연구원", AgencyGroup.RESEARCH, "https://www.kif.re.kr/kif4/publication/pub_list?mid=10", "보고서"),
     BOK_RESEARCH("한국은행", "한국은행", AgencyGroup.RESEARCH, "https://www.bok.or.kr/portal/singl/newsData/list.do?targetDepth=2&menuNo=201156&depth2=201156", "보고서"),

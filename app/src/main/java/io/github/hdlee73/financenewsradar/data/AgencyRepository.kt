@@ -84,6 +84,12 @@ internal object AgencySources {
             isRss = true,
             pageable = false
         )
+        AgencyId.FSS_RESEARCH -> Source(
+            // 금융감독연구 자료실(금감원 B0000332): 카드형 목록. 제목·저자·등록일을 카드 안에서 읽는다.
+            listUrl = { page, _ -> "https://www.fss.or.kr/fss/bbs/B0000332/list.do?menuNo=200807&pageIndex=$page" },
+            searchUrl = { q, page -> "https://www.fss.or.kr/fss/bbs/B0000332/list.do?menuNo=200807&pageIndex=$page&searchCnd=1&searchWrd=${enc(q)}" },
+            customParser = { body, url -> HtmlListParser.extractFssCards(body, url) }
+        )
         AgencyId.KCMI -> Source(
             listUrl = { page, size -> "https://www.kcmi.re.kr/report/report_list?pg=$page&pp=$size" },
             // 한 항목에 바로보기가 둘(보도자료 fty=004010 / 보고서 fty=004003)이고 보고서 링크가 없는 항목도 있어,
@@ -180,6 +186,7 @@ internal object AgencySources {
             AgencyId.FSS -> "https://www.fss.or.kr/fss/bbs/B0000188/list.do?menuNo=200218&searchCnd=1&searchWrd=$q"
             AgencyId.FSC -> "https://www.fsc.go.kr/no010101?srchKey=sj&srchText=$q"
             AgencyId.SEC -> "https://www.google.com/search?q=site%3Asec.gov%2Fnewsroom%2Fpress-releases+$q"
+            AgencyId.FSS_RESEARCH -> "https://www.fss.or.kr/fss/bbs/B0000332/list.do?menuNo=200807&searchCnd=1&searchWrd=$q"
             AgencyId.KCMI -> "https://www.kcmi.re.kr/report/report_list"
             AgencyId.KIF -> "https://www.kif.re.kr/kif4/publication/pub_list?mid=10"
             AgencyId.IOSCO -> "https://www.iosco.org/publications/?subsection=public_reports"
