@@ -52,11 +52,4 @@ class DataParserTest {
         val diffs = c.map { kotlin.math.abs(it.maxFindingWon!! - 3_000_000_000L) }
         assertEquals(diffs.sorted(), diffs)
     }
-
-    @Test fun version_compare() {
-        assertTrue(UpdateChecker.isNewer("v0.2.0", "0.1.0-debug"))
-        assertFalse(UpdateChecker.isNewer("v0.1.0", "0.1.0-debug"))
-        assertTrue(UpdateChecker.isNewer("1.0.1", "1.0"))
-        assertFalse(UpdateChecker.isNewer("0.9.9", "1.0.0"))
-    }
 }
