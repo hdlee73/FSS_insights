@@ -30,6 +30,17 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Gavel
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FactCheck
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Policy
+import io.github.hdlee73.financenewsradar.accounting.AccountingViewModel
+import io.github.hdlee73.financenewsradar.accounting.ui.screens.AuditScreen
+import io.github.hdlee73.financenewsradar.accounting.ui.screens.DisclosureScreen
+import io.github.hdlee73.financenewsradar.accounting.ui.screens.SearchScreen as AccountingSearchScreen
+import io.github.hdlee73.financenewsradar.accounting.ui.screens.SimulatorScreen
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -88,6 +99,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.layout.imePadding
 import io.github.hdlee73.financenewsradar.BuildConfig
 import io.github.hdlee73.financenewsradar.data.UpdateStatus
 import io.github.hdlee73.financenewsradar.data.UsageStats
@@ -108,31 +121,56 @@ private const val SCREEN_REGULATORY = 10
 private const val SCREEN_SANCTION = 11
 private const val SCREEN_LAW = 12
 private const val SCREEN_DART = 13
+private const val SCREEN_DISCLOSURE = 14
+private const val SCREEN_AUDIT = 15
+private const val SCREEN_ACC_SEARCH = 16
+private const val SCREEN_SIMULATOR = 17
 
-// 왼쪽 서랍 메뉴에 나오는 모든 화면(순서 = 화면 번호). 오늘의 브리핑·뉴스·시장동향의 번호는 브리핑 화면의 바로가기와 같다.
+// 서랍 메뉴에 나오는 모든 화면(순서 = 화면 번호). 오늘의 브리핑·뉴스·시장동향의 번호는 브리핑 화면의 바로가기와 같다.
+// 라벨은 익명 사용 통계의 메뉴 이름으로도 쓰인다.
 private val appScreens = listOf(
     AppScreen("오늘의 브리핑", Icons.Filled.WbSunny),
-    AppScreen("뉴스 검색", Icons.Filled.Newspaper),
+    AppScreen("뉴스검색", Icons.Filled.Newspaper),
     AppScreen("금융시장 동향", Icons.Filled.ShowChart),
     AppScreen("보도자료", Icons.Filled.Description),
     AppScreen("금융관련 리포트", Icons.Filled.Science),
-    AppScreen("참고 자료실", Icons.Filled.FolderOpen),
+    AppScreen("참고자료실", Icons.Filled.FolderOpen),
     AppScreen("주요사이트", Icons.Filled.Language),
     AppScreen("알림", Icons.Filled.Notifications),
-    AppScreen("앱 정보", Icons.Filled.Info),
+    AppScreen("앱정보", Icons.Filled.Info),
     AppScreen("금융회사 주요 현황", Icons.Filled.Business),
     AppScreen("유권해석·비조치의견서·행정지도", Icons.Filled.Gavel),
-    AppScreen("금융회사 제재현황", Icons.Filled.Gavel),
+    AppScreen("금융회사 제재 현황", Icons.Filled.Gavel),
     AppScreen("스마트 법령검색", Icons.Filled.AccountTree),
-    AppScreen("기업 개황 및 공시(DART)", Icons.Filled.Apartment)
+    AppScreen("기업 개황 및 공시(DART)", Icons.Filled.Apartment),
+    AppScreen("공시조사결과제재", Icons.Filled.Policy),
+    AppScreen("회계감리 조치현황", Icons.Filled.FactCheck),
+    AppScreen("회계기준서·질의회신·지적사례 검색", Icons.Filled.MenuBook),
+    AppScreen("(회계)과징금 및 양정 시뮬레이터", Icons.Filled.Calculate)
 )
 
-// 서랍 메뉴의 묶음: 소제목과 그 아래 화면 번호.
+/** 서랍 메뉴의 묶음. [title]이 없으면 맨 위의 낱개 메뉴, 있으면 접고 펼 수 있는 묶음이다. */
+private class DrawerSection(val title: String?, val ids: List<Int>)
+
 private val drawerSections = listOf(
-    null to listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_FISIS, SCREEN_SANCTION, SCREEN_DART, SCREEN_LAW),
-    "자료" to listOf(SCREEN_PRESS, SCREEN_REGULATORY, SCREEN_RESEARCH, SCREEN_LIBRARY),
-    "더보기" to listOf(SCREEN_SITES, SCREEN_ALERTS, SCREEN_INFO)
+    DrawerSection(null, listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_LAW)),
+    DrawerSection("금융회사", listOf(SCREEN_FISIS, SCREEN_SANCTION)),
+    DrawerSection("기업공시 및 회계", listOf(SCREEN_DART, SCREEN_DISCLOSURE, SCREEN_AUDIT, SCREEN_ACC_SEARCH, SCREEN_SIMULATOR)),
+    DrawerSection("자료", listOf(SCREEN_PRESS, SCREEN_REGULATORY, SCREEN_RESEARCH, SCREEN_LIBRARY)),
+    DrawerSection("더보기", listOf(SCREEN_SITES, SCREEN_ALERTS, SCREEN_INFO))
 )
+
+/** 접어 둔 묶음 이름들을 기기에 기억한다(앱을 다시 열어도 유지). */
+private object MenuFolds {
+    private const val PREFS = "menu_folds"
+    private const val KEY = "collapsed"
+    fun load(context: android.content.Context): Set<String> =
+        runCatching { context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).getStringSet(KEY, emptySet()).orEmpty().toSet() }.getOrDefault(emptySet())
+
+    fun save(context: android.content.Context, collapsed: Set<String>) {
+        runCatching { context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putStringSet(KEY, collapsed).apply() }
+    }
+}
 
 /** 앱의 뼈대: 왼쪽 서랍 메뉴(상단 메뉴 버튼 또는 화면 왼쪽 가장자리 밀기)로 모든 화면을 오간다. */
 @Composable
@@ -144,10 +182,12 @@ fun FinanceNewsRadarApp(
     fisisViewModel: FisisViewModel = viewModel(),
     dartViewModel: DartViewModel = viewModel(),
     regulatoryViewModel: RegulatoryViewModel = viewModel(),
-    sanctionViewModel: SanctionViewModel = viewModel()
+    sanctionViewModel: SanctionViewModel = viewModel(),
+    accountingViewModel: AccountingViewModel = viewModel()
 ) {
     val newsState by newsViewModel.state.collectAsStateWithLifecycle()
     val releases by releasesViewModel.state.collectAsStateWithLifecycle()
+    val accountingState by accountingViewModel.data.collectAsStateWithLifecycle()
     val updateAvailable by UpdateStatus.available.collectAsStateWithLifecycle()
     val snackbarHost = remember { SnackbarHostState() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -165,6 +205,12 @@ fun FinanceNewsRadarApp(
     // 앱 안에서 거쳐 온 화면(뒤로가기 시 이전 화면으로). "1,2" 형태의 문자열로 저장해 화면 회전에도 유지한다.
     var history by rememberSaveable { mutableStateOf("") }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    val menuContext = LocalContext.current.applicationContext
+    var collapsed by remember { mutableStateOf(MenuFolds.load(menuContext)) }
+    fun setCollapsed(title: String, value: Boolean) {
+        collapsed = if (value) collapsed + title else collapsed - title
+        MenuFolds.save(menuContext, collapsed)
+    }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val usageContext = LocalContext.current.applicationContext
@@ -183,6 +229,7 @@ fun FinanceNewsRadarApp(
         keyboard?.hide()
         focusManager.clearFocus()
         lawFromLink = false
+        drawerSections.firstOrNull { it.title != null && target in it.ids && it.title in collapsed }?.title?.let { setCollapsed(it, false) }
         if (target != screen) {
             history = (history.split(',').filter { it.isNotEmpty() } + screen.toString()).takeLast(30).joinToString(",")
             screen = target
@@ -196,12 +243,23 @@ fun FinanceNewsRadarApp(
         screen = stack.last().toInt()
         history = stack.dropLast(1).joinToString(",")
     }
+    // 회계감리·공시조사결과제재의 회사명을 누르면 「기업 개황 및 공시(DART)」에서 그 회사를 찾는다.
+    var dartRequest by remember { mutableStateOf<String?>(null) }
+    // 회계감리·공시조사결과제재에서 열어 둔 상세 항목(뒤로가기로 목록으로 돌아온다)
+    var auditSelected by rememberSaveable { mutableStateOf<String?>(null) }
+    var disclosureSelected by rememberSaveable { mutableStateOf<String?>(null) }
+    fun openCompany(name: String) {
+        dartRequest = name
+        go(SCREEN_DART)
+    }
     fun openLaw(query: String) {
         lawLaunch = io.github.hdlee73.financenewsradar.law.LawLaunch(query)
         go(SCREEN_LAW)
         lawFromLink = true
     }
     BackHandler(enabled = history.isNotEmpty() && !drawerState.isOpen) { goBack() }
+    BackHandler(enabled = screen == SCREEN_AUDIT && auditSelected != null && !drawerState.isOpen) { auditSelected = null }
+    BackHandler(enabled = screen == SCREEN_DISCLOSURE && disclosureSelected != null && !drawerState.isOpen) { disclosureSelected = null }
     BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
 
     LaunchedEffect(newsState.error) {
@@ -220,12 +278,32 @@ fun FinanceNewsRadarApp(
                         Text("FSS Insights", style = MaterialTheme.typography.headlineSmall)
                         Text("v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    drawerSections.forEachIndexed { index, (title, ids) ->
+                    drawerSections.forEachIndexed { index, section ->
                         if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        val title = section.title
+                        val folded = title != null && title in collapsed
                         if (title != null) {
-                            Text(title, Modifier.padding(start = 28.dp, top = 4.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            // 묶음 제목을 누르면 하위 메뉴를 접고 펼친다. 접힌 상태에서도 현재 화면이 그 묶음에 있으면 표시해 준다.
+                            val hasCurrent = screen in section.ids
+                            Row(
+                                Modifier.fillMaxWidth().padding(NavigationDrawerItemDefaults.ItemPadding)
+                                    .clickable(onClickLabel = if (folded) "$title 펼치기" else "$title 접기") { setCollapsed(title, !folded) }
+                                    .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
+                                    .semantics { contentDescription = if (folded) "$title, 접힘" else "$title, 펼침" },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge,
+                                    color = if (folded && hasCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (folded) Text("${section.ids.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 6.dp))
+                                Icon(
+                                    if (folded) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                                    contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
-                        ids.forEach { id ->
+                        if (!folded) section.ids.forEach { id ->
                             val item = appScreens[id]
                             NavigationDrawerItem(
                                 icon = { Icon(item.icon, contentDescription = null) },
@@ -262,6 +340,10 @@ fun FinanceNewsRadarApp(
             SCREEN_REGULATORY -> HeroPalettes.Indigo
             SCREEN_SANCTION -> HeroPalettes.Coral
             SCREEN_LAW -> HeroPalettes.Violet
+            SCREEN_DISCLOSURE -> HeroPalettes.Rose
+            SCREEN_AUDIT -> HeroPalettes.Coral
+            SCREEN_ACC_SEARCH -> HeroPalettes.Sky
+            SCREEN_SIMULATOR -> HeroPalettes.Amber
             else -> HeroPalettes.Slate
         }
         CompositionLocalProvider(LocalHeroPalette provides palette) {
@@ -282,7 +364,17 @@ fun FinanceNewsRadarApp(
                     SCREEN_NEWS -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     SCREEN_MARKET -> MarketScreen(marketViewModel)
                     SCREEN_FISIS -> FisisScreen(fisisViewModel, sanctionViewModel, onOpenLaw = ::openLaw)
-                    SCREEN_DART -> DartScreen(dartViewModel)
+                    SCREEN_DART -> DartScreen(dartViewModel, searchRequest = dartRequest, onSearchRequestConsumed = { dartRequest = null })
+                    SCREEN_DISCLOSURE -> DisclosureScreen(
+                        accountingState, disclosureSelected, onSelect = { disclosureSelected = it },
+                        modifier = Modifier.fillMaxSize().imePadding(), onOpenCompany = ::openCompany, onOpenLaw = ::openLaw
+                    )
+                    SCREEN_AUDIT -> AuditScreen(
+                        accountingState, auditSelected, onSelect = { auditSelected = it },
+                        modifier = Modifier.fillMaxSize().imePadding(), onOpenCompany = ::openCompany
+                    )
+                    SCREEN_ACC_SEARCH -> AccountingSearchScreen(accountingState, Modifier.fillMaxSize().imePadding())
+                    SCREEN_SIMULATOR -> SimulatorScreen(Modifier.fillMaxSize().imePadding())
                     SCREEN_REGULATORY -> RegulatoryScreen(regulatoryViewModel)
                     SCREEN_SANCTION -> SanctionScreen(sanctionViewModel, onOpenLaw = ::openLaw)
                     SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen(

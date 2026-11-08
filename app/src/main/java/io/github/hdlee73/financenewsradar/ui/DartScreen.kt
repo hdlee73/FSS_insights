@@ -379,10 +379,24 @@ private fun MarketChip(cls: String, modifier: Modifier = Modifier) {
 
 /** 기업 개황 및 공시(DART): 회사를 검색해 개황·최대주주·재무손익·정기/주요사항/기타 공시와 주가를 보고, 관심기업을 모아 새 공시를 확인한다. */
 @Composable
-fun DartScreen(viewModel: DartViewModel, modifier: Modifier = Modifier) {
+fun DartScreen(
+    viewModel: DartViewModel,
+    modifier: Modifier = Modifier,
+    /** 다른 화면(회계감리·공시조사결과제재)에서 회사명을 눌러 들어온 검색 요청. 받으면 그 이름으로 바로 검색한다. */
+    searchRequest: String? = null,
+    onSearchRequestConsumed: () -> Unit = {}
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val selected = state.selected
     BackHandler(enabled = selected != null) { viewModel.back() }
+    LaunchedEffect(searchRequest) {
+        val request = searchRequest?.trim().orEmpty()
+        if (request.isNotEmpty()) {
+            viewModel.back()
+            viewModel.search(request)
+        }
+        if (searchRequest != null) onSearchRequestConsumed()
+    }
     Column(modifier.fillMaxSize()) {
         if (selected == null) {
             LargeTitle("기업 개황 및 공시(DART)", subtitle = "회사명·종목코드로 검색 · 관심기업의 새 공시 모아 보기")
@@ -398,6 +412,9 @@ fun DartScreen(viewModel: DartViewModel, modifier: Modifier = Modifier) {
 @Composable
 private fun DartHome(state: DartUiState, viewModel: DartViewModel) {
     var query by rememberSaveable { mutableStateOf(state.query) }
+    // 다른 화면에서 들어와 검색어가 바뀌었을 때(또는 지워졌을 때) 입력창도 맞춘다.
+    var seenQuery by remember { mutableStateOf(state.query) }
+    LaunchedEffect(state.query) { if (state.query != seenQuery) { seenQuery = state.query; query = state.query } }
     Column(Modifier.fillMaxSize()) {
         SearchPill(
             value = query, onValueChange = { query = it; if (it.isBlank()) viewModel.clearSearch() },
