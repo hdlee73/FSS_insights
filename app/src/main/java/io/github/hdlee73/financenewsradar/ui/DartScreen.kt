@@ -63,6 +63,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.DartApi
 import io.github.hdlee73.financenewsradar.data.DartCompany
 import io.github.hdlee73.financenewsradar.data.DartCorp
+import io.github.hdlee73.financenewsradar.data.DartIncomeCol
 import io.github.hdlee73.financenewsradar.data.DartFilings
 import io.github.hdlee73.financenewsradar.data.DartFiling
 import io.github.hdlee73.financenewsradar.data.DartFinance
@@ -766,7 +767,7 @@ private fun FinanceTab(load: DartLoad<DartFinView>?, onRetry: () -> Unit) {
         ListCard {
             BlockTitle("손익현황")
             Text("출처: DART 정기보고서 · 단위 억원", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            val incomeCols = remember(f) { incomeColumns(f) }
+            val incomeCols: List<DartIncomeCol> = incomeColumns(f)
             TableHeader(incomeCols.map { it.label to it.sub })
             TableRow("매출액", incomeCols.map { eokText(it.revenue) })
             TableRow("영업이익", incomeCols.map { eokText(it.op) })
