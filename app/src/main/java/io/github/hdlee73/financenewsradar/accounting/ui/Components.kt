@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -121,15 +122,35 @@ fun CompanyName(name: String, onOpenCompany: ((String) -> Unit)?, modifier: Modi
     }
 }
 
-/** 목록 항목 아래의 명시적 버튼: 「기업개황 등」(DART 검색, 가려진 이름이면 숨김)과 「세부내용」. 회사명 자체는 글자로만 둔다. */
+/**
+ * 목록 항목: 본문 + 「기업개황 등」(DART 검색, 가려진 이름이면 숨김)·「세부내용」 버튼.
+ * 폭이 넉넉하면(560dp 이상: 태블릿·가로 화면·창 확대) 버튼을 우측에, 좁으면 본문 아래에 둔다.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CaseActionButtons(company: String, onOpenCompany: ((String) -> Unit)?, onDetail: () -> Unit, modifier: Modifier = Modifier) {
+fun CaseItemLayout(company: String, onOpenCompany: ((String) -> Unit)?, onDetail: () -> Unit, content: @Composable () -> Unit) {
     val query = dartSearchName(company)
-    androidx.compose.foundation.layout.Row(modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (onOpenCompany != null && query.isNotEmpty()) {
-            androidx.compose.material3.OutlinedButton(onClick = { onOpenCompany(query) }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text("기업개황 등", maxLines = 1) }
+    val showCompany = onOpenCompany != null && query.isNotEmpty()
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val wide = maxWidth >= 560.dp
+        val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+        if (wide) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { content() }
+                Column(Modifier.width(112.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (showCompany) androidx.compose.material3.OutlinedButton(onClick = { onOpenCompany!!(query) }, modifier = Modifier.fillMaxWidth(), contentPadding = pad) { Text("기업개황 등", maxLines = 1) }
+                    androidx.compose.material3.Button(onClick = onDetail, modifier = Modifier.fillMaxWidth(), contentPadding = pad) { Text("세부내용", maxLines = 1) }
+                }
+            }
+        } else {
+            Column {
+                content()
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (showCompany) androidx.compose.material3.OutlinedButton(onClick = { onOpenCompany!!(query) }, modifier = Modifier.weight(1f), contentPadding = pad) { Text("기업개황 등", maxLines = 1) }
+                    androidx.compose.material3.Button(onClick = onDetail, modifier = Modifier.weight(1f), contentPadding = pad) { Text("세부내용", maxLines = 1) }
+                }
+            }
         }
-        androidx.compose.material3.Button(onClick = onDetail, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text("세부내용", maxLines = 1) }
     }
 }
 
