@@ -48,20 +48,9 @@ internal object AgencySources {
         val fallback: Source? = null
     )
 
-    private val bcbsPattern = Regex("""(?i)/bcbs/publ/[A-Za-z0-9_.-]+\.(htm|html|pdf)|/publ/bcbs[A-Za-z0-9_.-]*\.(htm|html|pdf)""")
-
-    private fun bcbsHtml() = Source(
-        // 바젤위원회 발간물 목록 화면. 카드 안의 '분류 · 시리즈 · 날짜 · 제목 · 설명' 중 제목과 날짜만 쓴다.
-        listUrl = { _, _ -> "https://www.bis.org/bcbs/publications.htm" },
-        customParser = { body, url ->
-            val cards = HtmlListParser.extractCards(body, url, bcbsPattern)
-            val plain = if (cards.isEmpty()) HtmlListParser.extract(body, url, bcbsPattern).filter { it.date != null } else emptyList()
-            (cards + plain).filter { it.date != null }.sortedByDescending { it.date }
-        },
-        pageable = false,
-        deepSearch = false,
-        jsRendered = true
-    )
+    // BIS가 사이트를 개편해 옛 RSS(/doclist/bcbspubls.rss)와 /bcbs/publications.htm은 없어졌다.
+    // 지금은 /committees/bcbs/publications 의 카드 목록(?page=0부터)을 읽고, 상세 주소는 /publications/202610-... 꼴이다.
+    private val bcbsPattern = Regex("""(?i)/publications/\d{6}-[^/?#"\s]+""")
 
     private val masPattern = Regex("""(?i)/publications/[A-Za-z0-9-]+/(\d{4}/)?[A-Za-z0-9][A-Za-z0-9-]{5,}""")
 
@@ -152,14 +141,11 @@ internal object AgencySources {
         // 아래 세 곳은 목록을 자바스크립트로 그리거나 일반 요청을 막는 일이 있어 처음부터 WebView(쿠키 허용)로 읽는다.
         // 링크 패턴을 틀리게 짚어도 목록이 나오도록 genericFallback을 켜 둔다.
         AgencyId.BCBS -> Source(
-            // BIS의 바젤위원회 발간물 RSS: 제목·발행일이 정확히 나온다. 읽지 못하면 아래 화면 읽기로 대신한다.
-            listUrl = { _, _ -> "https://www.bis.org/doclist/bcbspubls.rss" },
-            isRss = true,
-            pageable = false,
+            listUrl = { page, _ -> "https://www.bis.org/committees/bcbs/publications?page=${maxOf(0, page - 1)}" },
+            // 카드: 분류 · 날짜 · 제목 · 설명 중 제목과 날짜를 읽는다.
+            customParser = { body, url -> HtmlListParser.extractCards(body, url, bcbsPattern).filter { it.date != null }.sortedByDescending { it.date } },
             deepSearch = false,
-            // 직접 요청이 막혀 목록이 비던 문제: BIS 페이지를 연 상태에서 같은 사이트 안으로 RSS를 받는다.
-            inPageFetch = "https://www.bis.org/bcbs/publications.htm" to "/doclist/bcbspubls.rss",
-            fallback = bcbsHtml()
+            jsRendered = true
         )
         AgencyId.MAS -> Source(
             listUrl = { _, _ -> "https://www.mas.gov.sg/publications" },
