@@ -737,8 +737,18 @@ private fun TableRow(label: String, values: List<String>) {
 
 @Composable
 private fun FinanceTab(load: DartLoad<DartFinView>?, onRetry: () -> Unit) {
-    LoadBox(load, onRetry) { view ->
+    LoadBox(load, onRetry) { baseView ->
+        // 연결재무제표가 있는 회사는 연결·별도를 전환해 보고, 없는 회사는 별도(개별)만 보여 준다.
+        val separate = baseView.finance.separate
+        var showSeparate by rememberSaveable { mutableStateOf(false) }
+        val view = if (separate != null && showSeparate) baseView.copy(finance = separate.copy(note = baseView.finance.note, annualYear = baseView.finance.annualYear)) else baseView
         val f = view.finance
+        if (separate != null) {
+            Row(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PillChip("${baseView.finance.basis}재무제표", onClick = { showSeparate = false }, selected = !showSeparate)
+                PillChip("${separate.basis}재무제표", onClick = { showSeparate = true }, selected = showSeparate)
+            }
+        }
         if (f.balance.isEmpty() && f.income.isEmpty()) {
             CenterMessage(f.note.ifBlank { "재무 자료를 찾지 못했습니다. 정기보고서 제출 대상이 아닌 회사일 수 있습니다." }, modifier = Modifier.fillMaxWidth().height(180.dp))
             return@LoadBox
