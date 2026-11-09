@@ -254,7 +254,16 @@ export async function finance(env, corp, accMonth) {
   if (!annualRows.length) return { basis: "", unit: "억원", balance: [], income: [], trend: [], eps: {}, note: "사업보고서 재무 자료를 찾지 못했습니다." };
   const older = await acnt(env, corp, A - 3, "11011");
   const quarter = q3.length ? ["11014", q3] : half.length ? ["11012", half] : q1.length ? ["11013", q1] : null;
-  const fs = annualRows.some((x) => x.fs_div === "CFS") ? "CFS" : "OFS";
+  // 연결재무제표가 있으면 연결·별도를 모두, 없으면 별도(개별)만 만든다. 기존 필드(basis·balance 등)는 첫 번째(연결 우선) 기준이라 옛 앱도 그대로 동작한다.
+  const hasCfs = annualRows.some((x) => x.fs_div === "CFS");
+  const hasOfs = annualRows.some((x) => x.fs_div === "OFS");
+  const fsList = hasCfs ? (hasOfs ? ["CFS", "OFS"] : ["CFS"]) : ["OFS"];
+  const built = await Promise.all(fsList.map((fs) => buildBasis(env, corp, fs, { dec, now, A, annualRows, older, quarter })));
+  return { ...built[0], unit: "억원", annualYear: A, quarterLabel: quarter ? `${now} ${QUARTER[quarter[0]][0]}` : "", bases: built, note: "" };
+}
+
+/** 한 재무제표 기준(CFS 연결 / OFS 별도)의 재무상태·손익·5개년 추이·주당이익. */
+async function buildBasis(env, corp, fs, { dec, now, A, annualRows, older, quarter }) {
   const basis = fs === "CFS" ? "연결" : "별도";
 
   const bs = (rows, f) => ({ assets: field(pick(rows, fs, "BS", "assets"), f), liab: field(pick(rows, fs, "BS", "liab"), f), equity: field(pick(rows, fs, "BS", "equity"), f) });
@@ -322,15 +331,5 @@ export async function finance(env, corp, accMonth) {
   };
   await Promise.all([epsOf(A), older.length ? epsOf(A - 3) : Promise.resolve()]).catch(() => {});
 
-  return {
-    basis,
-    unit: "억원",
-    annualYear: A,
-    quarterLabel: quarter ? `${now} ${QUARTER[quarter[0]][0]}` : "",
-    balance,
-    income,
-    trend,
-    eps,
-    note: "",
-  };
+  return { basis, balance, income, trend, eps };
 }

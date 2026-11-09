@@ -50,8 +50,13 @@ data class DartTrendPoint(val year: Int, val revenue: Double?, val op: Double?, 
 /** 재무손익 현황(단위 억원). [eps]는 연도별 주당이익(원). */
 data class DartFinance(
     val basis: String, val note: String, val annualYear: Int,
-    val balance: List<DartBalanceCol>, val income: List<DartIncomeCol>, val trend: List<DartTrendPoint>, val eps: Map<Int, Double>
-)
+    val balance: List<DartBalanceCol>, val income: List<DartIncomeCol>, val trend: List<DartTrendPoint>, val eps: Map<Int, Double>,
+    /** 연결·별도 기준 모두(연결재무제표가 있는 회사는 [연결, 별도], 없으면 [별도]). 옛 서버 응답이면 비어 있고 이 객체 자체가 유일한 기준이다. */
+    val bases: List<DartFinance> = emptyList()
+) {
+    /** 화면에 보여 줄 기준별 재무. */
+    val allBases: List<DartFinance> get() = bases.ifEmpty { listOf(this) }
+}
 
 private val KEY_PARAM = Regex("crtfc_key=[^&\\s\"'<>]*", RegexOption.IGNORE_CASE)
 
@@ -89,8 +94,9 @@ internal fun parseDartHolders(body: String): DartHolders {
     return DartHolders(o.optString("basis"), items, o.num("totalCommon"), o.num("totalPref"))
 }
 
-internal fun parseDartFinance(body: String): DartFinance {
-    val o = JSONObject(body)
+internal fun parseDartFinance(body: String): DartFinance = parseDartFinanceObject(JSONObject(body), withBases = true)
+
+private fun parseDartFinanceObject(o: JSONObject, withBases: Boolean): DartFinance {
     fun <T> list(key: String, map: (JSONObject) -> T): List<T> {
         val array = o.optJSONArray(key) ?: return emptyList()
         return (0 until array.length()).map { map(array.getJSONObject(it)) }
@@ -102,7 +108,8 @@ internal fun parseDartFinance(body: String): DartFinance {
         balance = list("balance") { DartBalanceCol(it.optString("label"), it.num("assets"), it.num("liab"), it.num("equity")) },
         income = list("income") { DartIncomeCol(it.optString("label"), it.optString("sub"), it.num("revenue"), it.num("op"), it.num("net")) },
         trend = list("trend") { DartTrendPoint(it.optInt("year"), it.num("revenue"), it.num("op"), it.num("net"), it.num("debt")) },
-        eps = eps
+        eps = eps,
+        bases = if (withBases) (o.optJSONArray("bases")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { b -> parseDartFinanceObject(b, false).copy(note = "", annualYear = o.optInt("annualYear")) } } ?: emptyList()) else emptyList()
     )
 }
 

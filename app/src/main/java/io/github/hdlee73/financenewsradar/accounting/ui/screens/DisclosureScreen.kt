@@ -33,7 +33,7 @@ import io.github.hdlee73.financenewsradar.accounting.domain.Format
 import io.github.hdlee73.financenewsradar.accounting.ui.AppCard
 import io.github.hdlee73.financenewsradar.accounting.ui.CenterMessage
 import io.github.hdlee73.financenewsradar.accounting.ui.ChipRow
-import io.github.hdlee73.financenewsradar.accounting.ui.CompanyName
+import io.github.hdlee73.financenewsradar.accounting.ui.CaseActionButtons
 import io.github.hdlee73.financenewsradar.accounting.ui.DISCLAIMER
 import io.github.hdlee73.financenewsradar.accounting.ui.FineTag
 import io.github.hdlee73.financenewsradar.accounting.ui.InfoTag
@@ -99,7 +99,7 @@ fun DisclosureScreen(
         }
         item { ChipRow(years, year) { year = it } }
         item { ChipRow(ACTION_FILTERS, filter) { filter = it } }
-        item { Text("회사명을 누르면 「기업 개황 및 공시(DART)」에서 그 회사를 찾습니다. 한 첨부에 여러 회사가 있어도 회사별로 나누어 보여 줍니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("「기업개황 등」은 「기업 개황 및 공시(DART)」에서 그 회사를 찾고, 「세부내용」은 조치 상세를 엽니다. 한 첨부에 여러 회사가 있어도 회사별로 나누어 보여 줍니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (list.isEmpty()) item { Text("조건에 맞는 조치가 없습니다.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp)) }
         items(list, key = { it.id }) { c -> DisclosureCard(c, onOpenCompany) { onSelect(c.id) } }
         item { Text(DISCLAIMER, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 10.dp)) }
@@ -109,10 +109,10 @@ fun DisclosureScreen(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DisclosureCard(c: DisclosureCase, onOpenCompany: ((String) -> Unit)?, onClick: () -> Unit) {
-    AppCard(onClick = onClick) {
+    AppCard {
         Column {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { ActionTags(c) }
-            CompanyName(c.company, onOpenCompany, modifier = Modifier.padding(top = 4.dp))
+            Text(c.company, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
             Text(
                 listOfNotNull(Format.dateYmd(c.date.replace("-", "")).takeIf { c.date.isNotEmpty() }, c.role.takeIf { it.isNotEmpty() }, c.committee.takeIf { it.isNotEmpty() }).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -122,6 +122,7 @@ private fun DisclosureCard(c: DisclosureCase, onOpenCompany: ((String) -> Unit)?
                 if (c.violations.size > 1) "$first 외 ${c.violations.size - 1}건" else first,
                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp), maxLines = 2
             )
+            CaseActionButtons(c.company, onOpenCompany, onClick)
         }
     }
 }

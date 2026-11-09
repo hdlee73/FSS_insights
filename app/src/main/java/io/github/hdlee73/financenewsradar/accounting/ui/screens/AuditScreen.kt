@@ -31,7 +31,7 @@ import io.github.hdlee73.financenewsradar.accounting.domain.Format
 import io.github.hdlee73.financenewsradar.accounting.ui.AppCard
 import io.github.hdlee73.financenewsradar.accounting.ui.CenterMessage
 import io.github.hdlee73.financenewsradar.accounting.ui.ChipRow
-import io.github.hdlee73.financenewsradar.accounting.ui.CompanyName
+import io.github.hdlee73.financenewsradar.accounting.ui.CaseActionButtons
 import io.github.hdlee73.financenewsradar.accounting.ui.dartSearchName
 import io.github.hdlee73.financenewsradar.accounting.ui.DISCLAIMER
 import io.github.hdlee73.financenewsradar.accounting.ui.FineTag
@@ -95,16 +95,17 @@ fun AuditScreen(state: DataState, selectedSlno: String?, onSelect: (String?) -> 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AuditCard(a: AuditAction, onOpenCompany: ((String) -> Unit)?, onClick: () -> Unit) {
-    AppCard(onClick = onClick) {
+    AppCard {
         Column {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { ActionTags(a) }
-            CompanyName(a.company, onOpenCompany, modifier = Modifier.padding(top = 4.dp))
+            Text(a.company, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
             Text("${Format.dateYmd(a.actionDate)} · ${a.market} · 감리대상 ${a.auditPeriod}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             val first = a.findings.firstOrNull()?.title
             if (first != null) Text(
                 if (a.findings.size > 1) "$first 외 ${a.findings.size - 1}건" else first,
                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp), maxLines = 2
             ) else Text("지적사항 자동 추출 실패 · 원문 확인", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
+            CaseActionButtons(a.company, onOpenCompany, onClick)
         }
     }
 }

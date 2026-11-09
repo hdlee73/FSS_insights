@@ -743,27 +743,32 @@ private fun FinanceTab(load: DartLoad<DartFinView>?, onRetry: () -> Unit) {
             CenterMessage(f.note.ifBlank { "재무 자료를 찾지 못했습니다. 정기보고서 제출 대상이 아닌 회사일 수 있습니다." }, modifier = Modifier.fillMaxWidth().height(180.dp))
             return@LoadBox
         }
-        ListCard {
-            BlockTitle("재무상태 비교")
-            Text("${f.basis}재무제표 · 단위 억원", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TableHeader(f.balance.map { it.label to "" })
-            TableRow("자산총계", f.balance.map { eokText(it.assets) })
-            TableRow("부채총계", f.balance.map { eokText(it.liab) })
-            TableRow("자본총계", f.balance.map { eokText(it.equity) })
-            TableRow("부채비율", f.balance.map { c -> percentText(if (c.equity != null && c.equity != 0.0 && c.liab != null) c.liab / c.equity * 100 else null) })
-            Text("부채비율 = 부채총계 ÷ 자본총계", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        ListCard {
-            BlockTitle("손익현황")
-            Text("출처: DART 정기보고서 · 단위 억원", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TableHeader(f.income.map { it.label to it.sub })
-            TableRow("매출액", f.income.map { eokText(it.revenue) })
-            TableRow("영업이익", f.income.map { eokText(it.op) })
-            TableRow("당기순이익", f.income.map { eokText(it.net) })
-            Text("금융회사는 영업수익 등 업종별 계정을 매출액 줄에 보여 주며, 해당 계정이 없으면 -로 표시됩니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        TrendCard(view)
-        PerShareCard(view)
+        val bases = f.allBases
+        val multi = bases.size > 1
+        if (multi) Text("연결재무제표가 있는 회사는 연결기준과 별도기준을 모두 보여 줍니다.", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        bases.forEach { fin -> androidx.compose.runtime.key(fin.basis) {
+            ListCard {
+                BlockTitle(if (multi) "재무상태 비교 · ${fin.basis}기준" else "재무상태 비교")
+                Text("${fin.basis}재무제표 · 단위 억원", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TableHeader(fin.balance.map { it.label to "" })
+                TableRow("자산총계", fin.balance.map { eokText(it.assets) })
+                TableRow("부채총계", fin.balance.map { eokText(it.liab) })
+                TableRow("자본총계", fin.balance.map { eokText(it.equity) })
+                TableRow("부채비율", fin.balance.map { c -> percentText(if (c.equity != null && c.equity != 0.0 && c.liab != null) c.liab / c.equity * 100 else null) })
+                Text("부채비율 = 부채총계 ÷ 자본총계", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            ListCard {
+                BlockTitle(if (multi) "손익현황 · ${fin.basis}기준" else "손익현황")
+                Text("출처: DART 정기보고서 · ${fin.basis}재무제표 · 단위 억원", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TableHeader(fin.income.map { it.label to it.sub })
+                TableRow("매출액", fin.income.map { eokText(it.revenue) })
+                TableRow("영업이익", fin.income.map { eokText(it.op) })
+                TableRow("당기순이익", fin.income.map { eokText(it.net) })
+                Text("금융회사는 영업수익 등 업종별 계정을 매출액 줄에 보여 주며, 해당 계정이 없으면 -로 표시됩니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            TrendCard(fin, view.closes)
+            PerShareCard(fin, view.closes)
+        } }
         Text("출처: DART 주요계정·전체 재무제표. 연말 종가는 시세 제공처 기준입니다.", Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -774,14 +779,14 @@ private fun BlockTitle(text: String) {
 }
 
 @Composable
-private fun TrendCard(view: DartFinView) {
-    val trend = view.finance.trend
+private fun TrendCard(fin: DartFinance, closes: Map<Int, Double>) {
+    val trend = fin.trend
     if (trend.size < 2) return
     var selected by rememberSaveable { mutableIntStateOf(trend.lastIndex) }
     val sel = trend[selected.coerceIn(0, trend.lastIndex)]
     ListCard {
-        BlockTitle("최근 ${trend.size}개년 추이")
-        Text("출처: DART 사업보고서 · ${view.finance.basis}재무제표 · 단위 억원 · 연도를 누르면 수치 표시", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        BlockTitle("최근 ${trend.size}개년 추이 · ${fin.basis}기준")
+        Text("출처: DART 사업보고서 · ${fin.basis}재무제표 · 단위 억원 · 연도를 누르면 수치 표시", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             LegendDot(BarRevenue, "매출액")
             LegendDot(BarOp, "영업이익")
@@ -867,18 +872,18 @@ private fun DebtLine(points: List<io.github.hdlee73.financenewsradar.data.DartTr
 }
 
 @Composable
-private fun PerShareCard(view: DartFinView) {
-    val eps = view.finance.eps
-    val years = view.finance.trend.map { it.year }.filter { eps.containsKey(it) }.takeLast(4)
+private fun PerShareCard(fin: DartFinance, closes: Map<Int, Double>) {
+    val eps = fin.eps
+    val years = fin.trend.map { it.year }.filter { eps.containsKey(it) }.takeLast(4)
     if (years.isEmpty()) return
     ListCard {
-        BlockTitle("주당·배수 지표")
+        BlockTitle("주당·배수 지표 · ${fin.basis}기준")
         TableHeader(years.map { "${it}년" to "" })
         TableRow("EPS(원)", years.map { grouped(eps.getValue(it)) })
-        if (view.closes.isNotEmpty()) {
-            TableRow("연말 종가(원)", years.map { y -> view.closes[y]?.let { grouped(it) } ?: "-" })
+        if (closes.isNotEmpty()) {
+            TableRow("연말 종가(원)", years.map { y -> closes[y]?.let { grouped(it) } ?: "-" })
             TableRow("PER(배)", years.map { y ->
-                val close = view.closes[y]
+                val close = closes[y]
                 val e = eps[y]
                 if (close != null && e != null && e > 0) String.format(Locale.US, "%.2f", close / e) else "-"
             })

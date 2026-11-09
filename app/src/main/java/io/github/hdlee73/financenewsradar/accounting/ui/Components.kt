@@ -121,6 +121,18 @@ fun CompanyName(name: String, onOpenCompany: ((String) -> Unit)?, modifier: Modi
     }
 }
 
+/** 목록 항목 아래의 명시적 버튼: 「기업개황 등」(DART 검색, 가려진 이름이면 숨김)과 「세부내용」. 회사명 자체는 글자로만 둔다. */
+@Composable
+fun CaseActionButtons(company: String, onOpenCompany: ((String) -> Unit)?, onDetail: () -> Unit, modifier: Modifier = Modifier) {
+    val query = dartSearchName(company)
+    androidx.compose.foundation.layout.Row(modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (onOpenCompany != null && query.isNotEmpty()) {
+            androidx.compose.material3.OutlinedButton(onClick = { onOpenCompany(query) }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text("기업개황 등", maxLines = 1) }
+        }
+        androidx.compose.material3.Button(onClick = onDetail, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text("세부내용", maxLines = 1) }
+    }
+}
+
 @Composable
 fun CenterMessage(text: String, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
