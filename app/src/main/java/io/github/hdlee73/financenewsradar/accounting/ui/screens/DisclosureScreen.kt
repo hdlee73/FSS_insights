@@ -33,7 +33,7 @@ import io.github.hdlee73.financenewsradar.accounting.domain.Format
 import io.github.hdlee73.financenewsradar.accounting.ui.AppCard
 import io.github.hdlee73.financenewsradar.accounting.ui.CenterMessage
 import io.github.hdlee73.financenewsradar.accounting.ui.ChipRow
-import io.github.hdlee73.financenewsradar.accounting.ui.CaseActionButtons
+import io.github.hdlee73.financenewsradar.accounting.ui.CaseRow
 import io.github.hdlee73.financenewsradar.accounting.ui.DISCLAIMER
 import io.github.hdlee73.financenewsradar.accounting.ui.FineTag
 import io.github.hdlee73.financenewsradar.accounting.ui.InfoTag
@@ -110,7 +110,7 @@ fun DisclosureScreen(
 @Composable
 private fun DisclosureCard(c: DisclosureCase, onOpenCompany: ((String) -> Unit)?, onClick: () -> Unit) {
     AppCard {
-        Column {
+        CaseRow(c.company, onOpenCompany, onClick) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { ActionTags(c) }
             Text(c.company, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
             Text(
@@ -122,7 +122,6 @@ private fun DisclosureCard(c: DisclosureCase, onOpenCompany: ((String) -> Unit)?
                 if (c.violations.size > 1) "$first 외 ${c.violations.size - 1}건" else first,
                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp), maxLines = 2
             )
-            CaseActionButtons(c.company, onOpenCompany, onClick)
         }
     }
 }

@@ -31,7 +31,7 @@ import io.github.hdlee73.financenewsradar.accounting.domain.Format
 import io.github.hdlee73.financenewsradar.accounting.ui.AppCard
 import io.github.hdlee73.financenewsradar.accounting.ui.CenterMessage
 import io.github.hdlee73.financenewsradar.accounting.ui.ChipRow
-import io.github.hdlee73.financenewsradar.accounting.ui.CaseActionButtons
+import io.github.hdlee73.financenewsradar.accounting.ui.CaseRow
 import io.github.hdlee73.financenewsradar.accounting.ui.dartSearchName
 import io.github.hdlee73.financenewsradar.accounting.ui.DISCLAIMER
 import io.github.hdlee73.financenewsradar.accounting.ui.FineTag
@@ -96,7 +96,7 @@ fun AuditScreen(state: DataState, selectedSlno: String?, onSelect: (String?) -> 
 @Composable
 private fun AuditCard(a: AuditAction, onOpenCompany: ((String) -> Unit)?, onClick: () -> Unit) {
     AppCard {
-        Column {
+        CaseRow(a.company, onOpenCompany, onClick) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { ActionTags(a) }
             Text(a.company, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
             Text("${Format.dateYmd(a.actionDate)} · ${a.market} · 감리대상 ${a.auditPeriod}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -105,7 +105,6 @@ private fun AuditCard(a: AuditAction, onOpenCompany: ((String) -> Unit)?, onClic
                 if (a.findings.size > 1) "$first 외 ${a.findings.size - 1}건" else first,
                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp), maxLines = 2
             ) else Text("지적사항 자동 추출 실패 · 원문 확인", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
-            CaseActionButtons(a.company, onOpenCompany, onClick)
         }
     }
 }
