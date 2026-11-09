@@ -37,6 +37,38 @@ export function searchCorps(query, limit = 15) {
   return scored.slice(0, limit).map(({ c }) => ({ corp: c.code, name: c.name, stock: c.stock, cls: c.cls }));
 }
 
+const WEB_CLS = { kospi: "Y", kosdaq: "K", konex: "N", etc: "E" };
+
+/**
+ * DART 누리집(dart.fss.or.kr)의 회사명 검색을 그대로 호출한다. Open API의 corpCode.xml에는 공시회사명만 있어
+ * 정식명칭((주)덱스터스튜디오)·과거 상호로는 찾을 수 없지만, 누리집 검색은 이를 모두 찾아 준다.
+ * 비공식 경로이므로 실패(차단·지연)하면 예외를 던지고, 호출하는 쪽이 기존 목록 검색만 쓴다.
+ */
+export async function webSearchCorps(query, limit = 15) {
+  const q = String(query || "").replace(/\(\s*주\s*\)|㈜|주식회사/g, "").replace(/\s+/g, " ").trim();
+  if (!q) return [];
+  {
+    const res = await fetch("https://dart.fss.or.kr/dsae001/search.ax", {
+      method: "POST",
+      headers: { ...DART_HEADERS, Accept: "text/html", "Content-Type": "application/x-www-form-urlencoded", Referer: "https://dart.fss.or.kr/" },
+      body: new URLSearchParams({ currentPage: "1", maxResults: String(limit), maxLinks: "10", sort: "", series: "", textCrpCik: "", textCrpNm: q, typesOfBusiness: "all" }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) throw new Error(`DART 누리집 응답 ${res.status}`);
+    const html = await res.text();
+    const out = [];
+    for (const row of html.split(/<tr\b/i).slice(1)) {
+      const m = /select\('(\d{8})'\)[^>]*title="([^"]*?)\s*기업개황/.exec(row);
+      if (!m) continue;
+      const tag = /tagCom_(\w+)/.exec(row);
+      const stock = (/<td>\s*(\d{6})\s*<\/td>/.exec(row) || [])[1] || "";
+      out.push({ corp: m[1], name: m[2].trim(), stock, cls: WEB_CLS[tag ? tag[1] : ""] || (stock ? "Y" : "E"), web: true });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+}
+
 /** 검색 결과의 시장 구분을 DART 기업개황(corp_cls) 기준으로 맞춘다. 실패한 곳은 목록의 값을 그대로 둔다. */
 export async function withDartClass(items, lookup) {
   return Promise.all(items.map(async (it) => {
