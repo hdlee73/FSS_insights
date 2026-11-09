@@ -200,7 +200,9 @@ class DelegationTreeBuilder(
                 }
                 return 0
             }
-            val p = (a.paragraph ?: -1).compareTo(b.paragraph ?: -1)
+            // 항 없이 호만 있는 위치(항이 없는 조)는 각 호 외의 부분(0) 뒤, 조 전체(빈 위치)는 맨 앞
+            fun pk(x: ItemPath) = x.paragraph ?: if (x.isEmpty) -1 else 1
+            val p = pk(a).compareTo(pk(b))
             if (p != 0) return@Comparator p
             val s = cmpList(nums(a.subparagraph), nums(b.subparagraph))
             if (s != 0) return@Comparator s
