@@ -766,16 +766,25 @@ private fun FinanceTab(load: DartLoad<DartFinView>?, onRetry: () -> Unit) {
         ListCard {
             BlockTitle("손익현황")
             Text("출처: DART 정기보고서 · 단위 억원", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TableHeader(f.income.map { it.label to it.sub })
-            TableRow("매출액", f.income.map { eokText(it.revenue) })
-            TableRow("영업이익", f.income.map { eokText(it.op) })
-            TableRow("당기순이익", f.income.map { eokText(it.net) })
+            val incomeCols = remember(f) { incomeColumns(f) }
+            TableHeader(incomeCols.map { it.label to it.sub })
+            TableRow("매출액", incomeCols.map { eokText(it.revenue) })
+            TableRow("영업이익", incomeCols.map { eokText(it.op) })
+            TableRow("당기순이익", incomeCols.map { eokText(it.net) })
             Text("금융회사는 영업수익 등 업종별 계정을 매출액 줄에 보여 주며, 해당 계정이 없으면 -로 표시됩니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         TrendCard(view)
         PerShareCard(view)
         Text("출처: DART 주요계정·전체 재무제표. 연말 종가는 시세 제공처 기준입니다.", Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/** 손익현황 열. 분기·누적 뒤에 최근 3개 사업연도 연간을 모두 보이도록, 서버 연간 열에 없는 연도는 추이(trend)에서 채운다. */
+private fun incomeColumns(f: DartFinance): List<DartIncomeCol> {
+    val have = f.income.mapNotNull { Regex("^(\\d{4})년 연간").find(it.label)?.groupValues?.get(1)?.toIntOrNull() }.toSet()
+    val extra = f.trend.sortedByDescending { it.year }.take(3).filter { it.year !in have }
+        .map { DartIncomeCol("${it.year}년 연간", "", it.revenue, it.op, it.net) }
+    return f.income + extra
 }
 
 @Composable
