@@ -40,7 +40,7 @@ class DelegationTreeBuilder(
         }
         val root = MutableNode("law", LawLevel.LAW, input.lawName, input.lawArticle, null)
         root.children += decreeNodes
-        decreeNodes.forEach { d -> d.anchor = lawNo?.let { anchorOf(d.article.content, LAW_PREFIX, it) } ?: ItemPath() }
+        decreeNodes.forEach { d -> d.anchor = lawNo?.let { delegationAnchor(d.article.content, it) } ?: ItemPath() }
 
         ruleNodes.forEach { rule ->
             val parent = decreeNodes.firstOrNull { d -> d.article.number?.let { refersTo(rule.article.content, DECREE_PREFIX, it) } == true }
@@ -88,17 +88,37 @@ class DelegationTreeBuilder(
     fun buildSplit(input: Input): Split {
         val tree = build(input)
         val lawNo = input.lawArticle.number ?: return Split(tree, emptyList())
-        val (kept, cited) = tree.children.partition { c -> isDelegation(c.article, input.lawArticle, lawNo) }
-        return Split(tree.copy(children = kept), cited)
+        val infos = tree.children.map { c -> c to citeInfo(c.article, lawNo) }
+        // 다른 규정이 위임을 되풀이해 정의한 위치(직접 위임)
+        val strongAnchors = infos.map { (c, i) -> c to i.strong.filter { DelegationPhrase.delegatesAt(input.lawArticle, it) } }
+        val kept = mutableListOf<LawNode>()
+        val cited = mutableListOf<LawNode>()
+        for ((c, info) in infos) {
+            val ownStrong = strongAnchors.first { it.first === c }.second
+            val direct = when {
+                ownStrong.isNotEmpty() -> true
+                info.weak.isEmpty() -> true // 법 조문 인용이 없는데 3단비교가 연결해 준 것은 위임으로 믿는다
+                info.weak.none { DelegationPhrase.delegatesAt(input.lawArticle, it) } -> false
+                // 위임 문구가 있는 위치를 "법 제N조제K호에 따른 …"처럼 인용만 했고, 같은 위치의 위임을 다른 규정이 직접 정의했으면 단순 인용
+                else -> strongAnchors.none { (o, anchors) -> o !== c && anchors.any { sa -> info.weak.any { w -> sa.startsWith(w) || w.startsWith(sa) } } }
+            }
+            (if (direct) kept else cited) += c
+        }
+        return Split(tree.copy(children = sortByAnchor(kept)), cited)
     }
 
-    /** 항마다 인용한 법 조문 위치를 보아, 하나라도 위임 문구가 있는 위치를 인용했으면 위임. 법 조문 인용이 아예 없으면 3단비교를 믿는다. */
-    private fun isDelegation(sub: Article, lawArticle: Article, lawNo: ArticleNo): Boolean {
+    private class CiteInfo(val weak: List<ItemPath>, val strong: List<ItemPath>)
+
+    /**
+     * 하위 규정이 법 조문을 인용한 위치들. [CiteInfo.strong]은 `법 제71조제3호에서 "대통령령으로 정하는 …"란`처럼 위임을 되풀이해 정의한 꼴,
+     * [CiteInfo.weak]는 그 밖의 모든 인용(`법 제71조제3호에 따른 기업금융업무`처럼 단순 인용 포함).
+     */
+    private fun citeInfo(sub: Article, lawNo: ArticleNo): CiteInfo {
         val parsed = sub.parsed
         val texts = listOf(parsed.lead) + parsed.items.map { p -> p.flatten().joinToString("\n") { it.text } }
-        val cites = texts.mapNotNull { anchorOf(it, LAW_PREFIX, lawNo) }.ifEmpty { listOfNotNull(anchorOf(sub.content, LAW_PREFIX, lawNo)) }
-        if (cites.isEmpty()) return true
-        return cites.any { DelegationPhrase.delegatesAt(lawArticle, it) }
+        val weak = texts.mapNotNull { anchorOf(it, LAW_PREFIX, lawNo) }.ifEmpty { listOfNotNull(anchorOf(sub.content, LAW_PREFIX, lawNo)) }
+        val strong = texts.flatMap { restatedAnchors(it, lawNo) }.ifEmpty { restatedAnchors(sub.content, lawNo) }
+        return CiteInfo(weak, strong)
     }
 
     private class MutableNode(
@@ -142,6 +162,54 @@ class DelegationTreeBuilder(
             if (path.isEmpty && LEAD_FOLLOWS.containsMatchIn(text.substring(m.range.last + 1).take(20))) return ItemPath.LEAD
             return path
         }
+
+        /**
+         * 위임을 되풀이해 정의하는 꼴의 인용("법 제N조제K항제J호에서 "…"", "…에서 위임한", "…에서 대통령령으로")의 위치.
+         * 그런 꼴이 없으면 null. 같은 꼴이 여러 번이면 처음 것.
+         */
+        fun restatedAnchor(text: String, no: ArticleNo): ItemPath? = restatedAnchors(text, no).firstOrNull()
+
+        fun restatedAnchors(text: String, no: ArticleNo): List<ItemPath> {
+            val main = Regex.escape(no.main)
+            val branch = no.branch?.let { """\s*의\s*$it""" } ?: """(?!\s*의\s*\d)"""
+            val pattern = Regex(
+                """$LAW_PREFIX\s*제\s*$main\s*조$branch(?![\d-])""" +
+                    """(?:\s*제\s*(\d+)\s*항)?(?:\s*제\s*(\d+(?:\s*의\s*\d+)?)\s*호)?(?:\s*([가-힣])\s*목)?""" +
+                    """([^\n"“”]{0,25}?)에서\s*(?:["“][^"”\n]{1,80}["”]|위임|(?:대통령령|총리령|[가-힣]{1,12}부령)으로)"""
+            )
+            return pattern.findAll(text).map { m ->
+                val path = ItemPath(
+                    paragraph = m.groupValues[1].toIntOrNull(),
+                    subparagraph = m.groupValues[2].takeIf { it.isNotEmpty() }?.replace(Regex("""\s+"""), ""),
+                    item = m.groupValues[3].takeIf { it.isNotEmpty() },
+                )
+                if (path.isEmpty && LEAD_FOLLOWS.containsMatchIn(m.groupValues[4])) ItemPath.LEAD else path
+            }.toList()
+        }
+
+        /** 위임을 되풀이해 정의한 인용이 있으면 그 위치, 없으면 처음 인용한 위치. */
+        fun delegationAnchor(text: String, no: ArticleNo): ItemPath? = restatedAnchor(text, no) ?: anchorOf(text, LAW_PREFIX, no)
+
+        /** 위치의 법 조문 속 순서: 조 전체 < 각 호 외의 부분 < 항 < 호 < 목. */
+        private val PATH_ORDER: Comparator<ItemPath> = Comparator { a, b ->
+            fun nums(s: String?) = s?.split("의")?.mapNotNull { it.trim().toIntOrNull() } ?: emptyList()
+            fun cmpList(x: List<Int>, y: List<Int>): Int {
+                for (i in 0 until maxOf(x.size, y.size)) {
+                    val c = (x.getOrNull(i) ?: -1).compareTo(y.getOrNull(i) ?: -1)
+                    if (c != 0) return c
+                }
+                return 0
+            }
+            val p = (a.paragraph ?: -1).compareTo(b.paragraph ?: -1)
+            if (p != 0) return@Comparator p
+            val s = cmpList(nums(a.subparagraph), nums(b.subparagraph))
+            if (s != 0) return@Comparator s
+            (a.item ?: "").compareTo(b.item ?: "")
+        }
+
+        /** 위임한 법 조문의 항·호·목 순서로 정렬한다. 같은 위치면 원래 순서(조 번호순)를 지킨다. */
+        fun sortByAnchor(nodes: List<LawNode>): List<LawNode> =
+            nodes.sortedWith { a, b -> PATH_ORDER.compare(a.anchor ?: ItemPath(), b.anchor ?: ItemPath()) }
 
         /** [text]가 "[prefix] 제N조(의M)" 를 참조하는지. 제12조가 제120조·제12조의2와 섞이지 않게 경계를 본다. */
         fun refersTo(text: String, prefix: String, no: ArticleNo): Boolean {
