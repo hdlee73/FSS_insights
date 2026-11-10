@@ -12,7 +12,7 @@ MIN_VALUE_FOR_MOVERS = 1_000_000_000
 STABLECOINS = {"USDT", "USDC", "DAI", "USDS", "USDE", "FDUSD", "TUSD", "PYUSD", "USD1"}
 
 
-def summarize_exchanges(tickers_by_ex: dict[str, list[Ticker]]) -> list[dict]:
+def summarize_exchanges(tickers_by_ex: dict[str, list[Ticker]], caps: dict[str, dict] | None = None) -> list[dict]:
     rows = []
     total_all = sum(sum(t.value_24h for t in ts) for ts in tickers_by_ex.values())
     for ex in EXCHANGES:
@@ -32,9 +32,50 @@ def summarize_exchanges(tickers_by_ex: dict[str, list[Ticker]]) -> list[dict]:
             "btc_price": btc.price if btc else None,
             "btc_value": btc.value_24h if btc else 0.0,
             "btc_dominance": (btc.value_24h / total) if (btc and total) else None,
+            "btc_dom_mcap": mcap_dominance(ts, caps)[0],
             "estimated": any(t.value_estimated for t in ts),
         })
     return rows
+
+
+PREMIUM_COINS = ["BTC", "ETH", "XRP", "SOL", "DOGE", "ADA", "USDT", "USDC"]
+
+
+def mcap_dominance(tickers: list[Ticker], caps: dict[str, dict] | None) -> tuple[float | None, float | None]:
+    """국내 거래소에 상장된 종목들의 글로벌 시가총액 합 대비 BTC 시가총액 비중과, 그 합에 반영된 종목의 거래대금 비중(커버리지)."""
+    if not caps or "BTC" not in caps or not caps["BTC"].get("mcap"):
+        return None, None
+    listed = {t.symbol for t in tickers}
+    total_cap = sum(caps[s]["mcap"] for s in listed if s in caps)
+    if total_cap <= 0 or "BTC" not in listed:
+        return None, None
+    all_val = sum(t.value_24h for t in tickers)
+    covered = sum(t.value_24h for t in tickers if t.symbol in caps)
+    return caps["BTC"]["mcap"] / total_cap, (covered / all_val if all_val else None)
+
+
+def coin_premiums(tickers_by_ex: dict[str, list[Ticker]], caps: dict[str, dict] | None,
+                  usdkrw: float | None, btc_usd: float | None) -> tuple[dict, dict]:
+    """코인별 김치 프리미엄(= 원화 가격 ÷ (달러 가격 × 환율) − 1). 기준 달러 가격은 글로벌 시세(BTC는 Coinbase).
+    반환: (업비트 기준 코인별 요약, 거래소별 주요 코인 {거래소: {심볼: {...}}})"""
+    def usd_of(sym: str) -> float | None:
+        if sym == "BTC" and btc_usd:
+            return btc_usd
+        return (caps or {}).get(sym, {}).get("price")
+
+    def prem(price: float, sym: str) -> float | None:
+        u = usd_of(sym)
+        return price / (u * usdkrw) - 1 if (u and usdkrw) else None
+
+    ex_major: dict[str, dict] = {}
+    for ex, ts in tickers_by_ex.items():
+        by = {t.symbol: t for t in ts}
+        ex_major[ex] = {sym: {"price": by[sym].price, "change_rate": by[sym].change_rate,
+                              "value_24h": by[sym].value_24h, "premium": prem(by[sym].price, sym)}
+                        for sym in PREMIUM_COINS if sym in by}
+    ref = ex_major.get("upbit") or next(iter(ex_major.values()), {})
+    summary = {sym: {"usd": usd_of(sym), "krw": v["price"], "premium": v["premium"]} for sym, v in ref.items()}
+    return summary, ex_major
 
 
 def combine_symbols(tickers_by_ex: dict[str, list[Ticker]]) -> list[dict]:
@@ -73,8 +114,9 @@ def movers(symbols: list[dict], n: int = 5) -> tuple[list[dict], list[dict]]:
 def build_snapshot(*, as_of: str, collected_at: str, tickers_by_ex: dict[str, list[Ticker]],
                    global_: dict | None, btc_usd: float | None, usdkrw: float | None,
                    fx_source: str | None, btc_candles: dict[str, list[dict]],
-                   errors: dict[str, str], date: str | None = None, slot: str = "") -> dict:
-    exchanges = summarize_exchanges(tickers_by_ex)
+                   errors: dict[str, str], date: str | None = None, slot: str = "",
+                   symbol_caps: dict[str, dict] | None = None) -> dict:
+    exchanges = summarize_exchanges(tickers_by_ex, symbol_caps)
     symbols = combine_symbols(tickers_by_ex)
     total = sum(r.get("value_24h", 0.0) for r in exchanges if r["ok"])
     btc_row = next((s for s in symbols if s["symbol"] == "BTC"), None)
@@ -86,6 +128,9 @@ def build_snapshot(*, as_of: str, collected_at: str, tickers_by_ex: dict[str, li
         premium = ref_btc_krw / (btc_usd * usdkrw) - 1
     up, down = movers(symbols)
     stable_value = sum(s["value_24h"] for s in symbols if s["symbol"] in STABLECOINS)
+    all_tickers = [t for ts in tickers_by_ex.values() for t in ts]
+    dom_mcap, dom_cov = mcap_dominance(all_tickers, symbol_caps)
+    premium_by_coin, ex_majors = coin_premiums(tickers_by_ex, symbol_caps, usdkrw, btc_usd)
     return {
         "as_of": as_of,
         "date": date or as_of[:10],
@@ -96,6 +141,8 @@ def build_snapshot(*, as_of: str, collected_at: str, tickers_by_ex: dict[str, li
             "total_value_24h": total,
             "btc_value_24h": btc_value,
             "btc_dominance": btc_value / total if total else None,
+            "btc_dom_mcap": dom_mcap,
+            "mcap_coverage": dom_cov,
             "stable_share": stable_value / total if total else None,
             "btc_price_krw": ref_btc_krw,
             "markets": len(symbols),
@@ -108,6 +155,8 @@ def build_snapshot(*, as_of: str, collected_at: str, tickers_by_ex: dict[str, li
             "kimchi_premium": premium,
         },
         "exchanges": exchanges,
+        "coin_premium": premium_by_coin,
+        "exchange_majors": ex_majors,
         "top": symbols[:10],
         "gainers": up,
         "losers": down,
@@ -123,6 +172,8 @@ def history_entry(s: dict) -> dict:
         "slot": s.get("slot", ""),
         "total_value_24h": d["total_value_24h"],
         "btc_dominance_kr": d["btc_dominance"],
+        "btc_dominance_kr_mcap": d.get("btc_dom_mcap"),
+        "coin_premium": {k: v.get("premium") for k, v in (s.get("coin_premium") or {}).items()},
         "btc_dom_global_volume": g.get("btc_dom_volume"),
         "btc_dom_global_mcap": g.get("btc_dom_mcap"),
         "btc_price_krw": d["btc_price_krw"],
