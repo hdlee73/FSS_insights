@@ -106,14 +106,30 @@ def get(session, path, **params):
 
 
 def fetch_year_api(session, key, corp, year):
+    """사업보고서 재무제표. 연결(CFS)과 별도(OFS)가 모두 있으면 둘 다 돌려준다."""
+    out = []
     for fs in ("CFS", "OFS"):
         d = get(session, "fnlttSinglAcntAll.json", crtfc_key=key, corp_code=corp, bsns_year=year,
                 reprt_code="11011", fs_div=fs).json()
         if d.get("status") == "000" and d.get("list"):
             v = parse_api_accounts(d["list"])
             if any(x is not None for x in v.values()):
-                return {"year": year, "source": "사업보고서(DART)", "basis": "연결" if fs == "CFS" else "별도", **v}
-    return None
+                out.append({"year": year, "source": "사업보고서(DART)", "basis": "연결" if fs == "CFS" else "별도", **v})
+    return out
+
+
+def find_corps(session, key, needle):
+    """DART 전체 고유번호 목록에서 이름에 needle 이 들어간 법인(정확한 법인을 찾기 위한 보조)."""
+    z = zipfile.ZipFile(io.BytesIO(get(session, "corpCode.xml", crtfc_key=key).content))
+    xml = z.read(z.namelist()[0]).decode("utf-8", "ignore")
+    out = []
+    for m in re.finditer(r"<list>(.*?)</list>", xml, flags=re.S):
+        blk = m.group(1)
+        code = re.search(r"<corp_code>(\d+)</corp_code>", blk)
+        name = re.search(r"<corp_name>(.*?)</corp_name>", blk)
+        if code and name and needle in name.group(1):
+            out.append((code.group(1), name.group(1)))
+    return out
 
 
 def fetch_audit_reports(session, key, corp, years):
@@ -157,26 +173,36 @@ def main(argv=None) -> int:
     res = dict(old.get("exchanges") or {})
     with requests.Session() as s:
         for ex, name, corp_name, corp in CORPS:
-            rows: dict[int, dict] = {}
-            try:
-                audits = fetch_audit_reports(s, key, corp, years)
+            cands = [corp]
+            try:  # 같은 이름 계열 법인도 후보로 시도(고유번호가 맞지 않을 때 대비)
+                found = find_corps(s, key, name)
+                log.info("%s 후보 법인: %s", name, found)
+                cands += [c for c, _ in found if c != corp]
             except Exception as e:
-                log.warning("%s 감사보고서 목록 실패: %s", name, e)
-                audits = {}
-            for y in years:
+                log.warning("%s 고유번호 목록 실패: %s", name, e)
+            rows, used = [], corp
+            for cc in cands[:6]:
                 try:
-                    r = fetch_year_api(s, key, corp, y) or audits.get(y)
+                    audits = fetch_audit_reports(s, key, cc, years)
                 except Exception as e:
-                    log.warning("%s %s 재무 실패: %s", name, y, e)
-                    r = audits.get(y)
-                if r:
-                    rows[y] = r
-            log.info("%s: %s", name, sorted(rows))
-            if rows:
-                res[ex] = {"name": name, "corp": corp_name, "corp_code": corp,
-                           "years": [rows[y] for y in sorted(rows, reverse=True)]}
-            else:
-                res.setdefault(ex, {"name": name, "corp": corp_name, "corp_code": corp, "years": []})
+                    log.warning("%s(%s) 감사보고서 목록 실패: %s", name, cc, e)
+                    audits = {}
+                got = []
+                for y in years:
+                    try:
+                        r = fetch_year_api(s, key, cc, y)
+                    except Exception as e:
+                        log.warning("%s(%s) %s 재무 실패: %s", name, cc, y, e)
+                        r = []
+                    if not r and y in audits:
+                        r = [audits[y]]
+                    got += r
+                log.info("%s(%s): %s", name, cc, [(r["year"], r["basis"]) for r in got])
+                if got:
+                    rows, used = got, cc
+                    break
+            rows.sort(key=lambda r: (-r["year"], 0 if r["basis"] == "연결" else 1))
+            res[ex] = {"name": name, "corp": corp_name, "corp_code": used, "years": rows}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"updated": datetime.now(KST).strftime("%Y-%m-%d %H:%M KST"), "exchanges": res},
                                ensure_ascii=False, separators=(",", ":")), "utf-8")
