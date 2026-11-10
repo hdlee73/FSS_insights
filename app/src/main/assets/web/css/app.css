@@ -701,12 +701,12 @@ body.collapsed .sec.folded .mi { display: flex; }
 #fresh-btn.busy .i { animation: spin .8s linear infinite; }
 .fresh-short { display: none; }
 @media (max-width: 860px) {
-  .fresh-k, .fresh-full { display: none; }
-  .fresh-short { display: inline; }
-  .fresh-t { font-size: 11px; max-width: 84px; white-space: normal; }
-  .fresh-t b { display: block; }
+  /* 좁은 화면에서는 시각 글자를 숨겨 메뉴 이름이 잘리지 않게 한다(시각은 새로고침 단추를 길게 누르면 툴팁으로 확인). 저장본·오프라인이면 단추에 주황 점을 붙인다. */
+  .fresh-t { display: none; }
   .fresh .ib { width: 30px; height: 30px; }
-  .fresh-tag { margin: 0; display: block; width: max-content; margin-left: auto; }
+  .fresh.stale #fresh-btn { color: var(--warn-fg); position: relative; }
+  .fresh.stale #fresh-btn::after { content: ""; position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn-fg); }
+}
 }
 
 /* ---- 읽은 글은 흐리게 ---- */
