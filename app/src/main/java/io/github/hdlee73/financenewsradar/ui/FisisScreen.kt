@@ -340,11 +340,15 @@ private fun ColumnScope.CompanyDetail(
     val profile = state.profiles[key]
 
     BackHeader(company.name, onBack = viewModel::back)
-    // 증권사·운용사는 금융투자협회의 펀드 순자산 탭을 더한다.
-    val tabs = remember(sectorCode) {
+    // 운용사는 금융투자협회의 펀드 순자산 탭을 더하고, 증권사는 협회 자료에 그 회사 자체 수치가 있을 때만 더한다.
+    val fundVm: FundAumViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val fundState by fundVm.state.collectAsStateWithLifecycle()
+    LaunchedEffect(sectorCode) { if (sectorCode == "F") fundVm.ensure() }
+    val showFund = sectorCode == "G" || (sectorCode == "F" && fundState.data?.find(company.name, "F") != null)
+    val tabs = remember(showFund) {
         buildList {
             add("재무현황"); add("주요경영지표")
-            if (sectorCode == "F" || sectorCode == "G") add("펀드 순자산")
+            if (showFund) add("펀드 순자산")
             add("최근 제재내역")
         }
     }
@@ -352,7 +356,7 @@ private fun ColumnScope.CompanyDetail(
     UnderlineTabs(tabs, tabs.indexOf(tabName), { tab = it })
     Box(Modifier.weight(1f).fillMaxWidth()) {
         when {
-            tabName == "펀드 순자산" -> FundAumPane(company.name)
+            tabName == "펀드 순자산" -> FundAumPane(company.name, sectorCode)
             tabName == "최근 제재내역" -> CompanySanctionPane(company.name, sanctionViewModel, onOpenLaw)
             key in state.loading || (profile == null && key !in state.errors) -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             key in state.errors -> CenterMessage(state.errors[key].orEmpty(), isError = true, actionLabel = "다시 시도", onAction = { viewModel.retry(sectorCode, company) })
