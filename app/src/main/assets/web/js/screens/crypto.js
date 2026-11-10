@@ -1,9 +1,9 @@
-// 가상자산 시장 동향: VirtualAssets(국내 원화거래소 5곳 합산 시장 일보) 화면을 웹으로 옮긴 것.
-// 자료는 VirtualAssets 레포의 gh-pages(매일 12:00·24:00 KST 집계 JSON·PDF·HWPX)를 그대로 읽는다. 별도 서버·키 없음.
+// 가상자산 시장 동향: 국내 원화거래소 5곳 합산 시장 일보(VirtualAssets에서 옮겨 온 화면).
+// 자료는 FSS_insights 레포 crypto-data 브랜치(매일 12:00·24:00 KST 집계 JSON·PDF·HWPX, 워크플로 crypto-data.yml)를 읽는다. 별도 서버 없음.
 import { setHeader } from "../app.js";
 import { card, errorText, h, icon, loading, message, tabs } from "../core.js";
 
-const BASE = "https://hdlee73.github.io/VirtualAssets";
+const BASE = "https://raw.githubusercontent.com/hdlee73/FSS_insights/crypto-data";
 const TABS = [["summary", "시장 요약"], ["coins", "주요코인 시세"], ["exchange", "거래소별 현황"], ["global", "해외 시장 비교"], ["report", "시장 일보"]];
 const EXCHANGES = [["upbit", "업비트"], ["bithumb", "빗썸"], ["coinone", "코인원"], ["korbit", "코빗"], ["gopax", "고팍스"]];
 const MAJORS = ["BTC", "ETH", "XRP", "SOL", "DOGE", "ADA", "USDT"];
@@ -16,7 +16,7 @@ async function getJson(path) {
   if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.v;
   let res;
   try {
-    res = await fetch(`${BASE}/${path}`, { cache: "no-cache" });
+    res = await fetch(`${BASE}/${path}`, {});
   } catch {
     throw new Error("네트워크에 연결할 수 없습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.");
   }
