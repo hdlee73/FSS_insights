@@ -1,17 +1,17 @@
 name: Crypto data
 
-# 매일 KST 12:00, 24:00 두 번(03:00·15:00 UTC) 직후 국내 가상자산 시장 일보(PDF·HWPX)와 시세 JSON을 만들어
+# 매일 KST 24:00(15:00 UTC) 직후 하루 한 번 국내 가상자산 시장 일보(PDF·HWPX)와 시세 JSON을 만들어
 # crypto-data 브랜치에 쌓는다. 웹·앱의 '가상자산 시장 동향'이 이 브랜치의 파일을 읽는다.
 # (VirtualAssets 레포에서 옮겨 온 것. crypto-data 브랜치가 아직 없으면 VirtualAssets의 기존 기록을 한 번 가져온다.)
 on:
   schedule:
-    - cron: "3 3,15 * * *"
+    - cron: "3 15 * * *"
   workflow_dispatch:
     inputs:
       slot:
         description: "집계 시각 강제 지정(비우면 실행 시각으로 자동 결정)"
         type: choice
-        options: ["", "1200", "2400"]
+        options: ["", "2400"]
         default: ""
       sample:
         description: "샘플 데이터로만 생성(네트워크 없이 모양 확인, 게시 안 함)"
@@ -78,6 +78,14 @@ jobs:
           if [ "${{ inputs.sample }}" = "true" ] || [ "${{ github.event_name }}" = "pull_request" ]; then args+=(--sample); fi
           if [ -n "${{ inputs.slot }}" ]; then args+=(--slot "${{ inputs.slot }}"); fi
           python build_daily.py "${args[@]}"
+
+      - name: Exchange financials (DART)
+        if: ${{ github.event_name != 'pull_request' && inputs.sample != true }}
+        continue-on-error: true
+        working-directory: server/crypto-report
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: python build_exchange_fin.py --out "$GITHUB_WORKSPACE/site"
 
       - name: Publish to crypto-data branch
         if: ${{ github.event_name != 'pull_request' && inputs.sample != true }}
