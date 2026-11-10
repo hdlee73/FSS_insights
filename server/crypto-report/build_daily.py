@@ -89,6 +89,13 @@ def collect(session: requests.Session) -> dict:
         usdkrw, fx_src = C.fetch_usdkrw(session, os.environ.get("KOREAEXIM_KEY") or None)
     except Exception as e:
         errors["환율"] = str(e)
+    symbol_caps = None
+    try:
+        symbol_caps = C.fetch_symbol_caps(session, os.environ.get("COINGECKO_KEY") or None,
+                                          os.environ.get("COINMARKETCAP_KEY") or None)
+    except Exception as e:
+        errors["종목별 시가총액"] = str(e)
+        log.error("종목별 시가총액 수집 실패: %s", e)
     candles = {}
     for ex in ("upbit", "bithumb"):
         try:
@@ -107,7 +114,8 @@ def collect(session: requests.Session) -> dict:
                 log.warning("업비트 %s %s 캔들 실패: %s", sym, unit, e)
             time.sleep(0.2)  # 업비트 공개 API 호출 제한 여유
     return dict(tickers=tickers, errors=errors, global_=global_, btc_usd=btc_usd,
-                usdkrw=usdkrw, fx_source=fx_src, btc_candles=candles, coin_day=day, coin_year=year)
+                usdkrw=usdkrw, fx_source=fx_src, btc_candles=candles, coin_day=day, coin_year=year,
+                symbol_caps=symbol_caps)
 
 
 def _sample_candles(rnd: random.Random, end: datetime, base: float, n: int, step: timedelta, drift: float) -> list[dict]:
@@ -156,7 +164,11 @@ def sample_inputs(as_of: datetime) -> dict:
     year = {sym: _sample_candles(rnd, as_of - timedelta(days=7), base[sym], 53, timedelta(days=7), drift[sym])
             for sym, _ in C.COIN_SET}
     return dict(tickers=tickers, errors={}, global_=g, btc_usd=98_120.0, usdkrw=1_402.5,
-                fx_source="샘플", btc_candles={"upbit": up, "bithumb": bt}, coin_day=day, coin_year=year)
+                fx_source="샘플", btc_candles={"upbit": up, "bithumb": bt}, coin_day=day, coin_year=year,
+                symbol_caps={"BTC": {"mcap": 2.13e12, "price": 98_100.0}, "ETH": {"mcap": 4.3e11, "price": 3_700.0},
+                             "XRP": {"mcap": 1.5e11, "price": 2.4}, "SOL": {"mcap": 9e10, "price": 190.0},
+                             "DOGE": {"mcap": 5e10, "price": 0.29}, "ADA": {"mcap": 3e10, "price": 0.85},
+                             "USDT": {"mcap": 1.8e11, "price": 1.0}, "USDC": {"mcap": 7e10, "price": 1.0}})
 
 
 def sample_history(as_of: datetime) -> list[dict]:
@@ -258,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         as_of=when.isoformat(), collected_at=collected_at, date=date, slot=slot,
         tickers_by_ex=inp["tickers"], global_=inp["global_"], btc_usd=inp["btc_usd"],
         usdkrw=inp["usdkrw"], fx_source=inp["fx_source"], btc_candles=inp["btc_candles"],
-        errors=inp["errors"])
+        errors=inp["errors"], symbol_caps=inp.get("symbol_caps"))
     prev = previous(history, date, slot)
 
     # 거래소별 스냅샷 + 상장/상폐(직전 집계 목록과 비교)
@@ -276,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
     # 거래소별 시계열(종목 수·거래대금·주요 코인 가격·상장/상폐 건수) — 웹·앱 '거래소별' 화면용
     entry["exchanges"] = {ex: {"markets": v["markets"], "value": v["value_24h"],
                                "prices": {m: p["price"] for m, p in v["majors"].items()},
+                               "values": {m: p["value_24h"] for m, p in snap["exchange_majors"].get(ex, {}).items()},
                                "listed": len(v["listed"]), "delisted": len(v["delisted"])}
                           for ex, v in ex_snap["exchanges"].items()}
     history = merge_history(history, entry)

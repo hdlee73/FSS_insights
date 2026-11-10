@@ -204,7 +204,8 @@ KST = timezone(timedelta(hours=9))
 
 
 def test_resolve_slot():
-    assert resolve_slot(datetime(2026, 11, 10, 12, 3, tzinfo=KST)) == ("2026-11-10", "1200")
+    # 하루 한 번(24:00) 집계: 낮 시각에 돌아도 직전에 끝난 날짜의 24:00
+    assert resolve_slot(datetime(2026, 11, 10, 12, 3, tzinfo=KST)) == ("2026-11-09", "2400")
     # 24:00 집계는 자정 직후 돌지만 끝난 날짜로 기록
     d, s = resolve_slot(datetime(2026, 11, 10, 0, 3, tzinfo=KST))
     assert (d, s) == ("2026-11-09", "2400")
@@ -231,3 +232,18 @@ def test_parse_candles_sorted_ascending():
     out = C.parse_candles(rows)
     assert [c["t"] for c in out] == ["2026-11-09T10:00", "2026-11-09T10:30"]
     assert out[0]["close"] == 2 and out[1]["open"] == 2
+
+
+# ---------------------------------------------------------------- 거래소 재무(DART)
+
+def test_exchange_fin_parsers():
+    import build_exchange_fin as F
+    v = F.parse_api_accounts([
+        {"account_nm": "자산총계", "sj_div": "BS", "thstrm_amount": "1,234,000"},
+        {"account_nm": "영업수익", "sj_div": "IS", "thstrm_amount": "500"},
+        {"account_nm": "당기순이익", "sj_div": "IS", "thstrm_amount": "-30"}])
+    assert v["assets"] == 1234000 and v["revenue"] == 500 and v["net_income"] == -30 and v["equity"] is None
+    xml = ("<P>(단위 : 백만원)</P><TABLE><TR><TD>자산총계</TD><TD>2,000</TD><TD>1,500</TD></TR>"
+           "<TR><TD>Ⅰ. 영업수익</TD><TD>300</TD></TR><TR><TD>당기순이익(손실)</TD><TD>(40)</TD></TR></TABLE>")
+    r = F.parse_audit_xml(xml)
+    assert r["assets"] == 2000e6 and r["revenue"] == 300e6 and r["net_income"] == -40e6

@@ -336,6 +336,58 @@ def fetch_global(session: requests.Session, coingecko_key: str | None = None,
     return g
 
 
+def parse_cmc_listings(payload: dict) -> dict[str, dict]:
+    """CoinMarketCap listings → {심볼: {mcap, price}}. 같은 심볼은 시가총액이 큰 쪽만 남긴다."""
+    out: dict[str, dict] = {}
+    for r in payload.get("data") or []:
+        sym = str(r.get("symbol") or "").upper()
+        usd = ((r.get("quote") or {}).get("USD")) or {}
+        mcap, price = _num(usd.get("market_cap")), _num(usd.get("price"))
+        if not sym or not price:
+            continue
+        if sym not in out or (mcap or 0) > (out[sym]["mcap"] or 0):
+            out[sym] = {"mcap": mcap or 0.0, "price": price}
+    return out
+
+
+def parse_coingecko_markets_all(rows: list[dict]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for r in rows:
+        sym = str(r.get("symbol") or "").upper()
+        mcap, price = _num(r.get("market_cap")), _num(r.get("current_price"))
+        if not sym or not price:
+            continue
+        if sym not in out or (mcap or 0) > (out[sym]["mcap"] or 0):
+            out[sym] = {"mcap": mcap or 0.0, "price": price}
+    return out
+
+
+def fetch_symbol_caps(session: requests.Session, coingecko_key: str | None = None,
+                      cmc_key: str | None = None) -> dict[str, dict]:
+    """종목별 글로벌 시가총액·달러 가격(국내 시가총액 기준 도미넌스·코인별 김치 프리미엄 계산용)."""
+    if cmc_key:
+        payload = get_json(session, f"{CMC_BASE}/v1/cryptocurrency/listings/latest",
+                           params={"limit": 1000, "convert": "USD", "sort": "market_cap"},
+                           headers={"X-CMC_PRO_API_KEY": cmc_key})
+        return parse_cmc_listings(payload)
+    headers = {"x-cg-demo-api-key": coingecko_key} if coingecko_key else None
+    out: dict[str, dict] = {}
+    for page in (1, 2, 3):
+        try:
+            rows = get_json(session, "https://api.coingecko.com/api/v3/coins/markets",
+                            params={"vs_currency": "usd", "order": "market_cap_desc", "per_page": 250, "page": page},
+                            headers=headers)
+        except Exception:
+            if page == 1:
+                raise
+            break
+        for sym, v in parse_coingecko_markets_all(rows).items():
+            if sym not in out or v["mcap"] > out[sym]["mcap"]:
+                out[sym] = v
+        time.sleep(2.5)
+    return out
+
+
 def parse_coinbase_ticker(payload: dict) -> float:
     p = _num(payload.get("price"))
     if not p:
