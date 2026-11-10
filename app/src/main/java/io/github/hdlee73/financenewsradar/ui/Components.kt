@@ -1,6 +1,8 @@
 package io.github.hdlee73.financenewsradar.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.rememberCoroutineScope

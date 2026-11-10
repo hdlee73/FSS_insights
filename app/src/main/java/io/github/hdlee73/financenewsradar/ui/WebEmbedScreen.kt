@@ -94,7 +94,7 @@ fun WebEmbedScreen(route: String, modifier: Modifier = Modifier, backEnabled: Bo
 
     val bridge = remember {
         FssNativeBridge(context.applicationContext, Handler(Looper.getMainLooper()),
-            onOpen = { url -> openExternal(context, url) },
+            onOpen = { url -> openWebLink(context, url) },
             onSave = { name, bytes ->
                 pendingSave[0] = bytes
                 runCatching { saver.launch(name) }.onFailure { pendingSave[0] = null }
@@ -158,7 +158,7 @@ fun WebEmbedScreen(route: String, modifier: Modifier = Modifier, backEnabled: Bo
 
                             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                                 if (request.url.host == ASSET_HOST) return false
-                                openExternal(ctx, request.url.toString())
+                                openWebLink(ctx, request.url.toString())
                                 return true
                             }
 
@@ -222,7 +222,7 @@ private fun serveAsset(context: Context, uri: Uri): WebResourceResponse? {
 private fun notFound() = WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
 
 /** http(s)·전화·메일만 기기 앱으로 넘긴다. */
-private fun openExternal(context: Context, url: String) {
+private fun openWebLink(context: Context, url: String) {
     val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
     val action = when (uri.scheme?.lowercase()) {
         "http", "https", "mailto" -> Intent.ACTION_VIEW
