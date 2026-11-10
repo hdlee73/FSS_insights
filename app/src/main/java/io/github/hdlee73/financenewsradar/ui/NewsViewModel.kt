@@ -41,7 +41,9 @@ data class NewsUiState(
     val failedQueryCount: Int = 0,
     val sourceNote: String? = null,
     val trends: List<io.github.hdlee73.financenewsradar.data.KeywordTrend> = emptyList(),
-    val trendsLoading: Boolean = false
+    val trendsLoading: Boolean = false,
+    /** 브리핑 '최신 주요 이슈'용: 금융감독원장·금융위원장 최근 24시간 기사. */
+    val leaderArticles: List<NewsArticle> = emptyList()
 ) {
     val visibleArticles: List<NewsArticle>
         get() = if (bookmarksOnly) articles.filter { it.isBookmarked } else articles
@@ -87,6 +89,21 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 .onFailure(::handleFailure)
+        }
+    }
+
+    private var leaderJob: Job? = null
+
+    /** 금융감독원장·금융위원장 최근 기사를 따로 찾는다(실패하면 조용히 비운다). 맞춤 뉴스 화면 상태는 건드리지 않는다. */
+    fun loadLeaderNews() {
+        if (leaderJob?.isActive == true) return
+        leaderJob = viewModelScope.launch {
+            val snapshot = _state.value
+            val settings = snapshot.settings.copy(timeRange = TimeRange.DAY)
+            val found = listOf("금감원장", "금융위원장").flatMap { q ->
+                runCatching { repository.search(q, settings, snapshot.credentials).articles }.getOrDefault(emptyList())
+            }
+            _state.update { it.copy(leaderArticles = found.distinctBy { a -> a.link }) }
         }
     }
 

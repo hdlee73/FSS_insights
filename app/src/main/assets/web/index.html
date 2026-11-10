@@ -7,12 +7,17 @@
   <link rel="stylesheet" href="css/app.css">
   <style>
     /* 앱 안에 내장된 화면: 왼쪽 메뉴·뒤로가기는 앱이 맡고, 여기서는 제목줄과 본문만 그린다. */
-    html, body { height: 100%; }
+    html, body { height: var(--app-h, 100%); }
     body { display: block; overflow: hidden; -webkit-tap-highlight-color: transparent; }
-    .main { height: 100%; }
+    .main { height: var(--app-h, 100%); }
     .top .hamb { display: none !important; }
     .top { padding-top: 8px; padding-bottom: 8px; }
-    .content { padding: 14px 14px 28px; overscroll-behavior: contain; }
+    .content { padding: 14px 14px 28px; overscroll-behavior: contain; display: flex; flex-direction: column; min-height: 0; }
+    .content > .screen { width: 100%; }
+    /* 3단 워크벤치(제재 양정)는 본문 전체를 쓴다. 퍼센트 높이 대신 flex로 높이를 받아 WebView에서도 0이 되지 않게 한다. */
+    .content[data-route="finsim"] { padding: 0; overflow: hidden; }
+    .content[data-route="finsim"] > .screen { flex: 1 1 auto; min-height: 0; height: auto; max-width: none; display: flex; flex-direction: column; }
+    .content[data-route="finsim"] .fs { flex: 1 1 auto; min-height: 0; height: auto; }
   </style>
   <script type="module" src="js/app.js"></script>
 </head>
