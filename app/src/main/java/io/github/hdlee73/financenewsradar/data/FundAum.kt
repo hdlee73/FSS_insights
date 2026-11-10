@@ -19,15 +19,18 @@ data class FundAumDates(val recent: String, val quarter: String, val year: Strin
 }
 
 data class FundAumDataset(val generatedAt: String, val asOf: FundAumDates, val companies: List<FundAumCompany>) {
-    /** 금융회사 주요 현황의 회사 이름으로 찾는다(이름 표기가 같을 때만). */
-    fun find(company: String): FundAumCompany? {
+    /**
+     * 금융회사 주요 현황의 회사 이름으로 찾는다. 증권사(sector "F")는 이름이 똑같을 때만(끝의 '증권'을 떼어 같은 계열
+     * 자산운용사 수치를 잘못 붙이지 않도록), 운용사는 이름이 같거나 끝의 "자산운용" 등을 뗀 이름이 증권사 아닌 한 곳으로 맞을 때만.
+     */
+    fun find(company: String, sector: String = "G"): FundAumCompany? {
         val k = FundAumNames.key(company)
         if (k.isEmpty()) return null
-        companies.firstOrNull { FundAumNames.key(it.name) == k }?.let { return it }
-        // 이름 끝의 "자산운용" 등을 뗀 형태가 하나로 맞을 때만 허용
+        val exact = companies.firstOrNull { FundAumNames.key(it.name) == k }
+        if (exact != null || sector == "F" || k.endsWith("증권")) return exact
         val s = FundAumNames.stem(company)
         if (s.length < 2) return null
-        val hits = companies.filter { FundAumNames.stem(it.name) == s }
+        val hits = companies.filter { !FundAumNames.key(it.name).endsWith("증권") && FundAumNames.stem(it.name) == s }
         return hits.singleOrNull()
     }
 }

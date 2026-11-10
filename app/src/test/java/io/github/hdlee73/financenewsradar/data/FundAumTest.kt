@@ -36,6 +36,14 @@ class FundAumTest {
     }
 
     @Test
+    fun brokerageNeverBorrowsSameGroupAssetManagerFigures() {
+        // 교보자산운용 수치가 교보증권에 붙으면 안 된다(증권사는 이름이 똑같을 때만).
+        assertNull(data.find("교보증권", "F"))
+        assertNull(data.find("교보증권"))
+        assertEquals("미래에셋증권", data.find("미래에셋증권", "F")?.name)
+    }
+
+    @Test
     fun doesNotGuessUnknownCompanies() {
         assertNull(data.find("없는회사자산운용"))
         assertNull(data.find(""))
