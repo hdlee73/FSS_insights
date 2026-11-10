@@ -50,7 +50,9 @@ data class DartTrendPoint(val year: Int, val revenue: Double?, val op: Double?, 
 /** 재무손익 현황(단위 억원). [eps]는 연도별 주당이익(원). */
 data class DartFinance(
     val basis: String, val note: String, val annualYear: Int,
-    val balance: List<DartBalanceCol>, val income: List<DartIncomeCol>, val trend: List<DartTrendPoint>, val eps: Map<Int, Double>
+    val balance: List<DartBalanceCol>, val income: List<DartIncomeCol>, val trend: List<DartTrendPoint>, val eps: Map<Int, Double>,
+    /** 연결재무제표가 있는 회사의 별도(개별) 기준. 연결이 없거나 별도 자료가 없으면 null. */
+    val separate: DartFinance? = null
 )
 
 private val KEY_PARAM = Regex("crtfc_key=[^&\\s\"'<>]*", RegexOption.IGNORE_CASE)
@@ -89,8 +91,9 @@ internal fun parseDartHolders(body: String): DartHolders {
     return DartHolders(o.optString("basis"), items, o.num("totalCommon"), o.num("totalPref"))
 }
 
-internal fun parseDartFinance(body: String): DartFinance {
-    val o = JSONObject(body)
+internal fun parseDartFinance(body: String): DartFinance = parseDartFinance(JSONObject(body), allowSeparate = true)
+
+private fun parseDartFinance(o: JSONObject, allowSeparate: Boolean): DartFinance {
     fun <T> list(key: String, map: (JSONObject) -> T): List<T> {
         val array = o.optJSONArray(key) ?: return emptyList()
         return (0 until array.length()).map { map(array.getJSONObject(it)) }
@@ -102,7 +105,8 @@ internal fun parseDartFinance(body: String): DartFinance {
         balance = list("balance") { DartBalanceCol(it.optString("label"), it.num("assets"), it.num("liab"), it.num("equity")) },
         income = list("income") { DartIncomeCol(it.optString("label"), it.optString("sub"), it.num("revenue"), it.num("op"), it.num("net")) },
         trend = list("trend") { DartTrendPoint(it.optInt("year"), it.num("revenue"), it.num("op"), it.num("net"), it.num("debt")) },
-        eps = eps
+        eps = eps,
+        separate = if (allowSeparate) o.optJSONObject("separate")?.let { parseDartFinance(it, allowSeparate = false) }?.takeIf { it.balance.isNotEmpty() || it.income.isNotEmpty() } else null
     )
 }
 

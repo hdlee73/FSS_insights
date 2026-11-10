@@ -10,7 +10,7 @@
 // 웹 버전(fss-insights-web)은 앱 토큰을 숨길 수 없어서, 허용 출처(WEB_ORIGINS)에서 온 요청은 토큰 없이 받고 IP별 요청 수를 제한한다.
 import fisisData from "./fisis-data.json";
 import { usagePing, adminApi, adminPage } from "./usage-lib.js";
-import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, withDartClass } from "./dart-lib.js";
+import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, webSearchCorps, withDartClass } from "./dart-lib.js";
 import { corsPreflight, proxyFetch, webAccess, withCors } from "./web-lib.js";
 import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos } from "./fisis-lib.js";
 
@@ -542,9 +542,13 @@ async function dart(url, env) {
   };
   if (action === "search") {
     const q = (url.searchParams.get("q") || "").trim().slice(0, 40);
-    if (corpCount() === 0) return fail(503, "회사 목록이 아직 만들어지지 않았습니다. 관리자가 DART_API_KEY를 등록하고 Deploy news proxy를 다시 실행해야 합니다.");
     const lookup = (c) => memo(`dart/company/${c}`, 21600, () => dartCompany(env, c));
-    return json({ items: await withDartClass(searchCorps(q), lookup) });
+    // DART 누리집 검색(정식명칭·과거 상호 포함)을 먼저, 서버의 회사 목록 검색을 보충으로 합친다.
+    const [web, local] = await Promise.all([memo(`dart/websearch/${q}`, 3600, () => webSearchCorps(q)).catch(() => []), Promise.resolve(searchCorps(q))]);
+    if (!web.length && !local.length && corpCount() === 0) return fail(503, "회사 목록이 아직 만들어지지 않았습니다. 관리자가 DART_API_KEY를 등록하고 Deploy news proxy를 다시 실행해야 합니다.");
+    const seen = new Set(web.map((w) => w.corp));
+    const extra = await withDartClass(local.filter((c) => !seen.has(c.corp)), lookup);
+    return json({ items: [...web.map(({ web: _w, ...it }) => it), ...extra].slice(0, 15) });
   }
   if (action === "company") {
     needCorp();
