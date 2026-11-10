@@ -224,7 +224,7 @@ def history_chart(history: list[dict], width_in: float = 7.2, height_in: float =
 def _styles() -> dict[str, ParagraphStyle]:
     base = ParagraphStyle("base", fontName="KR", fontSize=9, leading=13.5, textColor=colors.HexColor(INK))
     return {
-        "title": ParagraphStyle("title", parent=base, fontName="KR-Bold", fontSize=19, leading=24),
+        "title": ParagraphStyle("title", parent=base, fontName="KR-Bold", fontSize=26, leading=32),
         "meta": ParagraphStyle("meta", parent=base, fontSize=8.5, textColor=colors.HexColor(MUTED)),
         "h2": ParagraphStyle("h2", parent=base, fontName="KR-Bold", fontSize=11, leading=15,
                              textColor=colors.HexColor(BLUE_DARK), spaceBefore=7, spaceAfter=4),
