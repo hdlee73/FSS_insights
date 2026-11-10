@@ -156,6 +156,34 @@ class CitedProvisionTest {
     }
 }
 
+class DirectDelegationOrderTest {
+    private val law = Article(
+        ArticleNo.of("71"), "불건전 영업행위의 금지",
+        "제71조(불건전 영업행위의 금지) 투자매매업자는 다음 각 호의 어느 하나에 해당하는 행위를 하여서는 아니 된다. 다만, 대통령령으로 정하는 경우에는 그러하지 아니하다.\n" +
+            "1. 첫째 행위\n2. 둘째 행위\n3. 조사분석자료 작성자에 대하여 대통령령으로 정하는 기업금융업무와 연동된 성과보수를 지급하는 행위\n4. 넷째 행위",
+    )
+    private val d43 = Article(
+        ArticleNo.of("43"), "금융투자업자의 업무범위",
+        "제43조(금융투자업자의 업무범위) ⑤ 법 제40조제1항제5호에서 \"대통령령으로 정하는 금융업무\"란 다음 각 호의 업무를 말한다.\n4. 법 제71조제3호에 따른 기업금융업무(이하 \"기업금융업무\"라 한다)와 관련한 대출업무",
+    )
+    private val d68 = Article(
+        ArticleNo.of("68"), "불건전 영업행위의 금지",
+        "제68조(불건전 영업행위의 금지) ① 법 제71조제4호에서 \"대통령령으로 정하는 기간\"이란 40일을 말한다.\n" +
+            "② 법 제71조제3호에서 \"대통령령으로 정하는 기업금융업무\"란 다음 각 호의 업무를 말한다.\n1. 인수업무",
+    )
+
+    @Test fun simpleCitationIsDemotedAndDirectDelegationsFollowLawOrder() {
+        val s = DelegationTreeBuilder().buildSplit(
+            DelegationTreeBuilder.Input("자본시장법", law, "자본시장법 시행령", listOf(d43, d68), null, emptyList(), emptyList(), emptyList()),
+        )
+        assertEquals(listOf(ArticleNo.of("68")), s.root.children.map { it.article.number })
+        assertEquals(listOf(ArticleNo.of("43")), s.cited.map { it.article.number })
+        val pieces = s.root.withParagraphPieces().children
+        // 법 제71조의 순서(제3호 → 제4호)대로, 시행령 제68조 제2항이 제1항보다 앞
+        assertEquals(listOf("제2항", "제1항"), pieces.map { it.part })
+    }
+}
+
 class CompareAnchorTest {
     @Test fun delegatedItemStartsAtItsOwnLine() {
         val law = Article(

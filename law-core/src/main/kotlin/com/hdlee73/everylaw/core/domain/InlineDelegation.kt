@@ -14,7 +14,7 @@ import com.hdlee73.everylaw.core.model.LawNode
  */
 fun LawNode.withParagraphPieces(): LawNode {
     val lawNo = article.number ?: return this
-    return copy(children = children.flatMap { splitChild(it, lawNo) })
+    return copy(children = DelegationTreeBuilder.sortByAnchor(children.flatMap { splitChild(it, lawNo) }))
 }
 
 private fun isParagraph(i: ArticleItem) = i.path.paragraph != null && i.path.subparagraph == null && i.path.item == null
@@ -29,7 +29,7 @@ private fun splitChild(c: LawNode, lawNo: ArticleNo): List<LawNode> {
     val pieces = mutableListOf<Piece>()
     paras.forEach { p ->
         val text = p.flatten().joinToString("\n") { it.text }
-        val a = DelegationTreeBuilder.anchorOf(text, DelegationTreeBuilder.LAW_PREFIX, lawNo)
+        val a = DelegationTreeBuilder.delegationAnchor(text, lawNo)
         // 법을 인용하지 않은 항은 앞 항의 이어지는 내용으로 본다
         if (a == null && pieces.isNotEmpty()) pieces.last().paras += p
         else pieces += Piece(mutableListOf(p), a ?: c.anchor ?: ItemPath())
