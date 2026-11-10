@@ -430,7 +430,7 @@ def render_pdf(s: dict, history: list[dict], prev: dict | None, out: Path, *, sa
     # 주석
     notes = [
         "* 표시 거래소는 거래대금을 API 의 코인 수량 × 현재가로 추정했습니다.",
-        "24시간 값은 집계 시각(매일 12:00·24:00 KST) 직전 24시간 누적치이며, 거래소별 집계 기준이 조금씩 다릅니다. 전일 대비는 전날 같은 시각 집계와 비교합니다.",
+        "24시간 값은 집계 시각(매일 24:00 KST) 직전 24시간 누적치이며, 거래소별 집계 기준이 조금씩 다릅니다. 전일 대비는 전날 24:00 집계와 비교합니다.",
         f"출처: 각 거래소 공개 API, {g.get('source') or 'CoinGecko'}, Coinbase Exchange, 환율 {g.get('fx_source') or '-'}. "
         "본 자료는 정보 제공용이며 투자 권유가 아닙니다.",
     ]
