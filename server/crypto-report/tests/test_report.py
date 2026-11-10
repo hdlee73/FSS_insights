@@ -279,3 +279,11 @@ def test_revenue_falls_back_to_sales_and_cleans_labels():
     assert F.parse_report_xml(xml2)["별도"]["revenue"] == 70   # 영업수익 우선
     rows = [{"account_nm": "매출액", "sj_div": "IS", "thstrm_amount": "5"}]
     assert F.parse_api_accounts(rows)["revenue"] == 5
+
+
+def test_clean_label_latin_roman_numerals():
+    import build_exchange_fin as F
+    assert F._clean_label("I.영업수익") == "영업수익"
+    assert F._clean_label("III. 영업이익(손실)") == "영업이익(손실)"
+    assert F._key_of("IV.영업외수익") is None
+    assert F._key_of("I.영업수익") == "revenue"
