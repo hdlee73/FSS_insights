@@ -93,10 +93,9 @@ def parse_audit_xml(xml: str) -> dict:
         cells = [c for c in _cells(tr) if c != ""]
         if len(cells) < 2:
             continue
-        label = re.sub(r"^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ\d\.\s]+", "", cells[0])
-        label = re.sub(r"\s", "", label)
+        label = _clean_label(cells[0])
         for key, names in ACCOUNTS.items():
-            if vals[key] is None and label in names:
+            if vals[key] is None and (label in names or (key == "net_income" and NET_RE.fullmatch(label))):
                 for c in cells[1:]:
                     n = num(c)
                     if n is not None:
@@ -275,10 +274,19 @@ def fetch_audit_reports(session, key, corp, years):
         except Exception as e:  # 오류 응답(JSON/XML status)이거나 zip 아님
             log.warning("%s 감사보고서 열기 실패: %s", corp, e)
             continue
-        v = parse_audit_xml(xml)
-        v.pop("unit", None)
+        # 제목(<TITLE>)으로 재무상태표·손익계산서 구간만 읽는 파서를 먼저 쓰고(자본변동표·현금흐름표의 같은 이름 항목 오인 방지),
+        # 구간을 못 찾으면 예전 방식(표 전체에서 첫 일치)으로 대체한다.
+        parsed = parse_report_xml(xml)
+        basis, v = ("별도", None)
+        if parsed:
+            basis = "별도" if "별도" in parsed else next(iter(parsed))
+            v = parsed[basis]
+            log.info("%s 감사보고서 %s → %s %s", corp, yr, basis, {k: x for k, x in v.items() if x is not None})
+        else:
+            v = parse_audit_xml(xml)
+            v.pop("unit", None)
         if any(x is not None for x in v.values()):
-            out[yr] = {"year": yr, "source": "감사보고서(DART)", "basis": "별도", "rcept_no": it["rcept_no"], **v}
+            out[yr] = {"year": yr, "source": "감사보고서(DART)", "basis": basis, "rcept_no": it["rcept_no"], **v}
     return out
 
 
