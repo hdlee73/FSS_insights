@@ -49,6 +49,18 @@ def patch_core(s):
 ''')
     return s
 
+def patch_crypto(s):
+    def sub(old, new):
+        nonlocal s
+        if old not in s:
+            sys.exit("crypto.js 패턴을 찾지 못했습니다(웹 crypto.js가 바뀐 듯합니다): " + old[:60])
+        s = s.replace(old, new, 1)
+    # 일보 HTML 저장은 앱에서는 파일 저장 창으로, 인쇄(PDF) 단추는 WebView에서 동작하지 않으므로 숨긴다.
+    sub('import { card, errorText, h, icon, loading, message, tabs } from "../core.js";', 'import { card, download as coreDownload, errorText, h, icon, loading, message, tabs } from "../core.js";')
+    sub('    const a = h("a", { href: URL.createObjectURL(blob), download: `가상자산시장일보_${data.snapshot.date}.html` });\n    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);\n', '    coreDownload(blob, `가상자산시장일보_${data.snapshot.date}.html`);\n')
+    sub('h("button", { type: "button", class: "btn ghost sm", onclick: pr }, "PDF로 저장(인쇄)")', 'window.FssNative ? null : h("button", { type: "button", class: "btn ghost sm", onclick: pr }, "PDF로 저장(인쇄)")')
+    return s
+
 files = closure()
 data = [os.path.join("data/consumer", f) for f in sorted(os.listdir(os.path.join(SRC, "data/consumer")))]
 for sub in ("js", "css", "data", "icons"):
@@ -62,6 +74,8 @@ for f in files + data + ["css/app.css", "icons/icon-192.png"]:
     os.makedirs(os.path.dirname(out), exist_ok=True)
     if f == "js/core.js":
         open(out, "w", encoding="utf-8").write(patch_core(open(os.path.join(SRC, f), encoding="utf-8").read()))
+    elif f == "js/screens/crypto.js":
+        open(out, "w", encoding="utf-8").write(patch_crypto(open(os.path.join(SRC, f), encoding="utf-8").read()))
     else:
         shutil.copyfile(os.path.join(SRC, f), out)
 if saved is not None:

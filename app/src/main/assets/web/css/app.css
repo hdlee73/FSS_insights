@@ -971,3 +971,19 @@ textarea.facts { width: 100%; padding: 10px; border: 1px solid var(--line); bord
 .cr-delta { font-size: 12.5px; font-weight: 600; }
 .cr-few { margin: 6px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn-fg); font-size: 12px; }
 .cr-chart { height: auto !important; }
+
+/* 가상자산 화면: 균형·넘침 방지 */
+.cr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cr-root .tbl td, .cr-root .tbl th { white-space: nowrap; }
+.cr-kpis .kpi { min-width: 0; }
+.cr-kpis .kpi b { font-size: clamp(15px, 1.2vw + 11px, 20px); overflow-wrap: anywhere; line-height: 1.25; }
+.kpi b .u { font-size: .68em; font-weight: 500; color: var(--muted); margin-left: 3px; white-space: nowrap; }
+.cr-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; align-items: stretch; }
+.cr-grid2 > .card { min-width: 0; }
+.cr-live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.cr-live i { width: 8px; height: 8px; border-radius: 50%; background: #1db954; animation: crpulse 1.6s infinite; }
+@keyframes crpulse { 50% { opacity: .3; } }
+.cr-live-tbl td, .cr-live-tbl th { white-space: nowrap; }
+.cr-picks { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px 14px; }
+.cr-pick { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+@media (max-width: 560px) { .cr-kpis { grid-template-columns: 1fr 1fr; } }
