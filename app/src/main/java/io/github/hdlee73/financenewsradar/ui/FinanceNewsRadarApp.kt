@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Description
@@ -36,6 +38,11 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Policy
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.BusinessCenter
+import androidx.compose.material.icons.filled.LibraryBooks
+import androidx.compose.material.icons.filled.CurrencyBitcoin
 import io.github.hdlee73.financenewsradar.accounting.AccountingViewModel
 import io.github.hdlee73.financenewsradar.accounting.ui.screens.AuditScreen
 import io.github.hdlee73.financenewsradar.accounting.ui.screens.DisclosureScreen
@@ -125,6 +132,9 @@ private const val SCREEN_DISCLOSURE = 14
 private const val SCREEN_AUDIT = 15
 private const val SCREEN_ACC_SEARCH = 16
 private const val SCREEN_SIMULATOR = 17
+private const val SCREEN_CONSUMER = 18
+private const val SCREEN_FINSIM = 19
+private const val SCREEN_CRYPTO = 20
 
 // 서랍 메뉴에 나오는 모든 화면(순서 = 화면 번호). 오늘의 브리핑·뉴스·시장동향의 번호는 브리핑 화면의 바로가기와 같다.
 // 라벨은 익명 사용 통계의 메뉴 이름으로도 쓰인다.
@@ -132,31 +142,42 @@ private val appScreens = listOf(
     AppScreen("오늘의 브리핑", Icons.Filled.WbSunny),
     AppScreen("뉴스검색", Icons.Filled.Newspaper),
     AppScreen("금융시장 동향", Icons.Filled.ShowChart),
-    AppScreen("보도자료", Icons.Filled.Description),
+    AppScreen("금융당국 등 보도자료", Icons.Filled.Description),
     AppScreen("금융관련 리포트", Icons.Filled.Science),
-    AppScreen("참고자료실", Icons.Filled.FolderOpen),
+    AppScreen("기타 참고자료", Icons.Filled.FolderOpen),
     AppScreen("주요사이트", Icons.Filled.Language),
     AppScreen("알림", Icons.Filled.Notifications),
     AppScreen("앱정보", Icons.Filled.Info),
     AppScreen("금융회사 주요 현황", Icons.Filled.Business),
     AppScreen("유권해석·비조치의견서·행정지도", Icons.Filled.Gavel),
-    AppScreen("금융회사 제재 현황", Icons.Filled.Gavel),
+    AppScreen("금융회사 제재 공시", Icons.Filled.Gavel),
     AppScreen("스마트 법령검색", Icons.Filled.AccountTree),
     AppScreen("기업 개황 및 공시(DART)", Icons.Filled.Apartment),
     AppScreen("공시조사결과제재", Icons.Filled.Policy),
     AppScreen("회계감리 조치현황", Icons.Filled.FactCheck),
-    AppScreen("회계기준서·질의회신·지적사례 검색", Icons.Filled.MenuBook),
-    AppScreen("(회계)과징금 및 양정 시뮬레이터", Icons.Filled.Calculate)
+    AppScreen("회계기준서·질의회신·지적사례", Icons.Filled.MenuBook),
+    AppScreen("(베타) 회계 양정 및 과징금 시뮬레이터", Icons.Filled.Calculate),
+    AppScreen("금융소비자 지킴이", Icons.Filled.VerifiedUser),
+    AppScreen("(베타)제재 양정 시뮬레이터", Icons.Filled.Calculate),
+    AppScreen("가상자산 시장 동향", Icons.Filled.CurrencyBitcoin)
 )
 
 /** 서랍 메뉴의 묶음. [title]이 없으면 맨 위의 낱개 메뉴, 있으면 접고 펼 수 있는 묶음이다. */
+private fun sectionIcon(title: String) = when (title) {
+    "금융회사 현황 및 검사" -> Icons.Filled.AccountBalance
+    "기업공시 및 회계" -> Icons.Filled.BusinessCenter
+    "금융관련 자료" -> Icons.Filled.LibraryBooks
+    else -> Icons.Filled.MoreHoriz
+}
+
 private class DrawerSection(val title: String?, val ids: List<Int>)
 
 private val drawerSections = listOf(
-    DrawerSection(null, listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_LAW)),
-    DrawerSection("금융회사", listOf(SCREEN_FISIS, SCREEN_SANCTION)),
+    DrawerSection(null, listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_LAW, SCREEN_CONSUMER)),
+    DrawerSection("금융회사 현황 및 검사", listOf(SCREEN_FISIS, SCREEN_SANCTION, SCREEN_FINSIM)),
     DrawerSection("기업공시 및 회계", listOf(SCREEN_DART, SCREEN_DISCLOSURE, SCREEN_AUDIT, SCREEN_ACC_SEARCH, SCREEN_SIMULATOR)),
-    DrawerSection("자료", listOf(SCREEN_PRESS, SCREEN_REGULATORY, SCREEN_RESEARCH, SCREEN_LIBRARY)),
+    DrawerSection(null, listOf(SCREEN_CRYPTO)),
+    DrawerSection("금융관련 자료", listOf(SCREEN_PRESS, SCREEN_REGULATORY, SCREEN_RESEARCH, SCREEN_LIBRARY)),
     DrawerSection("더보기", listOf(SCREEN_SITES, SCREEN_ALERTS, SCREEN_INFO))
 )
 
@@ -278,43 +299,53 @@ fun FinanceNewsRadarApp(
                         Text("FSS Insights", style = MaterialTheme.typography.headlineSmall)
                         Text("v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    drawerSections.forEachIndexed { index, section ->
-                        if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    drawerSections.forEach { section ->
                         val title = section.title
                         val folded = title != null && title in collapsed
                         if (title != null) {
-                            // 묶음 제목을 누르면 하위 메뉴를 접고 펼친다. 접힌 상태에서도 현재 화면이 그 묶음에 있으면 표시해 준다.
-                            val hasCurrent = screen in section.ids
-                            Row(
-                                Modifier.fillMaxWidth().padding(NavigationDrawerItemDefaults.ItemPadding)
-                                    .clickable(onClickLabel = if (folded) "$title 펼치기" else "$title 접기") { setCollapsed(title, !folded) }
-                                    .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
-                                    .semantics { contentDescription = if (folded) "$title, 접힘" else "$title, 펼침" },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge,
-                                    color = if (folded && hasCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                if (folded) Text("${section.ids.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 6.dp))
-                                Icon(
-                                    if (folded) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
-                                    contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp)
+                            // 묶음 제목도 다른 최상위 메뉴와 같은 크기·아이콘의 항목이다. 누르면 하위 메뉴를 접고 펼친다.
+                            // 접힌 상태에서도 현재 화면이 그 묶음에 있으면 선택 표시로 알려 준다.
+                            NavigationDrawerItem(
+                                icon = { Icon(sectionIcon(title), contentDescription = null) },
+                                label = { Text(title) },
+                                badge = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (folded) Text("${section.ids.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 6.dp))
+                                        Icon(
+                                            if (folded) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                                            contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                },
+                                selected = folded && screen in section.ids,
+                                onClick = { setCollapsed(title, !folded) },
+                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                                    .semantics { contentDescription = if (folded) "$title, 접힘, 누르면 하위 메뉴 ${section.ids.size}개 펼치기" else "$title, 펼침, 누르면 하위 메뉴 접기" }
+                            )
+                        }
+                        if (!folded) {
+                            val lineColor = MaterialTheme.colorScheme.outlineVariant
+                            section.ids.forEach { id ->
+                                val item = appScreens[id]
+                                val sub = title != null
+                                NavigationDrawerItem(
+                                    icon = { Icon(item.icon, contentDescription = null, modifier = if (sub) Modifier.size(20.dp) else Modifier) },
+                                    label = { Text(item.label, style = if (sub) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    badge = if (id == SCREEN_INFO && updateAvailable != null) {
+                                        { Text("NEW", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }
+                                    } else null,
+                                    selected = screen == id,
+                                    onClick = { go(id) },
+                                    // 하위 메뉴: 오른쪽으로 들여 쓰고 왼쪽에 세로선을 그어 묶음 제목의 하위임을 분명히 한다.
+                                    modifier = if (sub) Modifier
+                                        .padding(start = 28.dp)
+                                        .drawBehind {
+                                            drawLine(lineColor, Offset(14.dp.toPx(), 0f), Offset(14.dp.toPx(), size.height), strokeWidth = 2.dp.toPx())
+                                        }
+                                        .padding(NavigationDrawerItemDefaults.ItemPadding)
+                                    else Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                                 )
                             }
-                        }
-                        if (!folded) section.ids.forEach { id ->
-                            val item = appScreens[id]
-                            NavigationDrawerItem(
-                                icon = { Icon(item.icon, contentDescription = null) },
-                                label = { Text(item.label) },
-                                badge = if (id == SCREEN_INFO && updateAvailable != null) {
-                                    { Text("NEW", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }
-                                } else null,
-                                selected = screen == id,
-                                onClick = { go(id) },
-                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                            )
                         }
                     }
                 }
@@ -375,6 +406,9 @@ fun FinanceNewsRadarApp(
                     )
                     SCREEN_ACC_SEARCH -> AccountingSearchScreen(accountingState, Modifier.fillMaxSize().imePadding())
                     SCREEN_SIMULATOR -> SimulatorScreen(Modifier.fillMaxSize().imePadding())
+                    SCREEN_CONSUMER -> WebEmbedScreen("consumer", backEnabled = !drawerState.isOpen)
+                    SCREEN_FINSIM -> WebEmbedScreen("finsim", backEnabled = !drawerState.isOpen)
+                    SCREEN_CRYPTO -> WebEmbedScreen("crypto", backEnabled = !drawerState.isOpen)
                     SCREEN_REGULATORY -> RegulatoryScreen(regulatoryViewModel)
                     SCREEN_SANCTION -> SanctionScreen(sanctionViewModel, onOpenLaw = ::openLaw)
                     SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen(

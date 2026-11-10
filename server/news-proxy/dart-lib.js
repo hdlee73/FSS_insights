@@ -37,6 +37,38 @@ export function searchCorps(query, limit = 15) {
   return scored.slice(0, limit).map(({ c }) => ({ corp: c.code, name: c.name, stock: c.stock, cls: c.cls }));
 }
 
+const WEB_CLS = { kospi: "Y", kosdaq: "K", konex: "N", etc: "E" };
+
+/**
+ * DART 누리집(dart.fss.or.kr)의 회사명 검색을 그대로 호출한다. Open API의 corpCode.xml에는 공시회사명만 있어
+ * 정식명칭((주)덱스터스튜디오)·과거 상호로는 찾을 수 없지만, 누리집 검색은 이를 모두 찾아 준다.
+ * 비공식 경로이므로 실패(차단·지연)하면 예외를 던지고, 호출하는 쪽이 기존 목록 검색만 쓴다.
+ */
+export async function webSearchCorps(query, limit = 15) {
+  const q = String(query || "").replace(/\(\s*주\s*\)|㈜|주식회사/g, "").replace(/\s+/g, " ").trim();
+  if (!q) return [];
+  {
+    const res = await fetch("https://dart.fss.or.kr/dsae001/search.ax", {
+      method: "POST",
+      headers: { ...DART_HEADERS, Accept: "text/html", "Content-Type": "application/x-www-form-urlencoded", Referer: "https://dart.fss.or.kr/" },
+      body: new URLSearchParams({ currentPage: "1", maxResults: String(limit), maxLinks: "10", sort: "", series: "", textCrpCik: "", textCrpNm: q, typesOfBusiness: "all" }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) throw new Error(`DART 누리집 응답 ${res.status}`);
+    const html = await res.text();
+    const out = [];
+    for (const row of html.split(/<tr\b/i).slice(1)) {
+      const m = /select\('(\d{8})'\)[^>]*title="([^"]*?)\s*기업개황/.exec(row);
+      if (!m) continue;
+      const tag = /tagCom_(\w+)/.exec(row);
+      const stock = (/<td>\s*(\d{6})\s*<\/td>/.exec(row) || [])[1] || "";
+      out.push({ corp: m[1], name: m[2].trim(), stock, cls: WEB_CLS[tag ? tag[1] : ""] || (stock ? "Y" : "E"), web: true });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+}
+
 /** 검색 결과의 시장 구분을 DART 기업개황(corp_cls) 기준으로 맞춘다. 실패한 곳은 목록의 값을 그대로 둔다. */
 export async function withDartClass(items, lookup) {
   return Promise.all(items.map(async (it) => {
@@ -254,83 +286,93 @@ export async function finance(env, corp, accMonth) {
   if (!annualRows.length) return { basis: "", unit: "억원", balance: [], income: [], trend: [], eps: {}, note: "사업보고서 재무 자료를 찾지 못했습니다." };
   const older = await acnt(env, corp, A - 3, "11011");
   const quarter = q3.length ? ["11014", q3] : half.length ? ["11012", half] : q1.length ? ["11013", q1] : null;
-  const fs = annualRows.some((x) => x.fs_div === "CFS") ? "CFS" : "OFS";
-  const basis = fs === "CFS" ? "연결" : "별도";
+  // 연결재무제표가 있으면 연결을 기본으로 하고 별도 기준도 함께 만든다. 연결이 없으면 별도(개별)만 만든다.
+  const hasCfs = annualRows.some((x) => x.fs_div === "CFS");
+  const hasOfs = annualRows.some((x) => x.fs_div === "OFS");
+  const build = async (fs) => {
+    const basis = fs === "CFS" ? "연결" : "별도";
 
-  const bs = (rows, f) => ({ assets: field(pick(rows, fs, "BS", "assets"), f), liab: field(pick(rows, fs, "BS", "liab"), f), equity: field(pick(rows, fs, "BS", "equity"), f) });
-  const is = (rows, f) => ({ revenue: field(pick(rows, fs, "IS", "revenue"), f), op: field(pick(rows, fs, "IS", "op"), f), net: field(pick(rows, fs, "IS", "net"), f) });
-  const yearEnd = (y) => (dec ? `${y}.12` : `${y}`);
+    const bs = (rows, f) => ({ assets: field(pick(rows, fs, "BS", "assets"), f), liab: field(pick(rows, fs, "BS", "liab"), f), equity: field(pick(rows, fs, "BS", "equity"), f) });
+    const is = (rows, f) => ({ revenue: field(pick(rows, fs, "IS", "revenue"), f), op: field(pick(rows, fs, "IS", "op"), f), net: field(pick(rows, fs, "IS", "net"), f) });
+    const yearEnd = (y) => (dec ? `${y}.12` : `${y}`);
 
-  const balance = [];
-  const income = [];
-  if (quarter) {
-    const [code, rows] = quarter;
-    const [qName, m1, m2, mStart] = QUARTER[code];
-    const label = dec ? `${now}.${m2} ${qName}말` : `${now} ${qName}말`;
-    balance.push({ label, ...bs(rows, "thstrm_amount") });
-    const cur = is(rows, "thstrm_amount");
-    const cum = is(rows, "thstrm_add_amount");
-    const useCum = cum.revenue != null || cum.op != null || cum.net != null ? cum : cur;
-    income.push({ label: "분기", sub: dec ? `${now}.${m1}~${m2}` : qName, ...cur });
-    income.push({ label: "누적", sub: dec ? `${now}.${mStart}~${m2}` : `${qName}까지`, ...useCum });
-    income.push({ label: `${A}년 연간`, sub: "전년", ...is(annualRows, "thstrm_amount") });
-    income.push({ label: `${A - 1}년 연간`, sub: "전전년", ...is(annualRows, "frmtrm_amount") });
-    balance.push({ label: yearEnd(A), ...bs(annualRows, "thstrm_amount") });
-    balance.push({ label: yearEnd(A - 1), ...bs(annualRows, "frmtrm_amount") });
-    balance.push({ label: yearEnd(A - 2), ...bs(annualRows, "bfefrmtrm_amount") });
-  } else {
-    balance.push({ label: yearEnd(A), ...bs(annualRows, "thstrm_amount") });
-    balance.push({ label: yearEnd(A - 1), ...bs(annualRows, "frmtrm_amount") });
-    balance.push({ label: yearEnd(A - 2), ...bs(annualRows, "bfefrmtrm_amount") });
-    if (older.length) balance.push({ label: yearEnd(A - 3), ...bs(older, "thstrm_amount") });
-    income.push({ label: `${A}년 연간`, sub: "", ...is(annualRows, "thstrm_amount") });
-    income.push({ label: `${A - 1}년 연간`, sub: "", ...is(annualRows, "frmtrm_amount") });
-    income.push({ label: `${A - 2}년 연간`, sub: "", ...is(annualRows, "bfefrmtrm_amount") });
-  }
+    const balance = [];
+    const income = [];
+    if (quarter) {
+      const [code, rows] = quarter;
+      const [qName, m1, m2, mStart] = QUARTER[code];
+      const label = dec ? `${now}.${m2} ${qName}말` : `${now} ${qName}말`;
+      balance.push({ label, ...bs(rows, "thstrm_amount") });
+      const cur = is(rows, "thstrm_amount");
+      const cum = is(rows, "thstrm_add_amount");
+      const useCum = cum.revenue != null || cum.op != null || cum.net != null ? cum : cur;
+      income.push({ label: "분기", sub: dec ? `${now}.${m1}~${m2}` : qName, ...cur });
+      income.push({ label: "누적", sub: dec ? `${now}.${mStart}~${m2}` : `${qName}까지`, ...useCum });
+      income.push({ label: `${A}년 연간`, sub: "전년", ...is(annualRows, "thstrm_amount") });
+      income.push({ label: `${A - 1}년 연간`, sub: "전전년", ...is(annualRows, "frmtrm_amount") });
+      balance.push({ label: yearEnd(A), ...bs(annualRows, "thstrm_amount") });
+      balance.push({ label: yearEnd(A - 1), ...bs(annualRows, "frmtrm_amount") });
+      balance.push({ label: yearEnd(A - 2), ...bs(annualRows, "bfefrmtrm_amount") });
+    } else {
+      balance.push({ label: yearEnd(A), ...bs(annualRows, "thstrm_amount") });
+      balance.push({ label: yearEnd(A - 1), ...bs(annualRows, "frmtrm_amount") });
+      balance.push({ label: yearEnd(A - 2), ...bs(annualRows, "bfefrmtrm_amount") });
+      if (older.length) balance.push({ label: yearEnd(A - 3), ...bs(older, "thstrm_amount") });
+      income.push({ label: `${A}년 연간`, sub: "", ...is(annualRows, "thstrm_amount") });
+      income.push({ label: `${A - 1}년 연간`, sub: "", ...is(annualRows, "frmtrm_amount") });
+      income.push({ label: `${A - 2}년 연간`, sub: "", ...is(annualRows, "bfefrmtrm_amount") });
+    }
 
-  // 5개년 추이: 사업보고서 두 개(A, A-3)가 각각 3개 연도를 담고 있다.
-  const points = new Map();
-  const put = (y, rows, f) => {
-    const b = bs(rows, f);
-    const i = is(rows, f);
-    points.set(y, { year: y, ...i, debt: b.equity ? Math.round((b.liab / b.equity) * 1000) / 10 : null });
-  };
-  put(A, annualRows, "thstrm_amount");
-  put(A - 1, annualRows, "frmtrm_amount");
-  put(A - 2, annualRows, "bfefrmtrm_amount");
-  if (older.length) {
-    put(A - 3, older, "thstrm_amount");
-    put(A - 4, older, "frmtrm_amount");
-  }
-  const trend = [...points.values()].sort((x, y) => x.year - y.year).slice(-5);
-
-  // 주당이익(EPS): 전체 재무제표의 손익계산서에서 "기본주당이익"류 계정을 찾는다. 실패해도 나머지는 그대로 돌려준다.
-  const eps = {};
-  const epsOf = async (year) => {
-    const r = await dartGet(env, "fnlttSinglAcntAll", { corp_code: corp, bsns_year: String(year), reprt_code: "11011", fs_div: fs });
-    const rows = (r.list || []).filter((x) => x.sj_div === "IS" || x.sj_div === "CIS");
-    const cands = rows.filter((x) => /주당(순)?(이익|손익)|주당순이익/.test(squash(x.account_nm)));
-    const hit = cands.find((x) => /기본/.test(squash(x.account_nm))) || cands[0];
-    if (!hit) return;
-    const set = (y, v) => {
-      const n = amt(v);
-      if (n != null && eps[y] == null) eps[y] = n;
+    // 5개년 추이: 사업보고서 두 개(A, A-3)가 각각 3개 연도를 담고 있다.
+    const points = new Map();
+    const put = (y, rows, f) => {
+      const b = bs(rows, f);
+      const i = is(rows, f);
+      points.set(y, { year: y, ...i, debt: b.equity ? Math.round((b.liab / b.equity) * 1000) / 10 : null });
     };
-    set(year, hit.thstrm_amount);
-    set(year - 1, hit.frmtrm_amount);
-    set(year - 2, hit.bfefrmtrm_amount);
+    put(A, annualRows, "thstrm_amount");
+    put(A - 1, annualRows, "frmtrm_amount");
+    put(A - 2, annualRows, "bfefrmtrm_amount");
+    if (older.length) {
+      put(A - 3, older, "thstrm_amount");
+      put(A - 4, older, "frmtrm_amount");
+    }
+    const trend = [...points.values()].sort((x, y) => x.year - y.year).slice(-5);
+
+    // 주당이익(EPS): 전체 재무제표의 손익계산서에서 "기본주당이익"류 계정을 찾는다. 실패해도 나머지는 그대로 돌려준다.
+    const eps = {};
+    const epsOf = async (year) => {
+      const r = await dartGet(env, "fnlttSinglAcntAll", { corp_code: corp, bsns_year: String(year), reprt_code: "11011", fs_div: fs });
+      const rows = (r.list || []).filter((x) => x.sj_div === "IS" || x.sj_div === "CIS");
+      const cands = rows.filter((x) => /주당(순)?(이익|손익)|주당순이익/.test(squash(x.account_nm)));
+      const hit = cands.find((x) => /기본/.test(squash(x.account_nm))) || cands[0];
+      if (!hit) return;
+      const set = (y, v) => {
+        const n = amt(v);
+        if (n != null && eps[y] == null) eps[y] = n;
+      };
+      set(year, hit.thstrm_amount);
+      set(year - 1, hit.frmtrm_amount);
+      set(year - 2, hit.bfefrmtrm_amount);
+    };
+    await Promise.all([epsOf(A), older.length ? epsOf(A - 3) : Promise.resolve()]).catch(() => {});
+    return { basis, balance, income, trend, eps };
   };
-  await Promise.all([epsOf(A), older.length ? epsOf(A - 3) : Promise.resolve()]).catch(() => {});
+  const main = await build(hasCfs ? "CFS" : "OFS");
+  let separate = null;
+  if (hasCfs && hasOfs) separate = await build("OFS").catch(() => null);
+  if (separate && !separate.balance.some((x) => x.assets != null) && !separate.income.some((x) => x.revenue != null || x.op != null || x.net != null)) separate = null;
 
   return {
-    basis,
+    basis: main.basis,
     unit: "억원",
     annualYear: A,
     quarterLabel: quarter ? `${now} ${QUARTER[quarter[0]][0]}` : "",
-    balance,
-    income,
-    trend,
-    eps,
+    balance: main.balance,
+    income: main.income,
+    trend: main.trend,
+    eps: main.eps,
+    separate: separate ? { basis: separate.basis, balance: separate.balance, income: separate.income, trend: separate.trend, eps: separate.eps } : null,
     note: "",
   };
 }

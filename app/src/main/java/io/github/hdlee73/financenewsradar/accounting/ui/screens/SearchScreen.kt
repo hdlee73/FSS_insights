@@ -78,7 +78,7 @@ fun SearchScreen(state: DataState, modifier: Modifier = Modifier) {
     }
 
     LazyColumn(modifier, contentPadding = PaddingValues(horizontal = SCREEN_SIDE_PADDING), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item { ScreenTitle("기준서/질의회신/지적사례 검색") }
+        item { ScreenTitle("회계기준서·질의회신·지적사례") }
         item {
             OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 label = { Text(if (isAll) "기준서·질의회신·해석·감리지적사례 통합 검색 (예: 리스)" else if (isStandard) "기준서 번호·제목 (예: 1116, 리스)" else "제목 키워드 (예: 리스, 특수관계자 주석)") })

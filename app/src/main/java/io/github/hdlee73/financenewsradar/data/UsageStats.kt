@@ -13,6 +13,7 @@ import java.util.UUID
 
 /**
  * 익명 사용 통계. 하루 한 번 서버에 (랜덤 설치ID, 앱 버전, 날짜, 메뉴별 이용 횟수)만 보낸다.
+ * 같은 날 앱을 업데이트해 처음 여는 경우에도 새 버전 신호를 한 번 더 보낸다(버전 분포가 하루 늦게 바뀌는 것을 막는다).
  * 이름·계정·기기 정보·검색어·IP는 보내지 않으며, 앱 정보 화면에서 끌 수 있다. 서버가 없거나 오프라인이면 조용히 건너뛴다.
  */
 object UsageStats {
@@ -21,6 +22,7 @@ object UsageStats {
     private const val KEY_ENABLED = "enabled"
     private const val KEY_PENDING = "pending"
     private const val KEY_LAST_PING = "last_ping_day"
+    private const val KEY_LAST_VERSION = "last_ping_version"
     private val lock = Any()
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -55,7 +57,7 @@ object UsageStats {
                 val id = p.getString(KEY_ID, null) ?: UUID.randomUUID().toString().also { p.edit().putString(KEY_ID, it).apply() }
                 val pending = UsageLog.parse(p.getString(KEY_PENDING, null))
                 UsageLog.prune(pending, LocalDate.now().minusDays(14).toString())
-                UsageLog.payload(id, BuildConfig.VERSION_NAME, pending, today, includeToday = p.getString(KEY_LAST_PING, null) != today)
+                UsageLog.payload(id, BuildConfig.VERSION_NAME, pending, today, includeToday = p.getString(KEY_LAST_PING, null) != today || p.getString(KEY_LAST_VERSION, null) != BuildConfig.VERSION_NAME)
             }
             if (body == null) return@runCatching
             val c = URI(NewsProxy.url.trimEnd('/') + "/usage/ping").toURL().openConnection() as HttpURLConnection
@@ -70,7 +72,7 @@ object UsageStats {
                 if (c.responseCode == 200) synchronized(lock) {
                     val pending = UsageLog.parse(p.getString(KEY_PENDING, null))
                     sentDays.filter { it < today }.forEach { pending.remove(it) }
-                    p.edit().putString(KEY_PENDING, pending.toString()).putString(KEY_LAST_PING, today).apply()
+                    p.edit().putString(KEY_PENDING, pending.toString()).putString(KEY_LAST_PING, today).putString(KEY_LAST_VERSION, BuildConfig.VERSION_NAME).apply()
                 }
             } finally {
                 c.disconnect()

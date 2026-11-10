@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -118,6 +119,39 @@ fun CompanyName(name: String, onOpenCompany: ((String) -> Unit)?, modifier: Modi
             textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
             modifier = modifier.clickable(onClickLabel = "기업 개황 및 공시에서 찾기") { onOpenCompany(query) }
         )
+    }
+}
+
+/** 한 줄에 정보와 버튼이 함께 들어갈 만큼 넓은지 가르는 기준 폭. */
+private val CASE_SIDE_BUTTONS_MIN_WIDTH = 480.dp
+
+/**
+ * 목록 항목: 정보(위)와 명시적 버튼 「기업개황 등」(DART 검색, 가려진 이름이면 숨김)·「세부내용」.
+ * 화면 폭에 여유가 있으면(태블릿·가로 화면 등) 버튼을 우측에, 좁으면 아래에 둔다. 회사명 자체는 글자로만 둔다.
+ */
+@Composable
+fun CaseRow(company: String, onOpenCompany: ((String) -> Unit)?, onDetail: () -> Unit, info: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    val query = dartSearchName(company)
+    val showCompany = onOpenCompany != null && query.isNotEmpty()
+    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+        if (maxWidth >= CASE_SIDE_BUTTONS_MIN_WIDTH) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), content = info)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (showCompany) androidx.compose.material3.OutlinedButton(onClick = { onOpenCompany!!(query) }, modifier = Modifier.width(104.dp), contentPadding = pad) { Text("기업개황 등", maxLines = 1) }
+                    androidx.compose.material3.Button(onClick = onDetail, modifier = Modifier.width(104.dp), contentPadding = pad) { Text("세부내용", maxLines = 1) }
+                }
+            }
+        } else {
+            Column {
+                info()
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (showCompany) androidx.compose.material3.OutlinedButton(onClick = { onOpenCompany!!(query) }, modifier = Modifier.weight(1f), contentPadding = pad) { Text("기업개황 등", maxLines = 1) }
+                    androidx.compose.material3.Button(onClick = onDetail, modifier = Modifier.weight(1f), contentPadding = pad) { Text("세부내용", maxLines = 1) }
+                }
+            }
+        }
     }
 }
 

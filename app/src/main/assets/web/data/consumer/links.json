@@ -1,0 +1,114 @@
+{
+ "asOf": "2026-11-09",
+ "note": "금융감독원 금융소비자 정보포털 파인(fine.fss.or.kr) 메뉴에서 확인한 주소입니다. 기관이 주소를 바꾸면 달라질 수 있습니다.",
+ "company": [
+  {
+   "id": "sys",
+   "t": "제도권 금융회사 조회",
+   "d": "금융감독원에 등록·인가된 금융회사인지 이름으로 확인합니다.",
+   "u": "https://fine.fss.or.kr/fine/fncco/systemFncCo/list.do?menuNo=900038",
+   "tag": "필수"
+  },
+  {
+   "id": "lender",
+   "t": "등록 대부업체 조회",
+   "d": "대부업·대부중개업 등록 여부와 등록번호를 확인합니다. 미등록 업체는 불법사금융입니다.",
+   "u": "http://fines.fss.or.kr/fines/plis/moneyLenderSearch/MoneyLenderSearch.getMoneyLenderList.do",
+   "tag": "대출"
+  },
+  {
+   "id": "broker",
+   "t": "대출모집인(대출성 상품 판매대리·중개업자) 조회",
+   "d": "대출을 소개하는 모집법인·모집인이 등록되어 있는지 확인합니다.",
+   "u": "https://www.fss.or.kr/fss/bbs/B0000315/list.do?menuNo=200754",
+   "tag": "대출"
+  },
+  {
+   "id": "broker2",
+   "t": "협회 등록 대출모집인 조회",
+   "d": "여신금융협회·은행연합회 등 협회에 등록된 대출모집인을 확인합니다.",
+   "u": "https://www.loanconsultant.or.kr",
+   "tag": "대출"
+  },
+  {
+   "id": "similar",
+   "t": "유사투자자문업자 현황",
+   "d": "주식 리딩방·유료 문자 등 유사투자자문업 신고 여부를 확인합니다.",
+   "u": "https://fine.fss.or.kr/fine/fncco/invsmCnsut/list.do?menuNo=900520",
+   "tag": "투자"
+  },
+  {
+   "id": "efin",
+   "t": "전자금융업 등록현황",
+   "d": "간편결제·선불·결제대행 등 전자금융업 등록 여부를 확인합니다.",
+   "u": "https://fine.fss.or.kr/fine/bbs/B0000392/list.do?menuNo=900495",
+   "tag": "결제"
+  },
+  {
+   "id": "remit",
+   "t": "소액해외송금업자 등록현황",
+   "d": "해외송금 업체가 등록되어 있는지 확인합니다.",
+   "u": "https://fine.fss.or.kr/fine/fncco/smlamtLnd/list.do?menuNo=900041",
+   "tag": "송금"
+  },
+  {
+   "id": "ins",
+   "t": "e-클린보험서비스",
+   "d": "보험설계사·대리점이 등록된 사람인지 확인합니다.",
+   "u": "http://www.e-cleanins.or.kr",
+   "tag": "보험"
+  }
+ ],
+ "report": [
+  {
+   "t": "불법금융 신고·상담",
+   "u": "https://fine.fss.or.kr/fine/main/contents.do?menuNo=900124"
+  },
+  {
+   "t": "민원 신청(금융감독원)",
+   "u": "https://www.fss.or.kr/fss/main/sub1.do?menuNo=201093"
+  },
+  {
+   "t": "개인정보 노출자 사고예방시스템",
+   "u": "https://pd.fss.or.kr"
+  },
+  {
+   "t": "내 계좌 통합조회·지급정지(파인)",
+   "u": "https://fine.fss.or.kr/fine/main/contents.do?menuNo=900029"
+  }
+ ],
+ "learn": [
+  {
+   "t": "금융꿀팁 전체 목록",
+   "u": "https://fine.fss.or.kr/fine/bbs/B0000340/list.do?menuNo=900014"
+  },
+  {
+   "t": "금융소비자경보 발령내역",
+   "u": "https://fine.fss.or.kr/fine/bbs/B0000175/list.do?menuNo=900512"
+  },
+  {
+   "t": "생활금융톡톡",
+   "u": "https://fine.fss.or.kr/fine/bbs/B0000341/list.do?menuNo=900023"
+  },
+  {
+   "t": "금융용어사전",
+   "u": "https://fine.fss.or.kr/fine/fnctip/fncDicary/list.do?menuNo=900021"
+  },
+  {
+   "t": "금융소비자보호법 안내자료",
+   "u": "https://fine.fss.or.kr/fine/bbs/B0000113/list.do?menuNo=900508"
+  },
+  {
+   "t": "민원사례",
+   "u": "https://fine.fss.or.kr/fine/bbs/B0000343/list.do?menuNo=900025"
+  },
+  {
+   "t": "보이스피싱 안내(파인)",
+   "u": "https://fine.fss.or.kr/fine/main/contents.do?menuNo=900206"
+  },
+  {
+   "t": "서민금융 한눈에(서민금융진흥원)",
+   "u": "https://loan.kinfa.or.kr/main.ke"
+  }
+ ]
+}

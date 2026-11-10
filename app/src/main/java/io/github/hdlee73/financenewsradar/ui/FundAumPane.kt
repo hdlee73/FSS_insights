@@ -77,12 +77,12 @@ private fun dateLabel(ymd: String): String =
     if (ymd.length == 8) "${ymd.substring(0, 4)}.${ymd.substring(4, 6)}.${ymd.substring(6)}" else ymd
 
 @Composable
-fun FundAumPane(company: String, modifier: Modifier = Modifier) {
+fun FundAumPane(company: String, sector: String = "G", modifier: Modifier = Modifier) {
     val vm: FundAumViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.ensure() }
     val data = state.data
-    val found = remember(data, company) { data?.find(company) }
+    val found = remember(data, company, sector) { data?.find(company, sector) }
     when {
         data == null && state.loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp) }
         data == null -> CenterMessage(state.error ?: "자료가 없습니다.", isError = true, actionLabel = "다시 시도", onAction = { vm.load(force = true) })

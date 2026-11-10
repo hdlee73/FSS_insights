@@ -197,7 +197,7 @@ fun SanctionScreen(vm: SanctionViewModel, onOpenLaw: (String) -> Unit) {
             }
             item(key = "tabs") { UnderlineTabs(listOf("제재 공시", "통계"), if (state.stats) 1 else 0, { vm.showStats(it == 1) }) }
             item(key = "field") {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                ScrollRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("검색", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SanctionSearchField.entries.forEach { f ->
                         PillChip(f.label, onClick = { vm.setFilter(filter.copy(field = f)) }, selected = filter.field == f)
@@ -306,7 +306,7 @@ private fun FilterBar(data: SanctionDataset?, f: SanctionFilter, onChange: (Sanc
         // 기간: 빠른 선택 + 직접 지정(시작 연·월 ~ 끝 연·월). 통계와 엑셀 저장도 이 기간을 따른다.
         var pickPeriod by remember { mutableStateOf(false) }
         val preset = f.preset()
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        ScrollRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SanctionPeriod.entries.forEach { p ->
                 PillChip(if (p == SanctionPeriod.ALL) "전체(${fromYear}~)" else p.label, onClick = { onChange(f.withPeriod(p)) }, selected = preset == p)
             }
@@ -318,7 +318,7 @@ private fun FilterBar(data: SanctionDataset?, f: SanctionFilter, onChange: (Sanc
         if (pickPeriod && data != null) {
             PeriodDialog(data, f, onDismiss = { pickPeriod = false }) { from, to -> onChange(f.copy(from = from, to = to)); pickPeriod = false }
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        ScrollRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             PillChip("전 권역", onClick = { onChange(f.copy(sector = null)) }, selected = f.sector == null)
             SanctionSectors.all.forEach { s -> PillChip(s, onClick = { onChange(f.copy(sector = if (f.sector == s) null else s)) }, selected = f.sector == s) }
         }

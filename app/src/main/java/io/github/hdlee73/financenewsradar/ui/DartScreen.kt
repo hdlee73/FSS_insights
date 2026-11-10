@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -63,6 +64,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.DartApi
 import io.github.hdlee73.financenewsradar.data.DartCompany
 import io.github.hdlee73.financenewsradar.data.DartCorp
+import io.github.hdlee73.financenewsradar.data.DartIncomeCol
 import io.github.hdlee73.financenewsradar.data.DartFilings
 import io.github.hdlee73.financenewsradar.data.DartFiling
 import io.github.hdlee73.financenewsradar.data.DartFinance
@@ -578,7 +580,7 @@ private fun StockCard(corp: DartCorp, state: DartUiState, viewModel: DartViewMod
                     s.closes.takeLast(count).takeIf { it.size >= 2 }?.let { "시작 ${dateText(STOCK_START[period]())} · ${grouped(it.first())}" }
                 }
                 if (startText != null) Text(startText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ScrollRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     STOCK_PERIODS.forEachIndexed { i, (name, _) -> PillChip(name, onClick = { period = i }, selected = i == period, onPanel = true) }
                 }
                 val slice = s.closes.takeLast(count)
@@ -737,8 +739,18 @@ private fun TableRow(label: String, values: List<String>) {
 
 @Composable
 private fun FinanceTab(load: DartLoad<DartFinView>?, onRetry: () -> Unit) {
-    LoadBox(load, onRetry) { view ->
+    LoadBox(load, onRetry) { baseView ->
+        // 연결재무제표가 있는 회사는 연결·별도를 전환해 보고, 없는 회사는 별도(개별)만 보여 준다.
+        val separate = baseView.finance.separate
+        var showSeparate by rememberSaveable { mutableStateOf(false) }
+        val view = if (separate != null && showSeparate) baseView.copy(finance = separate.copy(note = baseView.finance.note, annualYear = baseView.finance.annualYear)) else baseView
         val f = view.finance
+        if (separate != null) {
+            Row(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PillChip("${baseView.finance.basis}재무제표", onClick = { showSeparate = false }, selected = !showSeparate)
+                PillChip("${separate.basis}재무제표", onClick = { showSeparate = true }, selected = showSeparate)
+            }
+        }
         if (f.balance.isEmpty() && f.income.isEmpty()) {
             CenterMessage(f.note.ifBlank { "재무 자료를 찾지 못했습니다. 정기보고서 제출 대상이 아닌 회사일 수 있습니다." }, modifier = Modifier.fillMaxWidth().height(180.dp))
             return@LoadBox
@@ -756,16 +768,25 @@ private fun FinanceTab(load: DartLoad<DartFinView>?, onRetry: () -> Unit) {
         ListCard {
             BlockTitle("손익현황")
             Text("출처: DART 정기보고서 · 단위 억원", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TableHeader(f.income.map { it.label to it.sub })
-            TableRow("매출액", f.income.map { eokText(it.revenue) })
-            TableRow("영업이익", f.income.map { eokText(it.op) })
-            TableRow("당기순이익", f.income.map { eokText(it.net) })
+            val incomeCols: List<DartIncomeCol> = incomeColumns(f)
+            TableHeader(incomeCols.map { it.label to it.sub })
+            TableRow("매출액", incomeCols.map { eokText(it.revenue) })
+            TableRow("영업이익", incomeCols.map { eokText(it.op) })
+            TableRow("당기순이익", incomeCols.map { eokText(it.net) })
             Text("금융회사는 영업수익 등 업종별 계정을 매출액 줄에 보여 주며, 해당 계정이 없으면 -로 표시됩니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         TrendCard(view)
         PerShareCard(view)
         Text("출처: DART 주요계정·전체 재무제표. 연말 종가는 시세 제공처 기준입니다.", Modifier.padding(20.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/** 손익현황 열. 분기·누적 뒤에 최근 3개 사업연도 연간을 모두 보이도록, 서버 연간 열에 없는 연도는 추이(trend)에서 채운다. */
+private fun incomeColumns(f: DartFinance): List<DartIncomeCol> {
+    val have = f.income.mapNotNull { Regex("^(\\d{4})년 연간").find(it.label)?.groupValues?.get(1)?.toIntOrNull() }.toSet()
+    val extra = f.trend.sortedByDescending { it.year }.take(3).filter { it.year !in have }
+        .map { DartIncomeCol("${it.year}년 연간", "", it.revenue, it.op, it.net) }
+    return f.income + extra
 }
 
 @Composable
@@ -911,7 +932,7 @@ private val PERIOD_LABELS = listOf("1년", "3년", "5년", "기간선택")
 @Composable
 private fun PeriodBar(period: DartPeriod, onChange: (DartPeriod) -> Unit) {
     var dialog by rememberSaveable { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    ScrollRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         PERIOD_LABELS.forEachIndexed { i, label ->
             val text = if (i == 3 && period.index == 3) "${period.fromYm / 100}.${String.format(Locale.US, "%02d", period.fromYm % 100)}~${period.toYm / 100}.${String.format(Locale.US, "%02d", period.toYm % 100)}" else label
             PillChip(text, onClick = { if (i == 3) dialog = true else onChange(period.copy(index = i)) }, selected = i == period.index, onPanel = true)
