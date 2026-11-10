@@ -111,7 +111,7 @@ def bithumb_days(session, sym: str) -> dict[str, tuple[float, float]]:
 
 
 def korbit_days(session, sym: str) -> dict[str, tuple[float, float]]:
-    out, end = {}, None
+    out, end, seen_keys = {}, None, []
     for _ in range(14):
         params = {"symbol": f"{sym.lower()}_krw", "interval": "1D", "limit": 200}
         if end:
@@ -120,11 +120,15 @@ def korbit_days(session, sym: str) -> dict[str, tuple[float, float]]:
         rows = d.get("data") or []
         if not rows:
             break
+        if not seen_keys:
+            seen_keys.append(1)
+            log.info("코빗 일봉 필드: %s", sorted(rows[0].keys()))
         for r in rows:
             day = kst_date(int(r["timestamp"]))
             if day >= START:
                 close = float(r["close"])
-                out[day] = (close * float(r["volume"]), close)
+                qv = next((r[k] for k in ("quoteVolume", "quote_volume", "turnover", "value") if r.get(k) not in (None, "")), None)
+                out[day] = (float(qv) if qv is not None else close * float(r["volume"]), close)   # 거래대금 필드가 있으면 그대로, 없으면 종가×거래량 추정
         oldest = min(int(r["timestamp"]) for r in rows)
         if kst_date(oldest) < START or len(rows) < 200:
             break
