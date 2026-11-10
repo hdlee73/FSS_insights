@@ -268,3 +268,14 @@ def test_parse_report_xml_basis_and_interim():
     assert r["연결"]["assets"] == 2000e6 and r["연결"]["liabilities"] == 500e6
     assert r["연결"]["revenue"] == 300e6 and r["연결"]["net_income"] == -40e6   # 누적(두 번째) 열, 현금흐름표는 무시
     assert r["별도"]["assets"] == 7
+
+
+def test_revenue_falls_back_to_sales_and_cleans_labels():
+    import build_exchange_fin as F
+    xml = ("<TITLE>손익계산서</TITLE><P>(단위 : 원)</P><TABLE><TR><TD>Ⅰ. 매출액 (주석 25)</TD><TD>50</TD></TR>"
+           "<TR><TD>Ⅱ. 영업이익(손실)</TD><TD>9</TD></TR></TABLE>")
+    assert F.parse_report_xml(xml)["별도"]["revenue"] == 50
+    xml2 = xml.replace("<TR><TD>Ⅱ", "<TR><TD>영업수익</TD><TD>70</TD></TR><TR><TD>Ⅱ")
+    assert F.parse_report_xml(xml2)["별도"]["revenue"] == 70   # 영업수익 우선
+    rows = [{"account_nm": "매출액", "sj_div": "IS", "thstrm_amount": "5"}]
+    assert F.parse_api_accounts(rows)["revenue"] == 5
