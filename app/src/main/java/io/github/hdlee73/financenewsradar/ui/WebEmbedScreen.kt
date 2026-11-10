@@ -175,6 +175,14 @@ fun WebEmbedScreen(route: String, modifier: Modifier = Modifier, backEnabled: Bo
                             }
                         }
                         webChromeClient = object : WebChromeClient() {
+                            // 내장 화면의 자바스크립트 오류를 로컬 로그 파일에 남긴다(본문이 비는 문제를 추적하기 위함).
+                            override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
+                                if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) {
+                                    CrashLogger.log(ctx, "웹 화면 오류[$route] ${message.sourceId()}:${message.lineNumber()}", IllegalStateException(message.message()))
+                                }
+                                return true
+                            }
+
                             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
                                 pendingChooser[0]?.onReceiveValue(null)
                                 pendingChooser[0] = callback
