@@ -34,16 +34,17 @@ async function getJson(path) {
   return v;
 }
 async function loadAll() {
-  const [snapshot, history, reports, coins, fin] = await Promise.all([
+  const [snapshot, history, reports, coins, fin, long] = await Promise.all([
     getJson("data/latest.json"),
     getJson("data/history.json").catch(() => []),
     getJson("reports/index.json").catch(() => []),
     getJson("data/coins.json").catch(() => null),
     getJson("data/exchange_fin.json").catch(() => null),
+    getJson("data/history_long.json").catch(() => null),
   ]);
   // 집계는 매일 24:00 한 번. 예전(12시 포함) 기록은 그래프가 들쭉날쭉해지므로 24시 마감 기록만 쓴다.
   const daily = (Array.isArray(history) ? history : []).filter((x) => x.slot !== "1200");
-  return { snapshot, history: daily, reports: Array.isArray(reports) ? reports : [], coins, fin };
+  return { snapshot, history: daily, reports: Array.isArray(reports) ? reports : [], coins, fin, long };
 }
 
 // ---------- 서식 ----------
@@ -254,79 +255,180 @@ const chg = (r, d = 2) => h("span", { class: cls(r) }, pct(r, d, true));
 const note = (t) => h("p", { class: "note" }, t);
 
 
-// ---------- 거래소 점유율(기간별) ----------
-const SHARE_PERIODS = [["day", "일"], ["week", "주(7일)"], ["month", "월"], ["quarter", "분기"], ["half", "반기"], ["year", "연"], ["custom", "기간 설정"]];
-function periodStart(period, date) {
-  const [y, m] = [Number(date.slice(0, 4)), Number(date.slice(5, 7))];
-  const pad = (n) => String(n).padStart(2, "0");
-  if (period === "month") return `${y}-${pad(m)}-01`;
-  if (period === "quarter") return `${y}-${pad(Math.floor((m - 1) / 3) * 3 + 1)}-01`;
-  if (period === "half") return `${y}-${m <= 6 ? "01" : "07"}-01`;
-  if (period === "year") return `${y}-01-01`;
-  if (period === "week") { const d = new Date(date + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 6); return d.toISOString().slice(0, 10); }
-  return date;
-}
-/** 기간 내 일별 24h 거래대금을 합산해 거래소별 점유율을 계산한다(달력 기준 누계: 월·분기·반기·연은 해당 기간 첫날부터 마지막 집계일까지). */
-function periodShares(hist, period, range) {
-  const rows = hist.filter((x) => x.date);
-  if (!rows.length) return null;
-  const last = range?.to || rows.at(-1).date, from = range?.from || periodStart(period, last);
-  const sel = rows.filter((x) => x.date >= from && x.date <= last);
-  const sums = {};
-  let days = 0;
-  for (const r of sel) {
-    let any = false;
-    for (const [k] of EXCHANGES) {
-      const v = r.exchanges?.[k]?.value ?? r.by_exchange?.[k];
-      if (v != null && Number.isFinite(v)) { sums[k] = (sums[k] || 0) + v; any = true; }
-    }
-    if (any) days++;
+// ---------- 과거 일별 자료(2020~) ----------
+const EXK = EXCHANGES.map((e) => e[0]);
+const EXCOLOR = { upbit: "#1f6feb", bithumb: "#0f7b62", coinone: "#a36200", korbit: "#6d45b8", gopax: "#8a94a6" };
+/** 2020년 이후 일별 자료(history_long.json)와 최근 집계(history.json)를 날짜별로 합친다. 겹치면 최근 집계가 우선. */
+function buildDaily(data) {
+  const m = new Map(), cut = data.snapshot.date || "9999";
+  for (const r of data.long?.rows || []) {
+    const [date, up, bi, co, ko, price, , dom, kim] = r;
+    if (date > cut) continue; // 진행 중인 날은 제외
+    const v = {};
+    [["upbit", up], ["bithumb", bi], ["coinone", co], ["korbit", ko]].forEach(([k, x]) => x != null && (v[k] = x));
+    m.set(date, { date, v, btc_price: price, btc_dom: dom, kimchi: kim });
   }
-  const total = Object.values(sums).reduce((a, b) => a + b, 0);
-  return { from, to: last, days, sums, total };
+  for (const x of data.history) {
+    const v = {};
+    for (const k of EXK) { const val = x.exchanges?.[k]?.value ?? x.by_exchange?.[k]; if (val != null && Number.isFinite(val)) v[k] = val; }
+    const old = m.get(x.date);
+    m.set(x.date, { date: x.date, v: Object.keys(v).length ? { ...(old?.v || {}), ...v } : old?.v || {}, btc_price: x.btc_price_krw ?? old?.btc_price, btc_dom: x.btc_dominance_kr ?? old?.btc_dom, kimchi: x.kimchi_premium ?? old?.kimchi });
+  }
+  return [...m.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
 }
-function sharePanel(s, hist, palette, prev) {
+const pad2 = (n) => String(n).padStart(2, "0");
+function bucketKey(date, unit) {
+  const y = date.slice(0, 4), m = Number(date.slice(5, 7));
+  return unit === "month" ? `${y}-${pad2(m)}` : unit === "quarter" ? `${y} ${Math.floor((m - 1) / 3) + 1}분기` : unit === "half" ? `${y} ${m <= 6 ? "상" : "하"}반기` : unit === "year" ? y : date;
+}
+const bucketLabel = (k) => (/^\d{4}-\d{2}-\d{2}$/.test(k) ? k.slice(5).replace("-", "/") : /^\d{4}-\d{2}$/.test(k) ? k.slice(2).replace("-", ".") : k);
+function bucketize(daily, from, to, unit, keys) {
+  const m = new Map();
+  for (const r of daily) {
+    if (r.date < from || r.date > to) continue;
+    const k = bucketKey(r.date, unit);
+    const b = m.get(k) || m.set(k, { key: k, v: {}, n: 0 }).get(k);
+    b.n++;
+    for (const ex of keys) { const x = r.v[ex]; if (x != null) b.v[ex] = (b.v[ex] || 0) + x; }
+  }
+  return [...m.values()];
+}
+/** 기간 구분별 범위. unit: day|month|quarter|half|year, y: 연, n: 월/분기/반기 번호 */
+function periodRange(unit, y, n, day) {
+  const last = (yy, mm) => new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+  if (unit === "day") return { from: day, to: day };
+  if (unit === "month") return { from: `${y}-${pad2(n)}-01`, to: `${y}-${pad2(n)}-${last(y, n)}` };
+  if (unit === "quarter") { const m1 = (n - 1) * 3 + 1; return { from: `${y}-${pad2(m1)}-01`, to: `${y}-${pad2(m1 + 2)}-${last(y, m1 + 2)}` }; }
+  if (unit === "half") return n === 1 ? { from: `${y}-01-01`, to: `${y}-06-30` } : { from: `${y}-07-01`, to: `${y}-12-31` };
+  return { from: `${y}-01-01`, to: `${y}-12-31` };
+}
+
+/** 누적 막대(점유율 100% 또는 금액). buckets: [{key, v:{거래소:값}}] */
+function stackedChart(buckets, keys, { mode = "abs", height = 210, width } = {}) {
+  if (!buckets.length) return h("div", { class: "note" }, "표시할 자료가 없습니다.");
+  const W = width || (innerWidth < 700 ? 360 : 860), H = width || innerWidth < 700 ? height : Math.min(height, 200), L = 46, R = 8, T = 10, B = 24;
+  const tot = buckets.map((b) => keys.reduce((a, k) => a + (b.v[k] || 0), 0));
+  const max = mode === "share" ? 1 : Math.max(...tot) || 1;
+  const gap = buckets.length > 40 ? 1 : 3, bw = Math.max(1.5, (W - L - R - gap * (buckets.length - 1)) / buckets.length);
+  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "cr-chart", role: "img" });
+  const txt = (xx, yy, anchor, str, size = 10.5) => svg("text", { x: xx, y: yy, "text-anchor": anchor, "font-size": size, fill: "#5b6b86" }, document.createTextNode(str));
+  for (let g = 0; g <= 2; g++) {
+    const v = (max * g) / 2, yy = T + (1 - g / 2) * (H - T - B);
+    root.append(svg("line", { x1: L, x2: W - R, y1: yy, y2: yy, stroke: "#e2e7ef" }), txt(L - 5, yy + 3.5, "end", mode === "share" ? Math.round(v * 100) + "%" : won(v)));
+  }
+  buckets.forEach((b, i) => {
+    let y0 = H - B;
+    const x = L + i * (bw + gap), base = mode === "share" ? tot[i] || 1 : max;
+    for (const k of keys) {
+      const v = b.v[k] || 0;
+      if (!v) continue;
+      const hh = ((H - T - B) * v) / base;
+      const r = svg("rect", { x, y: y0 - hh, width: bw, height: Math.max(hh, 0.4), fill: EXCOLOR[k] });
+      r.append(svg("title", {}, document.createTextNode(`${bucketLabel(b.key)} ${exName(k)} ${mode === "share" ? pct(v / (tot[i] || 1)) : won(v) + " 원"}`)));
+      root.append(r);
+      y0 -= hh;
+    }
+  });
+  const nl = buckets.length, idx = nl <= 6 ? buckets.map((_, i) => i) : [0, Math.floor(nl / 2), nl - 1];
+  for (const i of idx) root.append(txt(L + i * (bw + gap) + bw / 2, H - 7, i === 0 ? "start" : i === nl - 1 ? "end" : "middle", bucketLabel(buckets[i].key)));
+  const legend = h("div", { class: "cr-legend" }, keys.map((k) => h("span", null, h("i", { style: { background: EXCOLOR[k] } }), exName(k))));
+  return h("div", null, root, legend);
+}
+
+/** 기간 단위 선택 막대: 일(30일)·월(24개월)·연도별 */
+function volumeCard(daily, data, only) {
   const body = h("div", { class: "stack" });
-  const dates = hist.map((x) => x.date).filter(Boolean);
-  const minD = dates[0] || "", maxD = dates.at(-1) || "";
-  const fromIn = h("input", { type: "date", min: minD, max: maxD, value: minD }), toIn = h("input", { type: "date", min: minD, max: maxD, value: maxD });
-  const rangeBox = h("div", { class: "cr-range", hidden: true }, h("label", null, "시작 ", fromIn), h("label", null, "종료 ", toIn), h("span", { class: "note" }, `선택 가능: ${minD} ~ ${maxD}`));
-  let cur = "day";
-  const draw = (period) => {
-    cur = period;
-    rangeBox.hidden = period !== "custom";
-    let range = null;
-    if (period === "custom") {
-      let f = fromIn.value || minD, t = toIn.value || maxD;
-      if (f > t) [f, t] = [t, f];
-      range = { from: f, to: t };
-    }
-    const r = period === "day" ? null : periodShares(hist, period, range);
-    let sums, total, head;
-    if (period === "day" || !r) {
-      sums = Object.fromEntries((s.exchanges || []).filter((e) => e.ok).map((e) => [e.exchange, e.value_24h || 0]));
-      total = Object.values(sums).reduce((a, b) => a + b, 0);
-      head = note(`${s.date || ""} 24시 마감 기준 하루 거래대금`);
-    } else {
-      sums = r.sums; total = r.total;
-      const full = { week: 7, month: 28, quarter: 85, half: 175, year: 360 }[period];
-      if (!r.days) { body.replaceChildren(note("선택한 기간에 집계 자료가 없습니다. 기간을 바꿔 주세요.")); return; }
-      head = note(`${r.from} ~ ${r.to} 누계(집계 ${r.days}일분)` + (period !== "custom" && r.days < Math.min(full || 5, 5) ? " · 이력이 아직 짧아 일부 기간만 반영됩니다." : ""));
-    }
-    const rows = EXCHANGES.filter(([k]) => sums[k] > 0).map(([k, n], i) => ({ k, n, v: sums[k], color: palette[i % palette.length] }));
-    body.replaceChildren(head,
-      donut(rows.map((e) => ({ name: e.n, v: e.v, color: e.color }))),
-      table(["거래소", period === "day" ? "거래대금" : "기간 거래대금", "점유율"], rows.map((e) => [e.n, won(e.v) + " 원", pct(total ? e.v / total : null)]).concat([["합계", won(total) + " 원", "100%"]])),
-      note("점유율 = 거래소 거래대금 ÷ 5개 거래소 합계. 기간 거래대금은 매일 24시 마감 집계값을 더한 것입니다."));
+  const keys = only ? [only] : EXK.filter((k) => daily.some((r) => r.v[k]));
+  const draw = (i) => {
+    const last = daily.at(-1)?.date || "";
+    const [unit, from] = [["day", daily.at(-30)?.date || "2020-01-01"], ["month", daily.at(-730)?.date || "2020-01-01"], ["year", "2020-01-01"]][i];
+    const bs = bucketize(daily, from, last, unit, keys);
+    const tot = bs.map((b) => keys.reduce((a, k) => a + (b.v[k] || 0), 0));
+    const cov = data.long?.coverage || {};
+    const miss = Object.entries(cov).filter(([, c]) => c.from > "2020-06-01").map(([k, c]) => `${exName(k)}(${c.from}부터)`);
+    body.replaceChildren(
+      stackedChart(bs, keys, { mode: "abs" }),
+      table(["구분", "거래대금", "비고"], [
+        ["가장 최근", won(tot.at(-1)) + " 원", bucketLabel(bs.at(-1)?.key || "")],
+        ["기간 평균", won(tot.reduce((a, b) => a + b, 0) / (tot.length || 1)) + " 원", `${bs.length}개 ${unit === "day" ? "일" : unit === "month" ? "월" : "연도"}`],
+        ["기간 최고", won(Math.max(...tot)) + " 원", bucketLabel(bs[tot.indexOf(Math.max(...tot))]?.key || "")]]),
+      note(`거래소별 거래대금을 쌓아 보여 줍니다. ${unit === "month" ? "월·연도 값은 일별 합계이며 이번 달·올해는 진행 중입니다. " : ""}과거 값은 각 거래소 일봉 API의 현재 상장 종목(상위) 합산 추정치입니다.${miss.length ? " 자료 시작: " + miss.join(", ") + "." : ""}`));
   };
-  const seg = tabs(SHARE_PERIODS.map((p) => p[1]), 0, (i) => {
+  const seg = tabs(["일별(30일)", "월별(24개월)", "연도별"], 0, (i) => { seg.querySelectorAll("[role=tab]").forEach((b, j) => { b.classList.toggle("on", j === i); b.setAttribute("aria-selected", String(j === i)); }); draw(i); }, "seg");
+  draw(0);
+  return card(only ? `${exName(only)} 거래대금 추이 (2020년~)` : "국내 거래대금 추이 (거래소별, 2020년~)", "bar-chart-3", h("div", { class: "stack" }, seg, body));
+}
+
+// ---------- 거래소 점유율(기간별) ----------
+const SHARE_UNITS = [["day", "일"], ["month", "월"], ["quarter", "분기"], ["half", "반기"], ["year", "연"], ["custom", "기간 설정"]];
+function sharePanel(daily, data) {
+  const dates = daily.map((x) => x.date);
+  const minD = dates[0] || "", maxD = dates.at(-1) || "";
+  const maxY = Number(maxD.slice(0, 4)) || new Date().getFullYear(), minY = Number(minD.slice(0, 4)) || maxY;
+  const lastM = Number(maxD.slice(5, 7)) || 1;
+  const sel = (opts, val) => { const e = h("select", null, opts.map(([v, l]) => h("option", { value: v }, l))); e.value = String(val); return e; };
+  const years = Array.from({ length: maxY - minY + 1 }, (_, i) => [maxY - i, `${maxY - i}년`]);
+  const yS = sel(years, maxY), mS = sel(Array.from({ length: 12 }, (_, i) => [i + 1, `${i + 1}월`]), lastM), qS = sel([1, 2, 3, 4].map((q) => [q, `${q}분기`]), Math.ceil(lastM / 3)), hS = sel([[1, "상반기"], [2, "하반기"]], lastM <= 6 ? 1 : 2);
+  const dI = h("input", { type: "date", min: minD, max: maxD, value: maxD }), fI = h("input", { type: "date", min: minD, max: maxD, value: minD }), tI = h("input", { type: "date", min: minD, max: maxD, value: maxD });
+  const ctrl = h("div", { class: "cr-range" });
+  const body = h("div", { class: "stack" });
+  let unit = "month";
+  const setCtrl = () => {
+    const parts = { day: [dI], month: [yS, mS], quarter: [yS, qS], half: [yS, hS], year: [yS], custom: [h("label", null, "시작 ", fI), h("label", null, "종료 ", tI)] }[unit];
+    ctrl.replaceChildren(...parts, h("span", { class: "note" }, `자료: ${minD} ~ ${maxD}`));
+  };
+  const draw = () => {
+    const y = Number(yS.value);
+    let r;
+    if (unit === "custom") { let f = fI.value || minD, t = tI.value || maxD; if (f > t) [f, t] = [t, f]; r = { from: f, to: t }; }
+    else r = periodRange(unit, y, Number({ month: mS, quarter: qS, half: hS }[unit]?.value || 1), dI.value);
+    const rows = daily.filter((x) => x.date >= r.from && x.date <= r.to);
+    if (!rows.length) { body.replaceChildren(note(`${r.from} ~ ${r.to} 기간에는 집계 자료가 없습니다(자료 ${minD} ~ ${maxD}).`)); return; }
+    const all = EXK.filter((k) => rows.some((x) => x.v[k]));
+    const incl = all.filter((k) => rows.filter((x) => x.v[k]).length >= rows.length * 0.6);
+    const excl = all.filter((k) => !incl.includes(k));
+    const sums = Object.fromEntries(incl.map((k) => [k, rows.reduce((a, x) => a + (x.v[k] || 0), 0)]));
+    const total = Object.values(sums).reduce((a, b) => a + b, 0);
+    const span = rows.length > 62 ? (rows.length > 1100 ? "quarter" : "month") : "day";
+    const bs = bucketize(daily, r.from, r.to, span, incl);
+    const ordered = [...incl].sort((a, b) => sums[b] - sums[a]);
+    const noCov = EXK.filter((k) => !all.includes(k));
+    body.replaceChildren(
+      note(`${rows[0].date} ~ ${rows.at(-1).date} 누계 (${rows.length}일)${rows.length < 3 && unit !== "day" ? " · 집계 일수가 적습니다." : ""}`),
+      h("div", { class: "cr-sharebar", role: "img", "aria-label": "거래소 점유율" }, ordered.map((k) => h("span", { style: { width: (total ? (sums[k] / total) * 100 : 0) + "%", background: EXCOLOR[k] }, title: `${exName(k)} ${pct(sums[k] / total)}` }, sums[k] / total >= 0.07 ? pct(sums[k] / total, 0) : ""))),
+      h("div", { class: "cr-grid2" },
+        h("div", { class: "stack" },
+          table(["거래소", "기간 거래대금", "점유율"], ordered.map((k) => [exName(k), won(sums[k]) + " 원", pct(sums[k] / total)]).concat([["합계", won(total) + " 원", "100%"]]))),
+        h("div", { class: "stack" }, h("b", { class: "note" }, `점유율 추이(${span === "day" ? "일별" : span === "month" ? "월별" : "분기별"})`), stackedChart(bs, ordered, { mode: "share", height: 200, width: innerWidth < 700 ? 360 : 480 }))),
+      excl.length || noCov.length ? note(`점유율은 해당 기간 자료가 있는 ${incl.map(exName).join("·")} 기준입니다.${[...excl, ...noCov].length ? " 자료가 부족해 제외: " + [...excl, ...noCov].map(exName).join(", ") + "." : ""}`) : null,
+      note("기간 거래대금 = 매일 거래대금(24시 마감 집계, 과거는 거래소 일봉 API 추정치)의 합. 빗썸·코빗은 과거 일봉 자료 범위가 짧거나 추정치입니다."));
+  };
+  const seg = tabs(SHARE_UNITS.map((u) => u[1]), 1, (i) => {
     seg.querySelectorAll("[role=tab]").forEach((b, j) => { b.classList.toggle("on", j === i); b.setAttribute("aria-selected", String(j === i)); });
-    draw(SHARE_PERIODS[i][0]);
+    unit = SHARE_UNITS[i][0]; setCtrl(); draw();
   }, "seg");
-  fromIn.addEventListener("change", () => cur === "custom" && draw("custom"));
-  toIn.addEventListener("change", () => cur === "custom" && draw("custom"));
-  draw("day");
-  return card("거래소 점유율 (기간별)", "building-2", h("div", { class: "stack" }, seg, rangeBox, body));
+  for (const el of [yS, mS, qS, hS, dI, fI, tI]) el.addEventListener("change", draw);
+  setCtrl(); draw();
+  return card("거래소 점유율 (월·분기·반기·연 선택, 2020년~)", "building-2", h("div", { class: "stack" }, seg, ctrl, body));
+}
+
+/** 기간 선택 추세선: 30일 · 1년 · 전체(월 평균). key: 일별 행의 필드(btc_dom, kimchi …) */
+function rangeTrend({ title, desc, daily, key, color, format, deltaText }) {
+  const body = h("div", { class: "stack" });
+  const draw = (i) => {
+    let rows = i === 0 ? daily.slice(-30) : i === 1 ? daily.slice(-365) : daily;
+    let labels, data;
+    if (i === 2) {
+      const m = new Map();
+      for (const r of rows) { const v = r[key]; if (v == null || !Number.isFinite(v)) continue; const k = r.date.slice(0, 7), b = m.get(k) || m.set(k, [0, 0]).get(k); b[0] += v; b[1]++; }
+      const ks = [...m.keys()].sort();
+      data = ks.map((k) => m.get(k)[0] / m.get(k)[1]); labels = ks.map((k) => k.slice(2).replace("-", "."));
+    } else { data = rows.map((r) => r[key]); labels = rows.map((r) => shortDate(r.date)); }
+    body.replaceChildren(trend({ title, desc, data, labels, color, format, deltaText, wide: true }));
+  };
+  const seg = tabs(["30일", "1년", "전체(월평균)"], 0, (i) => { seg.querySelectorAll("[role=tab]").forEach((b, j) => { b.classList.toggle("on", j === i); b.setAttribute("aria-selected", String(j === i)); }); draw(i); }, "seg");
+  draw(0);
+  return h("div", { class: "stack" }, seg, body);
 }
 
 // ---------- 시장 요약 ----------
@@ -342,23 +444,9 @@ function summary(root, data, goto, ctx) {
     kpi("BTC 도미넌스 · 국내 거래대금", pct(d.btc_dominance), `글로벌 거래대금 ${pct(g.btc_dom_volume)}`, 0, "국내 원화 거래대금 중 비트코인 거래의 비중."),
     kpi("BTC 도미넌스 · 국내 시가총액", pct(d.btc_dom_mcap), `글로벌 시가총액 ${pct(g.btc_dom_mcap)}`, 0, "국내 상장 코인들의 시가총액 합 중 비트코인 비중."),
     kpi("스테이블코인 거래 비중", pct(d.stable_share), null, 0, "국내 거래대금 중 USDT·USDC 등 달러 연동 코인의 비중.")));
-  const hist = data.history.slice(-30);
-  const palette = [COLORS[0], COLORS[1], COLORS[2], COLORS[3], COLORS[4]];
-  root.append(h("div", { class: "cr-grid2" },
-    card(`국내 거래대금 추이 (최근 ${hist.length}회 집계)`, "bar-chart-3", h("div", { class: "stack" },
-      barChart(hist.map((x) => x.total_value_24h), hist.map((x) => slotShort(x.date, x.slot))),
-      (() => {
-        const v = hist.map((x) => x.total_value_24h).filter((x) => x != null && Number.isFinite(x));
-        if (v.length < 2) return null;
-        const avg = v.reduce((a, b) => a + b, 0) / v.length, mx = Math.max(...v), mn = Math.min(...v);
-        return table(["구분", "거래대금", "비고"], [
-          ["이번 집계", won(v.at(-1)) + " 원", `평균 대비 ${pct(ratio(v.at(-1), avg), 1, true)}`],
-          ["기간 평균", won(avg) + " 원", `${v.length}회 집계`],
-          ["기간 최고", won(mx) + " 원", slotShort(hist[hist.findIndex((x) => x.total_value_24h === mx)]?.date, "")],
-          ["기간 최저", won(mn) + " 원", slotShort(hist[hist.findIndex((x) => x.total_value_24h === mn)]?.date, "")]]);
-      })(),
-      note("막대는 매일 24시 마감 기준 국내 5개 거래소 24시간 거래대금 합계입니다."))),
-    sharePanel(s, data.history, palette, prev)));
+  const daily = buildDaily(data);
+  root.append(volumeCard(daily, data));
+  root.append(sharePanel(daily, data));
   root.append(h("div", { class: "cr-grid2" },
     card("거래대금 상위 (5개 거래소 합산)", "trending-up", table(["종목", "등락", "거래대금"], (s.top || []).slice(0, 6).map((r) => [r.symbol, chg(r.change_rate), won(r.value_24h)]))),
     card("주요코인 시세 · 김프 (실시간)", "activity", h("div", { class: "stack" },
@@ -442,7 +530,7 @@ function exchangeView(root, data, params, ctx) {
   const cmp = EXCHANGES.filter(([k]) => s.exchange_majors?.[k]);
   if (cmp.length) root.append(card("거래소별 주요 코인 전일 거래금액 비교 (24시 마감, 원)", "scale", table(["코인", ...cmp.map((e) => e[1])], MAJORS.map((m) => [m, ...cmp.map(([k]) => won(s.exchange_majors[k][m]?.value_24h))]))));
   root.append(h("div", { class: "cr-grid2" },
-    card(`거래대금 추이 (최근 ${days.length}회 집계)`, "bar-chart-3", barChart(days.map((d) => d.value), days.map((d) => d.label))),
+    volumeCard(buildDaily(data), data, sel),
     card("상장 종목 수 추이 (원화마켓에서 거래되는 코인 수)", "activity", lineChart([{ name: "종목 수", color: COLORS[0], data: days.map((d) => d.markets) }], days.map((d) => d.label), { format: (v) => num(v) }))));
   root.append(card("BTC 가격 추이 (원화, 이 거래소 기준)", "trending-up", lineChart([{ name: "BTC", color: COLORS[0], data: days.map((d) => d.prices?.BTC) }], days.map((d) => d.label), { format: (v) => num(v / 1e4) + "만" })));
   const l = s.listings?.[sel];
@@ -471,13 +559,15 @@ function globalView(root, data) {
     kpi("국내 거래대금 / 글로벌", share, null, 0, "전 세계 거래대금 중 국내 원화거래소 5곳이 차지하는 비중(환율 환산). 국내 시장의 상대적 크기입니다.")));
   root.append(h("div", { class: "cr-sechead" }, h("h3", null, "비트코인이 시장에서 차지하는 비중 (BTC 도미넌스)"),
     h("p", { class: "cr-desc" }, "도미넌스 = 전체 가상자산 중 비트코인이 차지하는 비율입니다. 높을수록 비트코인에 쏠린 시장, 낮을수록 알트코인(비트코인 외 코인)에 관심이 퍼진 시장입니다. 네 가지 기준을 따로 보여 줍니다.")));
+  const daily = buildDaily(data);
   root.append(h("div", { class: "cr-trends" },
     trend({ title: "글로벌 · 시가총액 기준", desc: "전 세계 전체 가치 중 BTC 가치의 비중", data: hist.map((x) => x.btc_dom_global_mcap), labels, color: COLORS[1], format: (v) => pct(v), deltaText: ppDelta }),
     trend({ title: "글로벌 · 거래대금 기준", desc: "전 세계 거래대금 중 BTC 거래의 비중", data: hist.map((x) => x.btc_dom_global_volume), labels, color: "#4aa58f", format: (v) => pct(v), deltaText: ppDelta }),
     trend({ title: "국내 5개 거래소 · 시가총액 기준", desc: "국내 상장 코인들의 글로벌 시가총액 합 중 BTC 비중", data: hist.map((x) => x.btc_dominance_kr_mcap), labels, color: COLORS[3], format: (v) => pct(v), deltaText: ppDelta }),
-    trend({ title: "국내 5개 거래소 · 거래대금 기준", desc: "국내 원화 거래대금 중 BTC 거래의 비중. 글로벌보다 낮으면 국내는 알트코인 거래가 활발합니다.", data: hist.map((x) => x.btc_dominance_kr), labels, color: COLORS[0], format: (v) => pct(v), deltaText: ppDelta })));
-  root.append(h("div", { class: "cr-trends one" },
-    trend({ title: "김치 프리미엄 추이 — 국내 BTC가 해외보다 얼마나 비싼가", desc: "0% 위(빨강 쪽)는 국내가 비싼 때, 아래는 싼 때입니다. 보통 ±1~3% 안에서 움직이며 급등하면 국내 쏠림 신호로 봅니다.", data: hist.map((x) => x.kimchi_premium), labels, color: "#e5484d", format: (v) => pct(v, 1, true), deltaText: ppDelta, wide: true })));
+    ));
+  root.append(rangeTrend({ title: "국내 원화거래소 · 거래대금 기준 BTC 도미넌스 (2020년~)", desc: "국내 원화 거래대금 중 BTC 거래의 비중. 글로벌보다 낮으면 국내는 알트코인 거래가 활발합니다. 과거는 업비트·코인원 등 일봉 합산 추정입니다.", daily, key: "btc_dom", color: COLORS[0], format: (v) => pct(v), deltaText: ppDelta }));
+  root.append(note("글로벌 시가총액·거래대금 기준 도미넌스와 국내 시가총액 기준 도미넌스는 무료 과거 자료가 없어 집계를 시작한 날부터 쌓입니다."));
+  root.append(rangeTrend({ title: "김치 프리미엄 추이 — 국내 BTC가 해외보다 얼마나 비싼가 (2020년~)", desc: "0% 위(빨강 쪽)는 국내가 비싼 때, 아래는 싼 때입니다. 보통 ±1~3% 안에서 움직이며 급등하면 국내 쏠림 신호로 봅니다. 과거는 업비트 BTC 일봉÷(Coinbase BTC 일봉×당일 환율)입니다.", daily, key: "kimchi", color: "#e5484d", format: (v) => pct(v, 1, true), deltaText: ppDelta }));
   root.append(note(`출처: ${g.source || "CoinGecko"}(시가총액·거래대금), Coinbase Exchange(BTC 달러 가격). ${SRC_NOTE}`));
 }
 

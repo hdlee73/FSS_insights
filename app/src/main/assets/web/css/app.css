@@ -990,3 +990,6 @@ textarea.facts { width: 100%; padding: 10px; border: 1px solid var(--line); bord
 .cr-range { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; font-size: 13px; }
 .cr-range[hidden] { display: none; }
 .cr-range input { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: inherit; }
+.cr-sharebar { display: flex; height: 30px; border-radius: 8px; overflow: hidden; background: var(--chip); }
+.cr-sharebar span { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 700; min-width: 0; overflow: hidden; }
+.cr-range select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: inherit; }
