@@ -287,3 +287,13 @@ def test_clean_label_latin_roman_numerals():
     assert F._clean_label("III. 영업이익(손실)") == "영업이익(손실)"
     assert F._key_of("IV.영업외수익") is None
     assert F._key_of("I.영업수익") == "revenue"
+
+
+def test_audit_parser_scopes_statements_and_cleans_labels():
+    import build_exchange_fin as F
+    xml = ("<TITLE>재무상태표</TITLE><P>(단위 : 원)</P><TABLE><TR><TD>자산총계</TD><TD>10</TD><TD>9</TD></TR></TABLE>"
+           "<TITLE>손익계산서</TITLE><TABLE><TR><TD>I.영업수익</TD><TD>5</TD><TD>4</TD></TR><TR><TD>당기순이익</TD><TD>2</TD><TD>1</TD></TR></TABLE>"
+           "<TITLE>자본변동표</TITLE><TABLE><TR><TD>당기순이익</TD><TD>99</TD></TR></TABLE>")
+    r = F.parse_report_xml(xml)["별도"]
+    assert r["revenue"] == 5 and r["net_income"] == 2 and r["assets"] == 10
+    assert F.parse_audit_xml(xml)["revenue"] == 5
