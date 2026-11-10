@@ -62,7 +62,9 @@ def parse_api_accounts(rows: list[dict], cumulative: bool = False) -> dict[str, 
     for key, names in ACCOUNTS.items():
         for nm in names:
             for r in rows:
-                if re.sub(r"\s", "", r.get("account_nm", "")) == nm and r.get("sj_div") in ("BS", "IS", "CIS"):
+                label = re.sub(r"\s", "", r.get("account_nm", ""))
+                hit = label == nm or (key == "net_income" and nm == "당기순이익" and re.fullmatch(r"(연결)?(당기|반기|분기)순(이익|손익)(\(손실\))?", label))
+                if hit and r.get("sj_div") in ("BS", "IS", "CIS"):
                     # 분·반기 손익은 3개월분(thstrm_amount)과 누적(thstrm_add_amount)이 따로 있어 누적을 쓴다.
                     v = num(r.get("thstrm_add_amount")) if cumulative and r.get("sj_div") != "BS" else None
                     if v is None:
@@ -115,6 +117,8 @@ def fetch_report_api(session, key, corp, year, code="11011", period="연간"):
     for fs in ("CFS", "OFS"):
         d = get(session, "fnlttSinglAcntAll.json", crtfc_key=key, corp_code=corp, bsns_year=year,
                 reprt_code=code, fs_div=fs).json()
+        if d.get("status") != "000":
+            log.info("DART %s %s %s %s → %s %s", corp, year, code, fs, d.get("status"), d.get("message"))
         if d.get("status") == "000" and d.get("list"):
             v = parse_api_accounts(d["list"], cumulative=code != "11011")
             if any(x is not None for x in v.values()):
@@ -223,8 +227,6 @@ def main(argv=None) -> int:
                         log.warning("%s(%s) 감사보고서 실패: %s", name, code, e)
                         audits = {}
                     got = [dict(v, period="연간") for v in audits.values()]
-                if not got:
-                    continue
                 # 최근 분·반기(올해, 없으면 작년 것은 쓰지 않음): 연결·별도별로 가장 최근 것 하나씩
                 seen = set()
                 for rc, label in INTERIM:
@@ -235,6 +237,15 @@ def main(argv=None) -> int:
                                 got.append(r)
                     except Exception as e:
                         log.warning("%s(%s) %s %s 실패: %s", name, code, this_year, label, e)
+                if not got:  # 연간 자료가 없어도 분·반기 자료만 있으면(최근 공시 개시) 그것을 쓴다
+                    log.info("%s(%s): 재무 자료 없음", name, code)
+                    try:  # 어떤 공시가 있는지 기록(원인 파악용)
+                        d = get(s, "list.json", crtfc_key=key, corp_code=code, bgn_de=f"{this_year - 3}0101",
+                                end_de=f"{this_year}1231", page_count=100).json()
+                        log.info("%s(%s) 공시 목록: %s", name, code, [(i.get("rcept_dt"), i.get("report_nm")) for i in d.get("list") or []][:40])
+                    except Exception as e:
+                        log.warning("공시 목록 실패: %s", e)
+                    continue
                 chosen, rows = info, got
                 break
             if not chosen:
