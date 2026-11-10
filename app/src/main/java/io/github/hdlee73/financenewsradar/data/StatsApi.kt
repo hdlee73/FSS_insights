@@ -15,12 +15,14 @@ data class StatItem(
     val value: Double,
     val previous: Double?,
     /** ECOS 기준 시점: 20261007(일), 202609(월), 2026Q2(분기). */
-    val period: String
+    val period: String,
+    /** 서버가 정한 소수 자릿수(거시경제 지표). 없으면 단위에 따라 정한다. */
+    val digits: Int? = null
 ) {
     val change: Double? get() = previous?.let { value - it }
     val changePercent: Double? get() = previous?.takeIf { it != 0.0 }?.let { (value - it) / kotlin.math.abs(it) * 100 }
     val isRate: Boolean get() = unit == "%"
-    val group: String get() = STAT_CATALOG.firstOrNull { it.id == id }?.group ?: "기타"
+    val group: String get() = (STAT_CATALOG + MACRO_CATALOG).firstOrNull { it.id == id }?.group ?: "기타"
 }
 
 /** 고를 수 있는 국내 금융 통계 하나. id는 서버(worker.js)의 STAT_SPECS와 같아야 한다. */
@@ -52,6 +54,22 @@ val STAT_CATALOG: List<StatDef> = listOf(
     StatDef("bank-delinquency-corp", "은행 기업대출 연체율", "가계·은행 건전성"),
     StatDef("fx-reserves", "외환보유액", "대외")
 )
+
+/** 거시경제 지표 후보(한국은행 ECOS). id는 서버(worker.js)의 STAT_SPECS와 같아야 한다. 앞의 4개가 기본 표시. */
+val MACRO_CATALOG: List<StatDef> = listOf(
+    StatDef("gdp-growth", "실질GDP 성장률(전기 대비)", "성장·생산"),
+    StatDef("exports-sa", "상품수출(계절조정)", "성장·생산"),
+    StatDef("cpi-yoy", "소비자물가 상승률(전년동월비)", "물가"),
+    StatDef("ppi-yoy", "생산자물가 상승률(전년동월비)", "물가"),
+    StatDef("unemployment", "실업률", "고용"),
+    StatDef("employment-rate", "고용률", "고용"),
+    StatDef("employed", "취업자 수", "고용"),
+    StatDef("current-account", "경상수지", "대외"),
+    StatDef("usdkrw", "원/달러 환율(매매기준율)", "대외")
+)
+
+/** 처음 설치했을 때 거시경제 지표 칸에 보이는 4개. */
+val DEFAULT_MACRO: List<String> = listOf("gdp-growth", "cpi-yoy", "unemployment", "current-account")
 
 /** 처음 설치했을 때 시장동향 탭에 보이는 통계. */
 val DEFAULT_MARKET_STATS: List<String> =
@@ -88,7 +106,8 @@ internal fun parseStats(body: String): List<StatItem> {
             unit = o.optString("unit"),
             value = value,
             previous = o.optDouble("previous", Double.NaN).takeIf { p -> p.isFinite() },
-            period = o.optString("period")
+            period = o.optString("period"),
+            digits = if (o.has("digits")) o.optInt("digits") else null
         )
     }
 }

@@ -88,6 +88,8 @@ import io.github.hdlee73.financenewsradar.data.PriceHistory
 import io.github.hdlee73.financenewsradar.data.Quote
 import io.github.hdlee73.financenewsradar.data.DEFAULT_BRIEFING_STATS
 import io.github.hdlee73.financenewsradar.data.DEFAULT_MARKET_STATS
+import io.github.hdlee73.financenewsradar.data.DEFAULT_MACRO
+import io.github.hdlee73.financenewsradar.data.MACRO_CATALOG
 import io.github.hdlee73.financenewsradar.data.STAT_CATALOG
 import io.github.hdlee73.financenewsradar.data.StatSelection
 import io.github.hdlee73.financenewsradar.data.StatItem
@@ -140,6 +142,12 @@ data class MarketUiState(
     val statsReasons: Map<String, String> = emptyMap(),
     /** 통계를 받는 중(선택을 바꾼 직후 포함). */
     val statsLoading: Boolean = false,
+    /** 거시경제 지표(한국은행 ECOS, 서버 /stats)와 사용자가 고른 지표 id. */
+    val macro: List<StatItem> = emptyList(),
+    val macroSelection: Set<String> = DEFAULT_MACRO.toSet(),
+    val macroMissing: Set<String> = emptySet(),
+    val macroReasons: Map<String, String> = emptyMap(),
+    val macroLoading: Boolean = false,
     /** 금융투자협회 자본시장 통계(펀드·자금동향). */
     val kofia: List<KofiaGroup> = emptyList(),
     val kofiaLoading: Boolean = false,
@@ -159,7 +167,9 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     private var statsLoadedAt = 0L
     /** 통계 요청 번호. 선택을 바꾼 뒤 늦게 도착한 이전 요청의 응답이 새 결과를 덮어쓰지 않게 한다. */
     private var statsRequest = 0
-    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection(), kofiaHidden = store.loadKofiaHidden(), watchIntraday = store.loadWatchIntraday(), indexIntraday = store.loadIndexIntraday()))
+    private var macroLoadedAt = 0L
+    private var macroRequest = 0
+    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection(), macroSelection = store.loadMacroSelection(), kofiaHidden = store.loadKofiaHidden(), watchIntraday = store.loadWatchIntraday(), indexIntraday = store.loadIndexIntraday()))
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
     private var refreshJob: Job? = null
     private val chartFailedAt = HashMap<String, Long>()
@@ -216,6 +226,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
             loadIntraday()
             loadCharts()
             loadStats()
+            loadMacro()
             loadKofia()
         }
     }
@@ -238,6 +249,32 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
                 _state.update { it.copy(stats = result.items.ifEmpty { it.stats }, statsMissing = result.missing, statsReasons = result.reasons, statsLoading = false) }
             }
             .onFailure { if (request == statsRequest) { statsLoadedAt = 0L; _state.update { it.copy(statsLoading = false) } } }
+    }
+
+    /** 거시경제 지표는 월·분기 자료가 중심이라 30분에 한 번만 받는다. [force]면 선택을 바꾼 직후처럼 바로 다시 받는다. */
+    private suspend fun loadMacro(force: Boolean = false) {
+        if (!force && System.currentTimeMillis() - macroLoadedAt < 1_800_000) return
+        macroLoadedAt = System.currentTimeMillis()
+        val request = ++macroRequest
+        val ids = MACRO_CATALOG.map { it.id }.filter { it in _state.value.macroSelection }
+        if (ids.isEmpty()) { _state.update { it.copy(macroLoading = false) }; return }
+        _state.update { it.copy(macroLoading = true) }
+        runCatching { statsApi.load(ids) }
+            .onSuccess { result ->
+                if (request != macroRequest) return@onSuccess
+                // 서버가 아직 거시경제 지표를 모르면 기본 통계 묶음을 돌려주므로, 요청한 id만 남긴다.
+                val items = result.items.filter { it.id in ids }
+                if (items.isEmpty()) macroLoadedAt = 0L
+                _state.update { it.copy(macro = items.ifEmpty { it.macro }, macroMissing = result.missing, macroReasons = result.reasons, macroLoading = false) }
+            }
+            .onFailure { if (request == macroRequest) { macroLoadedAt = 0L; _state.update { it.copy(macroLoading = false) } } }
+    }
+
+    /** 거시경제 지표 선택을 저장하고 바로 다시 받아 온다. */
+    fun setMacroSelection(ids: Set<String>) {
+        store.saveMacroSelection(ids)
+        _state.update { it.copy(macroSelection = ids) }
+        viewModelScope.launch { loadMacro(force = true) }
     }
 
     /** 자본시장 통계(펀드·자금동향)는 일 단위 자료라 10분에 한 번만 받는다. */
@@ -424,6 +461,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
     var indexPicking by remember { mutableStateOf(false) }
     var statPicking by remember { mutableStateOf(false) }
     var kofiaPicking by remember { mutableStateOf(false) }
+    var macroPicking by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     // 화면이 보이는 동안만 갱신한다(탭을 벗어나면 중단): 지수 10초, 전체 20초.
@@ -442,7 +480,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
         item {
             // 목록의 좌우 여백(12dp)을 넘어 화면 전체 폭으로 그린다.
             LargeTitle(
-                "금융시장 동향", subtitle = "지수·환율·금리·원자재를 한눈에",
+                "금융시장 동향 및 거시경제 지표", subtitle = "지수·환율·금리·거시경제 지표를 한눈에",
                 modifier = Modifier.layout { measurable, constraints ->
                     val extra = 24.dp.roundToPx()
                     val placeable = measurable.measure(constraints.copy(minWidth = constraints.maxWidth + extra, maxWidth = constraints.maxWidth + extra))
@@ -477,6 +515,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
             )
         }
         item { StatsPanel(state, state.statSelection.market) { statPicking = true } }
+        item { MacroPanel(state) { macroPicking = true } }
         item { CapitalMarketPanel(state.kofia, state.kofiaHidden, state.kofiaLoading, state.kofiaFailed) { kofiaPicking = true } }
         item {
             Text(
@@ -503,6 +542,9 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
     }
     if (statPicking) {
         StatPickerDialog(state.statSelection, onDismiss = { statPicking = false }) { viewModel.setStatSelection(it); statPicking = false }
+    }
+    if (macroPicking) {
+        MacroPickerDialog(state.macroSelection, onDismiss = { macroPicking = false }) { viewModel.setMacroSelection(it); macroPicking = false }
     }
     if (kofiaPicking) {
         KofiaPickerDialog(state.kofia, state.kofiaHidden, onDismiss = { kofiaPicking = false }) { viewModel.setKofiaHidden(it); kofiaPicking = false }
@@ -654,13 +696,13 @@ private fun IndexTile(
 }
 
 internal fun statText(item: StatItem, value: Double): String {
-    val digits = if (item.isRate) 2 else if (item.unit == "조원") 1 else if (kotlin.math.abs(value) >= 1000) 0 else 1
+    val digits = item.digits ?: if (item.isRate) 2 else if (item.unit == "조원") 1 else if (kotlin.math.abs(value) >= 1000) 0 else 1
     return grouped(value, digits) + (if (item.isRate) "%" else if (item.unit.isNotBlank()) " ${item.unit}" else "")
 }
 
 internal fun statDelta(item: StatItem): String? {
     val change = item.change ?: return null
-    val digits = if (item.isRate) 2 else if (item.unit == "조원") 2 else if (kotlin.math.abs(item.value) >= 1000) 0 else 1
+    val digits = item.digits ?: if (item.isRate) 2 else if (item.unit == "조원") 2 else if (kotlin.math.abs(item.value) >= 1000) 0 else 1
     val percent = if (item.isRate) "" else item.changePercent?.let { " (${signed(it, 2, "%")})" }.orEmpty()
     // 금리는 %p 차이를 그대로 보여 준다.
     return signed(change, digits) + (if (item.isRate) "%p" else "") + percent
@@ -673,7 +715,7 @@ private fun StatsPanel(state: MarketUiState, selected: Set<String>, onPick: () -
     // 고른 통계인데 서버 응답에 없는 것: 조용히 빼지 않고 이름을 알려 준다.
     val absent = STAT_CATALOG.filter { it.id in selected && state.stats.none { s -> s.id == it.id } }
     Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-        SubHeading("국내 금융 통계") { SoftButton(onClick = onPick) { Text("통계 선택", fontSize = 12.sp) } }
+        SubHeading("국내 금융 통계(한국은행 ECOS)") { SoftButton(onClick = onPick) { Text("통계 선택", fontSize = 12.sp) } }
         val shape = RoundedCornerShape(10.dp)
         if (visible.isEmpty()) {
             Text(
@@ -718,6 +760,90 @@ private fun StatsPanel(state: MarketUiState, selected: Set<String>, onPick: () -
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+/** 거시경제 지표(한국은행 ECOS): 국내 금융 통계와 같은 모양으로, 고른 지표를 구분별로 보여 준다. */
+@Composable
+private fun MacroPanel(state: MarketUiState, onPick: () -> Unit) {
+    val selected = state.macroSelection
+    val visible = MACRO_CATALOG.mapNotNull { def -> state.macro.firstOrNull { it.id == def.id && def.id in selected } }
+    val absent = MACRO_CATALOG.filter { it.id in selected && state.macro.none { s -> s.id == it.id } }
+    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+        SubHeading("거시경제 지표(한국은행 ECOS)") { SoftButton(onClick = onPick) { Text("지표 선택", fontSize = 12.sp) } }
+        val shape = RoundedCornerShape(10.dp)
+        if (visible.isEmpty()) {
+            Text(
+                if (selected.isEmpty()) "표시할 지표가 없습니다. 오른쪽 위 '지표 선택'에서 고르세요." else if (state.macroLoading) "거시경제 지표를 불러오는 중입니다…" else "거시경제 지표를 받지 못했습니다. 서버 업데이트 전이거나 한국은행 ECOS 응답이 없을 수 있습니다.",
+                Modifier.fillMaxWidth().border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape).padding(12.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else Column(Modifier.fillMaxWidth().border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape).clip(shape)) {
+            visible.groupBy { it.group }.entries
+                .sortedBy { e -> MACRO_CATALOG.indexOfFirst { it.group == e.key }.let { if (it < 0) Int.MAX_VALUE else it } }
+                .forEach { (group, rows) ->
+                    Text(
+                        group,
+                        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    rows.chunked(2).forEachIndexed { row, pair ->
+                        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                            pair.forEachIndexed { col, item ->
+                                if (col > 0) VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                StatCell(item, Modifier.weight(1f))
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                        if (row < (rows.size - 1) / 2) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+        }
+        if (absent.isNotEmpty() && !state.macroLoading && state.macro.isNotEmpty()) {
+            Text(
+                "받지 못한 지표: " + absent.joinToString("; ") { d -> d.name + (state.macroReasons[d.id]?.let { " [$it]" } ?: "") },
+                Modifier.padding(start = 2.dp, top = 6.dp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.error
+            )
+        }
+        Text(
+            "한국은행 ECOS 기준. 분기·월 지표는 발표 주기에 따라 갱신되며 직전 관측값 대비 변화를 보입니다. 물가 상승률은 전년동월비, 성장률은 전기비입니다.",
+            Modifier.padding(start = 2.dp, top = 6.dp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** 거시경제 지표 선택: 지표마다 체크해 보일 것을 고른다(추가·삭제). */
+@Composable
+private fun MacroPickerDialog(current: Set<String>, onDismiss: () -> Unit, onSave: (Set<String>) -> Unit) {
+    var selected by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("표시할 거시경제 지표 선택") },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 460.dp)) {
+                MACRO_CATALOG.groupBy { it.group }.forEach { (group, defs) ->
+                    item(key = "g-$group") {
+                        Text(group, Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                    items(defs, key = { it.id }) { def ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(def.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Checkbox(def.id in selected, { selected = if (def.id in selected) selected - def.id else selected + def.id })
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(selected) }) { Text("저장") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { selected = DEFAULT_MACRO.toSet() }) { Text("기본값") }
+                TextButton(onClick = onDismiss) { Text("취소") }
+            }
+        }
+    )
 }
 
 @Composable
