@@ -730,7 +730,7 @@ body.collapsed .sec.folded .mi { display: flex; }
 @media (max-width: 860px) { .skel-tiles { grid-template-columns: 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { .skel { animation: none; } #fresh-btn.busy .i { animation: none; } }
 
-/* ---- 오늘의 금융감독 브리핑 카드 ---- */
+/* ---- 최신 주요 이슈 카드 ---- */
 .br-digest { margin-top: 16px; border-left: 4px solid var(--acc); }
 .br-digest .ch { margin-bottom: 6px; }
 .dg-tag { margin-left: 2px; padding: 1px 8px; border-radius: 999px; background: var(--acc-soft); color: var(--acc-fg); font-size: 11px; font-weight: 600; }
@@ -738,6 +738,15 @@ body.collapsed .sec.folded .mi { display: flex; }
 .dg-lines li { display: flex; gap: 10px; align-items: flex-start; line-height: 1.55; }
 .dg-lines li > .i { width: 17px; height: 17px; color: var(--acc); margin-top: 3px; flex: none; }
 .dg-lines a { color: var(--acc-fg); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; text-decoration-color: #1f6feb55; }
+.dg-ai { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--acc-soft); }
+.dg-ai b { font-size: 12px; color: var(--acc-fg); }
+.dg-ai ul { margin: 4px 0 0; padding-left: 18px; line-height: 1.55; }
+.dg-words { margin: 0 0 10px; }
+.dg-words small { color: var(--muted); font-size: 11.5px; }
+.dg-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.dg-chip { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line, #d0d7de); font-size: 13px; text-decoration: none; color: var(--acc-fg); }
+.dg-chip em { font-style: normal; font-size: 11px; color: var(--muted); }
+.dg-sched { margin-bottom: 9px; }
 .dg-foot { margin: 10px 0 0; font-size: 11.5px; }
 .dg-wait { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
 

@@ -44,7 +44,7 @@ async function loadAll() {
   ]);
   // 집계는 매일 24:00 한 번. 예전(12시 포함) 기록은 그래프가 들쭉날쭉해지므로 24시 마감 기록만 쓴다.
   const daily = (Array.isArray(history) ? history : []).filter((x) => x.slot !== "1200");
-  return { snapshot, history: daily, reports: Array.isArray(reports) ? reports : [], coins, fin, long };
+  return { snapshot, history: daily, reports: (Array.isArray(reports) ? reports : []).filter((r) => r.slot !== "1200"), coins, fin, long };
 }
 
 // ---------- 서식 ----------
