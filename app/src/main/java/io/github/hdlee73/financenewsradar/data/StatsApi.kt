@@ -57,14 +57,29 @@ val STAT_CATALOG: List<StatDef> = listOf(
 
 /** 거시경제 지표 후보(한국은행 ECOS). id는 서버(worker.js)의 STAT_SPECS와 같아야 한다. 앞의 4개가 기본 표시. */
 val MACRO_CATALOG: List<StatDef> = listOf(
-    StatDef("gdp-growth", "실질GDP 성장률(전기 대비)", "성장·생산"),
-    StatDef("exports-sa", "상품수출(계절조정)", "성장·생산"),
+    StatDef("gdp-growth", "실질GDP 성장률(전기 대비)", "성장·소득"),
+    StatDef("consumption-growth", "민간소비 증감률(전기 대비)", "성장·소득"),
+    StatDef("facility-growth", "설비투자 증감률(전기 대비)", "성장·소득"),
+    StatDef("gni-growth", "실질 GNI 증감률(전기 대비)", "성장·소득"),
     StatDef("cpi-yoy", "소비자물가 상승률(전년동월비)", "물가"),
+    StatDef("core-cpi-yoy", "근원물가 상승률(농산물·석유류 제외)", "물가"),
+    StatDef("living-cpi-yoy", "생활물가 상승률(전년동월비)", "물가"),
     StatDef("ppi-yoy", "생산자물가 상승률(전년동월비)", "물가"),
-    StatDef("unemployment", "실업률", "고용"),
-    StatDef("employment-rate", "고용률", "고용"),
-    StatDef("employed", "취업자 수", "고용"),
+    StatDef("unemployment", "실업률", "고용·인구"),
+    StatDef("employment-rate", "고용률", "고용·인구"),
+    StatDef("employed", "취업자 수", "고용·인구"),
+    StatDef("labor-participation", "경제활동참가율", "고용·인구"),
+    StatDef("production-yoy", "전산업생산 증감률(전년동월비)", "생산·투자·소비"),
+    StatDef("retail-yoy", "소매판매 증감률(불변, 전년동월비)", "생산·투자·소비"),
+    StatDef("facility-index-yoy", "설비투자지수 증감률(전년동월비)", "생산·투자·소비"),
+    StatDef("utilization", "제조업 평균가동률", "생산·투자·소비"),
+    StatDef("ccsi", "소비자심리지수", "경기·심리"),
+    StatDef("esi", "경제심리지수", "경기·심리"),
+    StatDef("bsi", "기업경기실사지수(전산업 업황실적)", "경기·심리"),
+    StatDef("leading-index", "선행지수 순환변동치", "경기·심리"),
     StatDef("current-account", "경상수지", "대외"),
+    StatDef("exports-sa", "상품수출(계절조정)", "대외"),
+    StatDef("imports-sa", "상품수입(FOB)", "대외"),
     StatDef("usdkrw", "원/달러 환율(매매기준율)", "대외")
 )
 
