@@ -83,7 +83,7 @@ fun SimulatorScreen(modifier: Modifier = Modifier, vm: SimulatorViewModel = view
     if (showSaved) SavedDialog(st.saved, onOpen = { vm.open(it); showSaved = false }, onDelete = { vm.delete(it.id) }, onDismiss = { showSaved = false })
 
     LazyColumn(modifier, contentPadding = PaddingValues(horizontal = SCREEN_SIDE_PADDING), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item { ScreenTitle("과징금·양정 시뮬레이터", "외감규정·시행세칙 양정기준 적용 모의계산 (참고용)") }
+        item { ScreenTitle("(베타) 회계 양정 및 과징금 시뮬레이터", "외감규정·시행세칙 양정기준 적용 모의계산 (참고용)") }
 
         // ── 저장·불러오기
         item {

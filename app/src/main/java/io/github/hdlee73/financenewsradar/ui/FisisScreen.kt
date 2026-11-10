@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -238,7 +239,7 @@ private fun CompanyList(state: FisisUiState, viewModel: FisisViewModel) {
     }
     val shown = remember(sorted, query) { sorted.filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) } }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ScrollRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FISIS_SECTORS.forEach { s -> PillChip(s.label, onClick = { query = ""; viewModel.selectSector(s.code) }, selected = s.code == sector.code) }
         }
         SearchPill(
@@ -313,7 +314,7 @@ private fun PeriodPicker(months: List<String>, selected: String?, term: String, 
     if (months.isEmpty()) return
     Column {
         Text("시점 선택(${fisisTermLabel(term).ifBlank { "기준" }})", Modifier.padding(start = 20.dp, top = 10.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ScrollRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             months.forEach { m -> PillChip(fisisMonthLabel(m), onClick = { onSelect(m) }, selected = m == (selected ?: months.first()), onPanel = true) }
         }
     }

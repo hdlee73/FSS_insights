@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -578,7 +579,7 @@ private fun StockCard(corp: DartCorp, state: DartUiState, viewModel: DartViewMod
                     s.closes.takeLast(count).takeIf { it.size >= 2 }?.let { "시작 ${dateText(STOCK_START[period]())} · ${grouped(it.first())}" }
                 }
                 if (startText != null) Text(startText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ScrollRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     STOCK_PERIODS.forEachIndexed { i, (name, _) -> PillChip(name, onClick = { period = i }, selected = i == period, onPanel = true) }
                 }
                 val slice = s.closes.takeLast(count)
@@ -911,7 +912,7 @@ private val PERIOD_LABELS = listOf("1년", "3년", "5년", "기간선택")
 @Composable
 private fun PeriodBar(period: DartPeriod, onChange: (DartPeriod) -> Unit) {
     var dialog by rememberSaveable { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    ScrollRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         PERIOD_LABELS.forEachIndexed { i, label ->
             val text = if (i == 3 && period.index == 3) "${period.fromYm / 100}.${String.format(Locale.US, "%02d", period.fromYm % 100)}~${period.toYm / 100}.${String.format(Locale.US, "%02d", period.toYm % 100)}" else label
             PillChip(text, onClick = { if (i == 3) dialog = true else onChange(period.copy(index = i)) }, selected = i == period.index, onPanel = true)

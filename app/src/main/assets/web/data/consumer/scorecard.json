@@ -1,0 +1,16 @@
+{
+  "asOf": null,
+  "sources": [
+    { "t": "금융소비자보호 실태평가 결과 (금융감독원 파인)", "u": "https://fine.fss.or.kr/fine/bbs/B0000219/list.do?menuNo=900511" },
+    { "t": "금융소비자경보 발령내역 (금융감독원 파인)", "u": "https://fine.fss.or.kr/fine/bbs/B0000175/list.do?menuNo=900512" },
+    { "t": "금융소비자보호 업무 동향 (금융감독원 파인)", "u": "https://fine.fss.or.kr/fine/bbs/B0000346/list.do?menuNo=900211" }
+  ],
+  "evaluations": [
+    { "year": 2025, "title": "2025년도 금융소비자보호 실태평가 결과", "date": "2025-12-19", "u": "https://fine.fss.or.kr/fine/bbs/B0000219/view.do?nttId=208257&menuNo=900511&pageIndex=1" },
+    { "year": 2024, "title": "2024년도 금융소비자보호 실태평가 결과", "date": "2025-01-02", "u": "https://fine.fss.or.kr/fine/bbs/B0000219/view.do?nttId=189466&menuNo=900511&pageIndex=1" },
+    { "year": 2023, "title": "2023년도 금융소비자보호 실태평가 결과", "date": "2023-11-22", "u": "https://fine.fss.or.kr/fine/bbs/B0000219/view.do?nttId=131627&menuNo=900511&pageIndex=1" },
+    { "year": 2022, "title": "2022년도 금융소비자보호 실태평가 결과", "date": "2022-12-27", "u": "https://fine.fss.or.kr/fine/bbs/B0000219/view.do?nttId=57733&menuNo=900511&pageIndex=1" },
+    { "year": 2021, "title": "2021년 금융소비자보호 실태평가 결과", "date": "2022-01-07", "u": "https://fine.fss.or.kr/fine/bbs/B0000219/view.do?nttId=19338&menuNo=900511&pageIndex=1" }
+  ],
+  "companies": []
+}

@@ -1,6 +1,10 @@
 package io.github.hdlee73.financenewsradar.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.LocalContentColor
@@ -186,8 +190,9 @@ fun UnderlineTabs(labels: List<String>, selectedIndex: Int, onSelect: (Int) -> U
     val active = MaterialTheme.colorScheme.onBackground
     val inactive = MaterialTheme.colorScheme.onSurfaceVariant
     Column(modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+        ScrollRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(22.dp)
         ) {
             labels.forEachIndexed { index, label ->
@@ -362,5 +367,46 @@ fun BoxScope.ScrollToTopButton(
         ) {
             Icon(Icons.Default.VerticalAlignTop, contentDescription = "맨 위로 이동")
         }
+    }
+}
+
+/**
+ * 가로로 넘기는 탭·칩 줄. 화면 폭보다 길어 오른쪽에 가려진 항목이 있으면 »(왼쪽은 «) 표시를 겹쳐 보여 주고,
+ * 누르면 그쪽으로 밀어 준다(스와이프도 그대로 된다).
+ */
+@Composable
+fun ScrollRow(
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+    verticalAlignment: Alignment.Vertical = Alignment.Top,
+    content: @Composable RowScope.() -> Unit
+) {
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    Box(modifier) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(scroll).padding(contentPadding),
+            horizontalArrangement = horizontalArrangement,
+            verticalAlignment = verticalAlignment,
+            content = content
+        )
+        @Composable
+        fun arrow(text: String, label: String, align: Alignment, dir: Int) {
+            Surface(
+                modifier = Modifier.align(align).padding(horizontal = 4.dp).size(28.dp)
+                    .shadow(3.dp, CircleShape)
+                    .clickable(onClickLabel = label) { scope.launch { scroll.animateScrollBy(dir * 480f) } }
+                    .semantics { contentDescription = label },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(text, color = AppColors.accent, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+        if (scroll.canScrollForward) arrow("»", "오른쪽에 항목이 더 있습니다. 누르면 더 보기", Alignment.CenterEnd, 1)
+        if (scroll.canScrollBackward) arrow("«", "왼쪽으로 돌아가기", Alignment.CenterStart, -1)
     }
 }
