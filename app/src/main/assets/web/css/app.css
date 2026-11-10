@@ -987,3 +987,9 @@ textarea.facts { width: 100%; padding: 10px; border: 1px solid var(--line); bord
 .cr-picks { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px 14px; }
 .cr-pick { display: flex; align-items: center; gap: 6px; font-size: 14px; }
 @media (max-width: 560px) { .cr-kpis { grid-template-columns: 1fr 1fr; } }
+.cr-range { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; font-size: 13px; }
+.cr-range[hidden] { display: none; }
+.cr-range input { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: inherit; }
+.cr-sharebar { display: flex; height: 30px; border-radius: 8px; overflow: hidden; background: var(--chip); }
+.cr-sharebar span { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 700; min-width: 0; overflow: hidden; }
+.cr-range select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: inherit; }

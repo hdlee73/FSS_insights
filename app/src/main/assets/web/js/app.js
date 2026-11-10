@@ -57,15 +57,35 @@ async function render() {
   }
   if (seq !== renderSeq) return;
   const root = h("div", { class: "screen screen-" + id });
+  main.dataset.route = id; // 화면별 여백·스크롤 규칙(index.html)에 쓴다. :has()를 못 쓰는 WebView에서도 동작한다.
   main.replaceChildren(root);
   main.scrollTop = 0;
   currentScreen = mod;
   try {
     await mod.render(root, params, { id, go: (p, opts) => go(id, p, opts), alive: () => seq === renderSeq });
+    checkVisible(seq);
   } catch (e) {
     console.error(e);
     if (seq === renderSeq) root.replaceChildren(h("div", { class: "state err" }, "화면 오류: " + (e.message || e)));
   }
+}
+
+/** 본문이 비어 보이는 문제를 숨기지 않는다: 오류는 화면에 글로 보여 주고 앱의 오류 기록(콘솔)에도 남긴다. */
+function showFatal(msg) {
+  console.error("[embedded] " + msg);
+  if (main.querySelector(".state.err")) return;
+  main.append(h("div", { class: "state err" }, "화면 오류: " + msg));
+}
+addEventListener("error", (e) => showFatal(e.message || "알 수 없는 오류"));
+addEventListener("unhandledrejection", (e) => showFatal(String((e.reason && e.reason.message) || e.reason || "알 수 없는 오류")));
+/** 그린 뒤에도 본문 높이가 0이면(레이아웃 실패) 크기 정보와 함께 알려 준다. */
+function checkVisible(seq) {
+  setTimeout(() => {
+    if (seq !== renderSeq) return;
+    const r = main.getBoundingClientRect();
+    const k = main.firstElementChild?.getBoundingClientRect();
+    if (r.height < 40 || !k || k.height < 40) showFatal(`본문 크기 이상(content ${Math.round(r.width)}x${Math.round(r.height)}, screen ${k ? Math.round(k.width) + "x" + Math.round(k.height) : "없음"})`);
+  }, 1500);
 }
 
 addEventListener("hashchange", render);
