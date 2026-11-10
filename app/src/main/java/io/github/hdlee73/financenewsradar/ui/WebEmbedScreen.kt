@@ -151,6 +151,19 @@ fun WebEmbedScreen(route: String, modifier: Modifier = Modifier, backEnabled: Bo
                             cacheMode = WebSettings.LOAD_DEFAULT
                         }
                         overScrollMode = android.view.View.OVER_SCROLL_NEVER
+                        // 일부 기기(폴드·태블릿)에서 WebView가 처음 잰 작은 높이에 문서의 100% 높이가 묶여 본문이 잘려 보이는 일이 있어,
+                        // 실제 뷰 크기를 CSS 변수(--app-h/--app-w)로 직접 넘겨 화면이 항상 뷰 크기를 따르게 한다.
+                        addOnLayoutChangeListener { v, l, t, r, b, _, _, _, _ ->
+                            val d = v.resources.displayMetrics.density
+                            val h = ((b - t) / d).toInt()
+                            val w = ((r - l) / d).toInt()
+                            if (h > 0 && w > 0) {
+                                (v as WebView).evaluateJavascript(
+                                    "(function(){var e=document.documentElement;e.style.setProperty('--app-h','${h}px');e.style.setProperty('--app-w','${w}px');dispatchEvent(new Event('resize'));})()",
+                                    null
+                                )
+                            }
+                        }
                         addJavascriptInterface(bridge, "FssNative")
                         webViewClient = object : WebViewClient() {
                             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
@@ -160,6 +173,11 @@ fun WebEmbedScreen(route: String, modifier: Modifier = Modifier, backEnabled: Bo
                                 if (request.url.host == ASSET_HOST) return false
                                 openWebLink(ctx, request.url.toString())
                                 return true
+                            }
+
+                            override fun onPageFinished(view: WebView, url: String?) {
+                                // 처음 그릴 때도 현재 뷰 크기를 한 번 더 넘긴다(레이아웃 변경 알림보다 늦게 로드되는 경우 대비).
+                                view.requestLayout()
                             }
 
                             override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {

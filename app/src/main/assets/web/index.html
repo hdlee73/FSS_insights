@@ -7,9 +7,9 @@
   <link rel="stylesheet" href="css/app.css">
   <style>
     /* 앱 안에 내장된 화면: 왼쪽 메뉴·뒤로가기는 앱이 맡고, 여기서는 제목줄과 본문만 그린다. */
-    html, body { height: 100%; }
+    html, body { height: var(--app-h, 100%); }
     body { display: block; overflow: hidden; -webkit-tap-highlight-color: transparent; }
-    .main { height: 100%; }
+    .main { height: var(--app-h, 100%); }
     .top .hamb { display: none !important; }
     .top { padding-top: 8px; padding-bottom: 8px; }
     .content { padding: 14px 14px 28px; overscroll-behavior: contain; display: flex; flex-direction: column; min-height: 0; }
