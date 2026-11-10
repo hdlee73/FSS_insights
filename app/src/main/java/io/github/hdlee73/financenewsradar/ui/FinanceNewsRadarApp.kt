@@ -43,6 +43,8 @@ import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.BusinessCenter
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.CurrencyBitcoin
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import io.github.hdlee73.financenewsradar.accounting.AccountingViewModel
 import io.github.hdlee73.financenewsradar.accounting.ui.screens.AuditScreen
 import io.github.hdlee73.financenewsradar.accounting.ui.screens.DisclosureScreen
@@ -167,8 +169,11 @@ private fun sectionIcon(title: String) = when (title) {
     "금융회사 현황 및 검사" -> Icons.Filled.AccountBalance
     "기업공시 및 회계" -> Icons.Filled.BusinessCenter
     "금융관련 자료" -> Icons.Filled.LibraryBooks
+    FAV_TITLE -> Icons.Filled.Star
     else -> Icons.Filled.MoreHoriz
 }
+
+private const val FAV_TITLE = "즐겨찾기"
 
 private class DrawerSection(val title: String?, val ids: List<Int>)
 
@@ -190,6 +195,20 @@ private object MenuFolds {
 
     fun save(context: android.content.Context, collapsed: Set<String>) {
         runCatching { context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putStringSet(KEY, collapsed).apply() }
+    }
+}
+
+/** 즐겨찾기한 메뉴 번호들(등록 순서)을 기기에 기억한다. */
+private object MenuFavs {
+    private const val PREFS = "menu_folds"
+    private const val KEY = "favorites"
+    fun load(context: android.content.Context): List<Int> = runCatching {
+        context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).getString(KEY, "").orEmpty()
+            .split(',').mapNotNull { it.toIntOrNull() }.filter { it in appScreens.indices }.distinct()
+    }.getOrDefault(emptyList())
+
+    fun save(context: android.content.Context, ids: List<Int>) {
+        runCatching { context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putString(KEY, ids.joinToString(",")).apply() }
     }
 }
 
@@ -231,6 +250,11 @@ fun FinanceNewsRadarApp(
     fun setCollapsed(title: String, value: Boolean) {
         collapsed = if (value) collapsed + title else collapsed - title
         MenuFolds.save(menuContext, collapsed)
+    }
+    var favorites by remember { mutableStateOf(MenuFavs.load(menuContext)) }
+    fun toggleFavorite(id: Int) {
+        favorites = if (id in favorites) favorites - id else favorites + id
+        MenuFavs.save(menuContext, favorites)
     }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -299,7 +323,8 @@ fun FinanceNewsRadarApp(
                         Text("FSS Insights", style = MaterialTheme.typography.headlineSmall)
                         Text("v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    drawerSections.forEach { section ->
+                    val shownSections = if (favorites.isEmpty()) drawerSections else listOf(DrawerSection(FAV_TITLE, favorites)) + drawerSections
+                    shownSections.forEach { section ->
                         val title = section.title
                         val folded = title != null && title in collapsed
                         if (title != null) {
@@ -331,9 +356,23 @@ fun FinanceNewsRadarApp(
                                 NavigationDrawerItem(
                                     icon = { Icon(item.icon, contentDescription = null, modifier = if (sub) Modifier.size(20.dp) else Modifier) },
                                     label = { Text(item.label, style = if (sub) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    badge = if (id == SCREEN_INFO && updateAvailable != null) {
-                                        { Text("NEW", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }
-                                    } else null,
+                                    badge = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (id == SCREEN_INFO && updateAvailable != null) {
+                                                Text("NEW", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                                            }
+                                            val fav = id in favorites
+                                            // 별을 누르면 즐겨찾기에 넣거나 뺀다. 즐겨찾기는 메뉴 맨 위 묶음에도 나타난다.
+                                            IconButton(onClick = { toggleFavorite(id) }, modifier = Modifier.size(36.dp)) {
+                                                Icon(
+                                                    if (fav) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                                    contentDescription = if (fav) "${item.label} 즐겨찾기 해제" else "${item.label} 즐겨찾기에 추가",
+                                                    tint = if (fav) androidx.compose.ui.graphics.Color(0xFFF5B83D) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                    },
                                     selected = screen == id,
                                     onClick = { go(id) },
                                     // 하위 메뉴: 오른쪽으로 들여 쓰고 왼쪽에 세로선을 그어 묶음 제목의 하위임을 분명히 한다.
