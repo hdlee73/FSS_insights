@@ -473,7 +473,7 @@ function summary(root, data, goto, ctx) {
   root.append(card("시장 일보 (매일 24시 집계 · PDF·HWPX)", "file-text", latest
     ? h("div", { class: "cr-row" }, h("span", null, `${reportTitle(latest)} 일보`), reportLinks(latest))
     : note("아직 생성된 일보가 없습니다.")));
-  if (s.errors && Object.keys(s.errors).length) root.append(h("p", { class: "note err-note" }, "수집 실패: " + Object.keys(s.errors).join(", ") + " (해당 값은 표에서 빠짐)"));
+  if (s.errors && Object.keys(s.errors).length) root.append(h("p", { class: "note err-note" }, "수집 실패: " + Object.entries(s.errors).map(([k, v]) => (/거래 중단/.test(String(v)) ? k + "(거래 중단 중)" : k)).join(", ") + " (해당 값은 표에서 빠짐)"));
   root.append(note(`${SRC_NOTE} 출처: 각 거래소 공개 API, ${g.source || "CoinGecko"}, Coinbase`));
 }
 

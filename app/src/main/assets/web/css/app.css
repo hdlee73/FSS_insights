@@ -747,6 +747,8 @@ body.collapsed .sec.folded .mi { display: flex; }
 .dg-chip { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line, #d0d7de); font-size: 13px; text-decoration: none; color: var(--acc-fg); }
 .dg-chip em { font-style: normal; font-size: 11px; color: var(--muted); }
 .dg-sched { margin-bottom: 9px; }
+.dg-sched li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dg-lines { gap: 6px; }
 .dg-foot { margin: 10px 0 0; font-size: 11.5px; }
 .dg-wait { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
 
