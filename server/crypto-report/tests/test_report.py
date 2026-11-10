@@ -254,3 +254,17 @@ def test_backfill_aggregate():
     per = {"upbit": {"BTC": {"2020-01-02": (100.0, 10.0)}, "ETH": {"2020-01-02": (100.0, 1.0)}}, "coinone": {"BTC": {"2020-01-02": (50.0, 10.0)}}}
     r = B.aggregate(per, {"2020-01-02": 0.01}, {"2019-12-31": 1000.0})[0]
     assert r[0] == "2020-01-02" and r[1] == 200 and r[3] == 50 and r[6] == 150 and r[7] == 0.6 and abs(r[8]) < 1e-9
+
+
+def test_parse_report_xml_basis_and_interim():
+    import build_exchange_fin as F
+    xml = ("<TITLE>2. 연결재무제표</TITLE><TITLE>연결 재무상태표</TITLE><P>(단위 : 백만원)</P>"
+           "<TABLE><TR><TD>자산총계</TD><TD>2,000</TD><TD>1,500</TD></TR><TR><TD>부채총계</TD><TD>500</TD><TD>400</TD></TR></TABLE>"
+           "<TITLE>연결 손익계산서</TITLE><TABLE><TR><TD>영업수익</TD><TD>30</TD><TD>300</TD><TD>20</TD><TD>200</TD></TR>"
+           "<TR><TD>반기순이익(손실)</TD><TD>(4)</TD><TD>(40)</TD><TD>1</TD><TD>2</TD></TR></TABLE>"
+           "<TITLE>연결 현금흐름표</TITLE><TABLE><TR><TD>영업수익</TD><TD>999</TD></TR></TABLE>"
+           "<TITLE>4. 재무제표</TITLE><TITLE>재무상태표</TITLE><P>(단위 : 원)</P><TABLE><TR><TD>자산총계</TD><TD>7</TD></TR></TABLE>")
+    r = F.parse_report_xml(xml, interim=True)
+    assert r["연결"]["assets"] == 2000e6 and r["연결"]["liabilities"] == 500e6
+    assert r["연결"]["revenue"] == 300e6 and r["연결"]["net_income"] == -40e6   # 누적(두 번째) 열, 현금흐름표는 무시
+    assert r["별도"]["assets"] == 7
