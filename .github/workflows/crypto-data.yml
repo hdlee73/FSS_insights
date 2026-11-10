@@ -1,0 +1,92 @@
+name: Crypto data
+
+# 매일 KST 12:00, 24:00 두 번(03:00·15:00 UTC) 직후 국내 가상자산 시장 일보(PDF·HWPX)와 시세 JSON을 만들어
+# crypto-data 브랜치에 쌓는다. 웹·앱의 '가상자산 시장 동향'이 이 브랜치의 파일을 읽는다.
+# (VirtualAssets 레포에서 옮겨 온 것. crypto-data 브랜치가 아직 없으면 VirtualAssets의 기존 기록을 한 번 가져온다.)
+on:
+  schedule:
+    - cron: "3 3,15 * * *"
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "집계 시각 강제 지정(비우면 실행 시각으로 자동 결정)"
+        type: choice
+        options: ["", "1200", "2400"]
+        default: ""
+      sample:
+        description: "샘플 데이터로만 생성(네트워크 없이 모양 확인, 게시 안 함)"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "server/crypto-report/**"
+      - ".github/workflows/crypto-data.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: crypto-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch existing site (history)
+        run: |
+          set -e
+          if git ls-remote --exit-code --heads origin crypto-data >/dev/null 2>&1; then
+            git fetch --depth 1 origin crypto-data
+            git worktree add site origin/crypto-data
+          else
+            git worktree add --detach site
+            git -C site checkout --orphan crypto-data
+            git -C site rm -rf . >/dev/null 2>&1 || true
+            # 첫 실행: VirtualAssets 레포(gh-pages)의 기존 기록을 가져온다(없으면 빈 상태로 시작).
+            if git clone -q --depth 1 -b gh-pages https://github.com/hdlee73/VirtualAssets /tmp/va 2>/dev/null; then
+              cp -r /tmp/va/data /tmp/va/reports site/ || true
+            fi
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: server/crypto-report/requirements.txt
+
+      - name: Install Korean fonts and deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q fonts-nanum
+          pip install -r server/crypto-report/requirements.txt
+
+      - name: Unit tests
+        working-directory: server/crypto-report
+        run: python -m pytest -q tests
+
+      - name: Build report
+        working-directory: server/crypto-report
+        env:
+          COINMARKETCAP_KEY: ${{ secrets.COINMARKETCAP_KEY }}
+          COINGECKO_KEY: ${{ secrets.COINGECKO_KEY }}
+        run: |
+          args=(--out "$GITHUB_WORKSPACE/site")
+          if [ "${{ inputs.sample }}" = "true" ] || [ "${{ github.event_name }}" = "pull_request" ]; then args+=(--sample); fi
+          if [ -n "${{ inputs.slot }}" ]; then args+=(--slot "${{ inputs.slot }}"); fi
+          python build_daily.py "${args[@]}"
+
+      - name: Publish to crypto-data branch
+        if: ${{ github.event_name != 'pull_request' && inputs.sample != true }}
+        working-directory: site
+        run: |
+          git config user.name "crypto-data-bot"
+          git config user.email "noreply@github.com"
+          touch .nojekyll
+          git add -A
+          if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
+          git commit -q -m "crypto report $(TZ=Asia/Seoul date +"%F %H:%M")"
+          git push origin HEAD:crypto-data
