@@ -306,9 +306,10 @@ function periodRange(unit, y, n, day) {
 /** 누적 막대(점유율 100% 또는 금액). buckets: [{key, v:{거래소:값}}] */
 function stackedChart(buckets, keys, { mode = "abs", height = 210, width } = {}) {
   if (!buckets.length) return h("div", { class: "note" }, "표시할 자료가 없습니다.");
-  const W = width || (innerWidth < 700 ? 360 : 860), H = width || innerWidth < 700 ? height : Math.min(height, 200), L = 46, R = 8, T = 10, B = 24;
+  const W = width || (innerWidth < 700 ? 360 : 860), H = width || innerWidth < 700 ? height : Math.min(height, 200), R = 8, T = 10, B = 24;
   const tot = buckets.map((b) => keys.reduce((a, k) => a + (b.v[k] || 0), 0));
   const max = mode === "share" ? 1 : Math.max(...tot) || 1;
+  const L = mode === "share" ? 40 : Math.max(46, Math.ceil(won(max).length * 6.4) + 12);   // 눈금 글자가 잘리지 않도록 좌측 여백을 글자 수에 맞춤
   const gap = buckets.length > 40 ? 1 : 3, bw = Math.max(1.5, (W - L - R - gap * (buckets.length - 1)) / buckets.length);
   const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "cr-chart", role: "img" });
   const txt = (xx, yy, anchor, str, size = 10.5) => svg("text", { x: xx, y: yy, "text-anchor": anchor, "font-size": size, fill: "#5b6b86" }, document.createTextNode(str));
@@ -335,28 +336,46 @@ function stackedChart(buckets, keys, { mode = "abs", height = 210, width } = {})
   return h("div", null, root, legend);
 }
 
-/** 기간 단위 선택 막대: 일(30일)·월(24개월)·연도별 */
+/** 거래대금 추이: 일·월·분기·반기·연 단위 + 기간 설정(시작·종료일) */
+const VOL_UNITS = [["day", "일별"], ["month", "월별"], ["quarter", "분기별"], ["half", "반기별"], ["year", "연도별"], ["custom", "기간 설정"]];
 function volumeCard(daily, data, only) {
   const body = h("div", { class: "stack" });
   const keys = only ? [only] : EXK.filter((k) => daily.some((r) => r.v[k]));
-  const draw = (i) => {
-    const last = daily.at(-1)?.date || "";
-    const [unit, from] = [["day", daily.at(-30)?.date || "2020-01-01"], ["month", daily.at(-730)?.date || "2020-01-01"], ["year", "2020-01-01"]][i];
-    const bs = bucketize(daily, from, last, unit, keys);
+  const minD = daily[0]?.date || "2020-01-01", maxD = daily.at(-1)?.date || "";
+  const back = (n) => daily.at(-n)?.date || minD;
+  const monthsAgo = (m) => { const d = new Date(maxD + "T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() - m); const x = d.toISOString().slice(0, 10); return x < minD ? minD : x; };
+  const DEFAULT_FROM = { day: () => back(30), month: () => monthsAgo(24), quarter: () => monthsAgo(36), half: () => monthsAgo(60), year: () => minD, custom: () => monthsAgo(12) };
+  const fI = h("input", { type: "date", min: minD, max: maxD, value: back(30) }), tI = h("input", { type: "date", min: minD, max: maxD, value: maxD });
+  const ctrl = h("div", { class: "cr-range" }, h("label", null, "시작 ", fI), h("label", null, "종료 ", tI), h("span", { class: "note" }, `자료: ${minD} ~ ${maxD}`));
+  let unit = "day";
+  const draw = () => {
+    let f = fI.value || minD, t = tI.value || maxD;
+    if (f > t) [f, t] = [t, f];
+    const n = daily.filter((r) => r.date >= f && r.date <= t).length;
+    const span = unit === "custom" ? (n > 1100 ? "year" : n > 400 ? "quarter" : n > 62 ? "month" : "day") : unit;
+    const bs = bucketize(daily, f, t, span, keys);
+    if (!bs.length) { body.replaceChildren(note(`${f} ~ ${t} 기간에는 집계 자료가 없습니다(자료 ${minD} ~ ${maxD}).`)); return; }
     const tot = bs.map((b) => keys.reduce((a, k) => a + (b.v[k] || 0), 0));
     const cov = data.long?.coverage || {};
     const miss = Object.entries(cov).filter(([, c]) => c.from > "2020-06-01").map(([k, c]) => `${exName(k)}(${c.from}부터)`);
+    const u = { day: "일", month: "월", quarter: "분기", half: "반기", year: "연도" }[span];
+    const mx = Math.max(...tot);
     body.replaceChildren(
+      note(`${f} ~ ${t} · ${u}별 (${bs.length}개)`),
       stackedChart(bs, keys, { mode: "abs" }),
       table(["구분", "거래대금", "비고"], [
-        ["가장 최근", won(tot.at(-1)) + " 원", bucketLabel(bs.at(-1)?.key || "")],
-        ["기간 평균", won(tot.reduce((a, b) => a + b, 0) / (tot.length || 1)) + " 원", `${bs.length}개 ${unit === "day" ? "일" : unit === "month" ? "월" : "연도"}`],
-        ["기간 최고", won(Math.max(...tot)) + " 원", bucketLabel(bs[tot.indexOf(Math.max(...tot))]?.key || "")]]),
-      note(`거래소별 거래대금을 쌓아 보여 줍니다. ${unit === "month" ? "월·연도 값은 일별 합계이며 이번 달·올해는 진행 중입니다. " : ""}과거 값은 각 거래소 일봉 API의 현재 상장 종목(상위) 합산 추정치입니다.${miss.length ? " 자료 시작: " + miss.join(", ") + "." : ""}`));
+        ["가장 최근", won(tot.at(-1)) + " 원", bucketLabel(bs.at(-1).key)],
+        ["기간 평균", won(tot.reduce((a, b) => a + b, 0) / tot.length) + " 원", `${bs.length}개 ${u}`],
+        ["기간 최고", won(mx) + " 원", bucketLabel(bs[tot.indexOf(mx)].key)]]),
+      note(`거래소별 거래대금을 쌓아 보여 줍니다. ${span !== "day" ? "월·분기·반기·연도 값은 일별 합계이며 진행 중인 기간은 지금까지의 합입니다. " : ""}과거 값은 각 거래소 일봉 API의 현재 상장 종목(상위) 합산 추정치입니다.${miss.length ? " 자료 시작: " + miss.join(", ") + "." : ""}`));
   };
-  const seg = tabs(["일별(30일)", "월별(24개월)", "연도별"], 0, (i) => { seg.querySelectorAll("[role=tab]").forEach((b, j) => { b.classList.toggle("on", j === i); b.setAttribute("aria-selected", String(j === i)); }); draw(i); }, "seg");
-  draw(0);
-  return card(only ? `${exName(only)} 거래대금 추이 (2020년~)` : "국내 거래대금 추이 (거래소별, 2020년~)", "bar-chart-3", h("div", { class: "stack" }, seg, body));
+  const seg = tabs(VOL_UNITS.map((x) => x[1]), 0, (i) => {
+    seg.querySelectorAll("[role=tab]").forEach((b, j) => { b.classList.toggle("on", j === i); b.setAttribute("aria-selected", String(j === i)); });
+    unit = VOL_UNITS[i][0]; fI.value = DEFAULT_FROM[unit](); tI.value = maxD; draw();
+  }, "seg");
+  fI.addEventListener("change", draw); tI.addEventListener("change", draw);
+  draw();
+  return card(only ? `${exName(only)} 거래대금 추이 (2020년~)` : "국내 거래대금 추이 (거래소별, 2020년~)", "bar-chart-3", h("div", { class: "stack" }, seg, ctrl, body));
 }
 
 // ---------- 거래소 점유율(기간별) ----------
@@ -473,7 +492,7 @@ function summary(root, data, goto, ctx) {
   root.append(card("시장 일보 (매일 24시 집계 · PDF·HWPX)", "file-text", latest
     ? h("div", { class: "cr-row" }, h("span", null, `${reportTitle(latest)} 일보`), reportLinks(latest))
     : note("아직 생성된 일보가 없습니다.")));
-  if (s.errors && Object.keys(s.errors).length) root.append(h("p", { class: "note err-note" }, "수집 실패: " + Object.entries(s.errors).map(([k, v]) => (/거래 중단/.test(String(v)) ? k + "(거래 중단 중)" : k)).join(", ") + " (해당 값은 표에서 빠짐)"));
+  if (s.errors && Object.keys(s.errors).length) root.append(h("p", { class: "note err-note" }, "수집 실패: " + Object.keys(s.errors).join(", ") + " (해당 값은 표에서 빠짐)"));
   root.append(note(`${SRC_NOTE} 출처: 각 거래소 공개 API, ${g.source || "CoinGecko"}, Coinbase`));
 }
 
