@@ -247,3 +247,10 @@ def test_exchange_fin_parsers():
            "<TR><TD>Ⅰ. 영업수익</TD><TD>300</TD></TR><TR><TD>당기순이익(손실)</TD><TD>(40)</TD></TR></TABLE>")
     r = F.parse_audit_xml(xml)
     assert r["assets"] == 2000e6 and r["revenue"] == 300e6 and r["net_income"] == -40e6
+
+
+def test_backfill_aggregate():
+    import backfill_history as B
+    per = {"upbit": {"BTC": {"2020-01-02": (100.0, 10.0)}, "ETH": {"2020-01-02": (100.0, 1.0)}}, "coinone": {"BTC": {"2020-01-02": (50.0, 10.0)}}}
+    r = B.aggregate(per, {"2020-01-02": 0.01}, {"2019-12-31": 1000.0})[0]
+    assert r[0] == "2020-01-02" and r[1] == 200 and r[3] == 50 and r[6] == 150 and r[7] == 0.6 and abs(r[8]) < 1e-9

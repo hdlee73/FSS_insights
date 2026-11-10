@@ -13,6 +13,10 @@ on:
         type: choice
         options: ["", "2400"]
         default: ""
+      backfill:
+        description: "2020년 이후 과거 일별 자료를 다시 받기(이미 있으면 기본은 건너뜀, 약 20분 소요)"
+        type: boolean
+        default: false
       sample:
         description: "샘플 데이터로만 생성(네트워크 없이 모양 확인, 게시 안 함)"
         type: boolean
@@ -32,7 +36,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 
@@ -78,6 +82,15 @@ jobs:
           if [ "${{ inputs.sample }}" = "true" ] || [ "${{ github.event_name }}" = "pull_request" ]; then args+=(--sample); fi
           if [ -n "${{ inputs.slot }}" ]; then args+=(--slot "${{ inputs.slot }}"); fi
           python build_daily.py "${args[@]}"
+
+      - name: Backfill history since 2020
+        if: ${{ github.event_name != 'pull_request' && inputs.sample != true }}
+        continue-on-error: true
+        working-directory: server/crypto-report
+        run: |
+          args=(--out "$GITHUB_WORKSPACE/site")
+          if [ "${{ inputs.backfill }}" = "true" ]; then args+=(--force); fi
+          python backfill_history.py "${args[@]}"
 
       - name: Exchange financials (DART)
         if: ${{ github.event_name != 'pull_request' && inputs.sample != true }}
