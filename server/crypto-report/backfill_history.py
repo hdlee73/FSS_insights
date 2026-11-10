@@ -26,7 +26,7 @@ import collectors as C
 log = logging.getLogger("backfill")
 START = "2020-01-01"
 KST = timezone(timedelta(hours=9))
-TOP_N = {"upbit": 90, "coinone": 70, "bithumb": 60, "korbit": 40}
+TOP_N = {"upbit": 90, "coinone": 70, "bithumb": 60, "korbit": 120}
 COLS = ["date", "upbit", "bithumb", "coinone", "korbit", "btc_price", "btc_value", "btc_dom", "kimchi"]
 
 
