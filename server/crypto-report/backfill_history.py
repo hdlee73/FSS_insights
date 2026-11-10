@@ -3,7 +3,7 @@
 거래소 공개 일봉 API에서 '현재 거래대금 상위 종목'의 과거 일별 거래대금을 모아 합산한다.
   - 업비트: 일봉 거래대금(원) 그대로. 2020년부터 전부.
   - 코인원: 일봉 quote_volume(원) 그대로. 2020년부터(상장 이후).
-  - 빗썸: 일봉 API가 최근 약 200일뿐이라 그 구간만, 거래량×종가로 추정.
+  - 빗썸: v1 일봉 API(업비트 방식, `to` 페이지 조회)로 2020년부터 거래대금 그대로. 실패 시 옛 API(최근 200일 추정).
   - 코빗: 일봉 API(v2)를 시도하고, 실패하면 건너뜀.
   - 고팍스: 원화 마켓 수집이 막혀 있어 건너뜀.
 한계: 현재 상장 종목 기준이라 이미 상장폐지된 코인은 빠진다(소급 추정). 결과는 data/history_long.json.
@@ -79,12 +79,34 @@ def coinone_days(session, sym: str) -> dict[str, tuple[float, float]]:
 
 
 def bithumb_days(session, sym: str) -> dict[str, tuple[float, float]]:
+    """{날짜: (거래대금 원, 종가)} — 빗썸 v1 일봉(업비트 방식, `to` 로 과거 페이지 조회, 거래대금 그대로).
+    v1 이 실패하면 옛 candlestick API(최근 약 200일, 종가×거래량 추정)로 대체한다."""
+    out, to = {}, None
+    try:
+        for _ in range(40):
+            params = {"market": f"KRW-{sym}", "count": 200}
+            if to:
+                params["to"] = to
+            rows = C.get_json(session, "https://api.bithumb.com/v1/candles/days", params=params)
+            if not isinstance(rows, list) or not rows:
+                break
+            for r in rows:
+                d = r["candle_date_time_kst"][:10]
+                if d >= START:
+                    out[d] = (float(r["candle_acc_trade_price"]), float(r["trade_price"]))
+            oldest = rows[-1]["candle_date_time_utc"]
+            if oldest[:10] < START or len(rows) < 200:
+                break
+            to = oldest   # 빗썸은 'Z' 없는 UTC 문자열만 받는다
+            time.sleep(0.12)
+    except Exception as e:  # noqa: BLE001
+        log.warning("빗썸 v1 일봉 실패(%s): %s", sym, e)
+    if out:
+        return out
     d = C.get_json(session, f"https://api.bithumb.com/public/candlestick/{sym}_KRW/24h")
-    out = {}
     for r in d.get("data") or []:
-        day = kst_date(int(r[0]))
         close, vol = float(r[2]), float(r[5])
-        out[day] = (close * vol, close)   # 거래대금 API가 없어 종가×거래량으로 추정
+        out[kst_date(int(r[0]))] = (close * vol, close)
     return out
 
 
@@ -212,7 +234,7 @@ def main(argv=None) -> int:
             fx = {}
     rows = aggregate(per_ex, cb, fx)
     cov = {ex: {"from": min(d for v in syms.values() for d in v), "to": max(d for v in syms.values() for d in v),
-                "markets": len(syms), "estimated": ex in ("bithumb", "korbit")} for ex, syms in per_ex.items()}
+                "markets": len(syms), "estimated": ex in ("korbit",)} for ex, syms in per_ex.items()}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"updated": datetime.now(KST).strftime("%Y-%m-%d %H:%M KST"), "start": START, "cols": COLS,
                                 "coverage": cov, "rows": rows}, ensure_ascii=False, separators=(",", ":")), "utf-8")
