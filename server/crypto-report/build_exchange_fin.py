@@ -167,6 +167,8 @@ def parse_report_xml(xml: str, interim: bool = False) -> dict[str, dict]:
         if not nums:
             continue
         v = nums[1] if (interim and key in ("revenue", "op_income", "net_income") and len(nums) >= 4) else nums[0]
+        if key in ("revenue", "op_income", "net_income"):
+            log.info("  손익 행(%s·%s): %s → %s", basis, key, [c[:14] for c in cells[:6]], v * unit)
         d = out.setdefault(basis, {k: None for k in ACCOUNTS})
         if key == "revenue":
             rk = REV_RANK.get(_clean_label(cells[0]), 99)
