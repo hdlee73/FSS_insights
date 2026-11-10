@@ -22,14 +22,15 @@ log = logging.getLogger("exfin")
 API = "https://opendart.fss.or.kr/api"
 KST = timezone(timedelta(hours=9))
 
-# (거래소 키, 표시 이름, 운영 법인, DART 고유번호)
+# (거래소 키, 표시 이름, DART 상호 검색어, 법인등록번호(숫자 13자리, 알면 그것으로 정확히 확정))
 CORPS = [
-    ("upbit", "업비트", "두나무", "01310241"),
-    ("bithumb", "빗썸", "빗썸코리아", "01214044"),
-    ("coinone", "코인원", "코인원", "01263378"),
-    ("korbit", "코빗", "코빗", "01221743"),
-    ("gopax", "고팍스", "스트리미", "01307618"),
+    ("upbit", "업비트", ["두나무"], None),
+    ("bithumb", "빗썸", ["빗썸"], "1101115307388"),
+    ("coinone", "코인원", ["코인원"], None),
+    ("korbit", "코빗", ["디지털엑스", "코빗"], None),
+    ("gopax", "고팍스", ["스트리미", "고팍스"], None),
 ]
+INTERIM = [("11014", "3분기"), ("11012", "반기"), ("11013", "1분기")]  # 최신 것부터
 
 ACCOUNTS = {  # 항목 키 → 계정명 후보(앞쪽 우선)
     "assets": ["자산총계"],
@@ -55,14 +56,17 @@ def num(s) -> float | None:
     return -v if neg else v
 
 
-def parse_api_accounts(rows: list[dict]) -> dict[str, float | None]:
+def parse_api_accounts(rows: list[dict], cumulative: bool = False) -> dict[str, float | None]:
     """fnlttSinglAcntAll 의 list → 항목별 당기 금액(원)."""
     out: dict[str, float | None] = {k: None for k in ACCOUNTS}
     for key, names in ACCOUNTS.items():
         for nm in names:
             for r in rows:
                 if re.sub(r"\s", "", r.get("account_nm", "")) == nm and r.get("sj_div") in ("BS", "IS", "CIS"):
-                    v = num(r.get("thstrm_amount"))
+                    # 분·반기 손익은 3개월분(thstrm_amount)과 누적(thstrm_add_amount)이 따로 있어 누적을 쓴다.
+                    v = num(r.get("thstrm_add_amount")) if cumulative and r.get("sj_div") != "BS" else None
+                    if v is None:
+                        v = num(r.get("thstrm_amount"))
                     if v is not None:
                         out[key] = v
                         break
@@ -105,17 +109,28 @@ def get(session, path, **params):
     return r
 
 
-def fetch_year_api(session, key, corp, year):
-    """사업보고서 재무제표. 연결(CFS)과 별도(OFS)가 모두 있으면 둘 다 돌려준다."""
+def fetch_report_api(session, key, corp, year, code="11011", period="연간"):
+    """정기보고서 재무제표. 연결(CFS)과 별도(OFS)가 모두 있으면 둘 다 돌려준다."""
     out = []
     for fs in ("CFS", "OFS"):
         d = get(session, "fnlttSinglAcntAll.json", crtfc_key=key, corp_code=corp, bsns_year=year,
-                reprt_code="11011", fs_div=fs).json()
+                reprt_code=code, fs_div=fs).json()
         if d.get("status") == "000" and d.get("list"):
-            v = parse_api_accounts(d["list"])
+            v = parse_api_accounts(d["list"], cumulative=code != "11011")
             if any(x is not None for x in v.values()):
-                out.append({"year": year, "source": "사업보고서(DART)", "basis": "연결" if fs == "CFS" else "별도", **v})
+                out.append({"year": year, "period": period, "source": "정기보고서(DART)",
+                            "basis": "연결" if fs == "CFS" else "별도", **v})
     return out
+
+
+def norm(name: str) -> str:
+    return re.sub(r"주식회사|\(주\)|㈜|\s", "", name or "")
+
+
+def company_info(session, key, code):
+    d = get(session, "company.json", crtfc_key=key, corp_code=code).json()
+    return {"corp_code": code, "name": d.get("corp_name", ""), "jurir_no": re.sub(r"\D", "", d.get("jurir_no", "") or ""),
+            "stock_code": (d.get("stock_code") or "").strip()}
 
 
 def find_corps(session, key, needle):
@@ -172,37 +187,64 @@ def main(argv=None) -> int:
     years = [this_year - 1, this_year - 2, this_year - 3]
     res = dict(old.get("exchanges") or {})
     with requests.Session() as s:
-        for ex, name, corp_name, corp in CORPS:
-            cands = [corp]
-            try:  # 같은 이름 계열 법인도 후보로 시도(고유번호가 맞지 않을 때 대비)
-                found = find_corps(s, key, name)
-                log.info("%s 후보 법인: %s", name, found)
-                cands += [c for c, _ in found if c != corp]
-            except Exception as e:
-                log.warning("%s 고유번호 목록 실패: %s", name, e)
-            rows, used = [], corp
-            for cc in cands[:6]:
+        try:
+            z = zipfile.ZipFile(io.BytesIO(get(s, "corpCode.xml", crtfc_key=key).content))
+            allxml = z.read(z.namelist()[0]).decode("utf-8", "ignore")
+        except Exception as e:
+            log.error("DART 고유번호 목록을 받지 못해 중단: %s", e)
+            return 0
+        listing = [(m.group(1), m.group(2)) for m in re.finditer(
+            r"<corp_code>(\d+)</corp_code>\s*<corp_name>(.*?)</corp_name>", allxml, flags=re.S)]
+        for ex, name, needles, jurir in CORPS:
+            cands = [(c, n) for c, n in listing if any(nd in n for nd in needles)]
+            # 정확한 상호 우선, 그다음 검색어 순서
+            cands.sort(key=lambda cn: (0 if norm(cn[1]) in needles else 1, min(needles.index(nd) for nd in needles if nd in cn[1])))
+            log.info("%s 후보: %s", name, cands[:12])
+            chosen, rows = None, []
+            for code, cname in cands[:12]:
                 try:
-                    audits = fetch_audit_reports(s, key, cc, years)
+                    info = company_info(s, key, code)
                 except Exception as e:
-                    log.warning("%s(%s) 감사보고서 목록 실패: %s", name, cc, e)
-                    audits = {}
+                    log.warning("%s(%s) 기업개황 실패: %s", name, code, e)
+                    continue
+                log.info("%s 후보 확인: %s", name, info)
+                if jurir and info["jurir_no"] != jurir:
+                    continue
                 got = []
                 for y in years:
                     try:
-                        r = fetch_year_api(s, key, cc, y)
+                        got += fetch_report_api(s, key, code, y)
                     except Exception as e:
-                        log.warning("%s(%s) %s 재무 실패: %s", name, cc, y, e)
-                        r = []
-                    if not r and y in audits:
-                        r = [audits[y]]
-                    got += r
-                log.info("%s(%s): %s", name, cc, [(r["year"], r["basis"]) for r in got])
-                if got:
-                    rows, used = got, cc
-                    break
-            rows.sort(key=lambda r: (-r["year"], 0 if r["basis"] == "연결" else 1))
-            res[ex] = {"name": name, "corp": corp_name, "corp_code": used, "years": rows}
+                        log.warning("%s(%s) %s 재무 실패: %s", name, code, y, e)
+                if not got:
+                    try:
+                        audits = fetch_audit_reports(s, key, code, years)
+                    except Exception as e:
+                        log.warning("%s(%s) 감사보고서 실패: %s", name, code, e)
+                        audits = {}
+                    got = [dict(v, period="연간") for v in audits.values()]
+                if not got:
+                    continue
+                # 최근 분·반기(올해, 없으면 작년 것은 쓰지 않음): 연결·별도별로 가장 최근 것 하나씩
+                seen = set()
+                for rc, label in INTERIM:
+                    try:
+                        for r in fetch_report_api(s, key, code, this_year, rc, label):
+                            if r["basis"] not in seen:
+                                seen.add(r["basis"])
+                                got.append(r)
+                    except Exception as e:
+                        log.warning("%s(%s) %s %s 실패: %s", name, code, this_year, label, e)
+                chosen, rows = info, got
+                break
+            if not chosen:
+                log.warning("%s: 확정된 법인 없음", name)
+                res.setdefault(ex, {"name": name, "corp": "", "corp_code": "", "years": []})
+                continue
+            rows.sort(key=lambda r: (-r["year"], 0 if r.get("period") == "연간" else -1, 0 if r["basis"] == "연결" else 1))
+            log.info("%s → %s(%s): %s", name, chosen["name"], chosen["corp_code"], [(r["year"], r["period"], r["basis"]) for r in rows])
+            res[ex] = {"name": name, "corp": chosen["name"], "corp_code": chosen["corp_code"],
+                       "jurir_no": chosen["jurir_no"], "listed": bool(chosen["stock_code"]), "years": rows}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"updated": datetime.now(KST).strftime("%Y-%m-%d %H:%M KST"), "exchanges": res},
                                ensure_ascii=False, separators=(",", ":")), "utf-8")
