@@ -30,6 +30,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hdlee73.financenewsradar.ArticleReaderActivity
 import io.github.hdlee73.financenewsradar.data.InvestorFlow
+import io.github.hdlee73.financenewsradar.data.IssueDigest
+import io.github.hdlee73.financenewsradar.data.IssueDigestBuilder
+import io.github.hdlee73.financenewsradar.data.SummaryEngine
+import io.github.hdlee73.financenewsradar.data.SummaryStore
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import io.github.hdlee73.financenewsradar.data.KOREA_INDEXES
 import io.github.hdlee73.financenewsradar.data.PublisherCatalog
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
@@ -99,6 +105,7 @@ fun BriefingScreen(
     LaunchedEffect(Unit) {
         releasesViewModel.preload(BRIEFING_PRESS + BRIEFING_RESEARCH)
         marketViewModel.refresh()
+        newsViewModel.loadLeaderNews()
     }
     LaunchedEffect(releases.institutes) { releases.institutes.forEach(releasesViewModel::ensureCustom) }
     LaunchedEffect(weatherTick) { WeatherClient.fetch()?.let { weather = it } }
@@ -120,14 +127,48 @@ fun BriefingScreen(
         .distinctBy { it.link }
         .sortedByDescending { it.date }
 
+    // 최신 주요 이슈: 맞춤 뉴스가 보일 때만 만든다(뉴스 탭에서 검색 중이면 결과가 달라 건너뜀).
+    val digest = remember(news.articles, news.leaderArticles, news.isHome) {
+        if (news.isHome && news.articles.isNotEmpty()) IssueDigestBuilder.build(news.articles, news.leaderArticles) else null
+    }
+    var aiLines by remember { mutableStateOf<List<String>?>(null) }
+    var aiBusy by remember { mutableStateOf(false) }
+    val leadKey = digest?.lead?.joinToString("|") { it.link }.orEmpty()
+    LaunchedEffect(leadKey) {
+        aiLines = null
+        val lead = digest?.lead.orEmpty()
+        if (lead.isEmpty()) return@LaunchedEffect
+        val store = SummaryStore(context, "issue_summary_cache")
+        val cacheKey = "issue:" + leadKey.hashCode()
+        store.load()[cacheKey]?.let { aiLines = it.split("\n").filter(String::isNotBlank); return@LaunchedEffect }
+        if (!SummaryEngine.isAvailable()) return@LaunchedEffect
+        aiBusy = true
+        try {
+            val body = lead.joinToString("\n") { "- ${it.title} ${it.summary.take(120)}" }
+            val out = SummaryEngine.summarize("최신 주요 기사", body, kind = "최신 금융 뉴스 기사 목록", focus = "지금 가장 중요한 이슈")
+            out.text?.let { text ->
+                aiLines = listOf(text)
+                store.save(store.load() + (cacheKey to text))
+            }
+        } finally {
+            aiBusy = false
+        }
+    }
+
     Column(modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             BriefingHeader(weather) {
                 BRIEFING_PRESS.forEach(releasesViewModel::refresh)
                 BRIEFING_RESEARCH.forEach(releasesViewModel::refresh)
                 newsViewModel.refreshHome()
+                newsViewModel.loadLeaderNews()
                 marketViewModel.refresh()
                 weatherTick++
+            }
+
+            if (digest != null) {
+                SectionTitle("최신 주요 이슈", "${digest.label} 기사 ${digest.total}건 기준") { onOpenTab(TAB_NEWS) }
+                IssueCard(digest, aiLines, aiBusy, onWord = { word -> newsViewModel.search(word); onOpenTab(TAB_NEWS) }) { link, title -> ArticleReaderActivity.open(context, link, title) }
             }
 
             SectionTitle("시장 지표", "한눈에 보는 오늘 시장") { onOpenTab(TAB_MARKET) }
@@ -199,6 +240,40 @@ fun BriefingScreen(
                 }
             }
             Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+/** 최신 주요 이슈: (기기 AI가 있으면) 요약, 많이 나온 말, 금융감독원장·금융위원장 일정. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun IssueCard(digest: IssueDigest, ai: List<String>?, aiBusy: Boolean, onWord: (String) -> Unit, onOpenArticle: (String, String) -> Unit) {
+    BriefingCard {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (aiBusy || !ai.isNullOrEmpty()) {
+                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("기기 AI 요약", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        if (ai.isNullOrEmpty()) Text("요약하는 중…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        else ai.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    }
+                }
+            }
+            if (digest.words.isNotEmpty()) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    digest.words.forEach { w ->
+                        Surface(Modifier.clickable { onWord(w.text) }, shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surface, border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                            Text("${w.text} ${w.count}", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+            digest.schedules.forEach { x ->
+                Column(Modifier.fillMaxWidth().clickable { onOpenArticle(x.link, x.title) }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("${x.who} · ${x.title}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Text("${digest.label} 기사 ${digest.total}건 수집 · 낱말 집계(원문 확인 필요)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
