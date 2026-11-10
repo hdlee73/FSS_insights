@@ -105,6 +105,92 @@ def parse_audit_xml(xml: str) -> dict:
     return {"unit": unit, **vals}
 
 
+UNIT_MAP = {"원": 1.0, "천원": 1e3, "백만원": 1e6, "억원": 1e8}
+NET_RE = re.compile(r"(연결)?(당기|반기|분기)순(이익|손익)(\(손실\))?")
+
+
+def _key_of(label: str) -> str | None:
+    for key, names in ACCOUNTS.items():
+        if label in names:
+            return key
+    if NET_RE.fullmatch(label):
+        return "net_income"
+    return None
+
+
+def parse_report_xml(xml: str, interim: bool = False) -> dict[str, dict]:
+    """정기보고서(사업·반기·분기) 본문 XML 에서 연결/별도 재무상태표·손익계산서의 당기 금액을 읽는다.
+    섹션 제목(<TITLE>)으로 연결·별도를 구분하고 '(단위 : …)' 문구로 단위를 추정한다.
+    분·반기 손익계산서는 3개월·누적 열이 같이 있어 누적(두 번째 숫자)을 쓴다. 반환: {'연결': {...}, '별도': {...}}"""
+    basis, stmt, unit = None, False, 1.0
+    out: dict[str, dict] = {}
+    pat = re.compile(r"<TITLE[^>]*>(.*?)</TITLE>|(단위\s*[:：]?\s*(?:원|천원|백만원|억원))|<TR[^>]*>(.*?)</TR>", re.S | re.I)
+    for m in pat.finditer(xml):
+        if m.group(1) is not None:
+            t = re.sub(r"\s", "", re.sub(r"<[^>]+>", "", m.group(1)))
+            if any(w in t for w in ("자본변동표", "현금흐름표", "이익잉여금", "주석")):
+                stmt = False
+            elif any(w in t for w in ("재무상태표", "손익계산서", "재무제표")):
+                stmt = True
+                basis = "연결" if "연결" in t else "별도"
+            continue
+        if m.group(2) is not None:
+            mm = re.search(r"(천원|백만원|억원|원)$", re.sub(r"\s", "", m.group(2)))
+            if mm:
+                unit = UNIT_MAP[mm.group(1)]
+            continue
+        if not stmt or basis is None:
+            continue
+        cells = [c for c in _cells(m.group(3)) if c != ""]
+        if len(cells) < 2:
+            continue
+        label = re.sub(r"\s", "", re.sub(r"^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ\d\.\s]+", "", cells[0]))
+        key = _key_of(label)
+        if key is None:
+            continue
+        nums = [n for n in (num(c) for c in cells[1:]) if n is not None]
+        if not nums:
+            continue
+        v = nums[1] if (interim and key in ("revenue", "op_income", "net_income") and len(nums) >= 4) else nums[0]
+        d = out.setdefault(basis, {k: None for k in ACCOUNTS})
+        if d[key] is None:
+            d[key] = v * unit
+    return {b: d for b, d in out.items() if any(x is not None for x in d.values())}
+
+
+def fetch_periodic_docs(session, key, corp, this_year):
+    """list.json(정기공시)에서 사업·반기·분기보고서를 찾아 본문을 파싱한다. 연간(최근 3개 사업연도)과 올해(또는 가장 최근) 분·반기를 돌려준다."""
+    d = get(session, "list.json", crtfc_key=key, corp_code=corp, bgn_de=f"{this_year - 3}0101",
+            end_de=f"{this_year}1231", pblntf_ty="A", page_count=100).json()
+    seen, items = set(), []
+    for it in d.get("list") or []:
+        m = re.search(r"(사업|반기|분기)보고서\s*\((\d{4})\.(\d{2})\)", it.get("report_nm", ""))
+        if not m:
+            continue
+        k = (m.group(1), m.group(2), m.group(3))
+        if k in seen:
+            continue
+        seen.add(k)
+        items.append((m.group(1), int(m.group(2)), int(m.group(3)), it["rcept_no"]))
+    rows = []
+    annual = [i for i in items if i[0] == "사업"][:3]
+    last_annual = max((i[1] for i in annual), default=0)
+    interim = sorted([i for i in items if i[0] != "사업" and i[1] > last_annual], key=lambda i: (i[1], i[2]), reverse=True)[:1]
+    for kind, yr, mo, rcept in annual + interim:
+        try:
+            z = zipfile.ZipFile(io.BytesIO(get(session, "document.xml", crtfc_key=key, rcept_no=rcept).content))
+            xml = "".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.lower().endswith((".xml", ".html", ".htm")))
+        except Exception as e:
+            log.warning("%s 보고서 열기 실패(%s): %s", corp, rcept, e)
+            continue
+        parsed = parse_report_xml(xml, interim=kind != "사업")
+        log.info("%s %s보고서 %s.%02d → %s", corp, kind, yr, mo, {b: [k for k, v in dd.items() if v is not None] for b, dd in parsed.items()})
+        period = "연간" if kind == "사업" else ("반기" if kind == "반기" else {3: "1분기", 9: "3분기"}.get(mo, "분기"))
+        for b, dd in parsed.items():
+            rows.append({"year": yr, "period": period, "source": f"{kind}보고서(DART)", "basis": b, "rcept_no": rcept, **dd})
+    return rows
+
+
 def get(session, path, **params):
     r = session.get(f"{API}/{path}", params=params, timeout=40)
     r.raise_for_status()
@@ -220,6 +306,12 @@ def main(argv=None) -> int:
                         got += fetch_report_api(s, key, code, y)
                     except Exception as e:
                         log.warning("%s(%s) %s 재무 실패: %s", name, code, y, e)
+                if not got:
+                    try:
+                        got = fetch_periodic_docs(s, key, code, this_year)
+                    except Exception as e:
+                        log.warning("%s(%s) 정기보고서 본문 실패: %s", name, code, e)
+                        got = []
                 if not got:
                     try:
                         audits = fetch_audit_reports(s, key, code, years)
