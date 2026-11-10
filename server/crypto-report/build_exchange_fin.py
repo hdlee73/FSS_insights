@@ -36,7 +36,7 @@ ACCOUNTS = {  # 항목 키 → 계정명 후보(앞쪽 우선)
     "assets": ["자산총계"],
     "liabilities": ["부채총계"],
     "equity": ["자본총계"],
-    "revenue": ["영업수익", "매출액", "수익(매출액)", "영업수익합계"],
+    "revenue": ["영업수익", "영업수익합계", "매출액", "수익(매출액)", "매출", "수익", "총수익"],  # 영업수익이 없으면 매출액 순
     "op_income": ["영업이익", "영업이익(손실)", "영업손익"],
     "net_income": ["당기순이익", "당기순이익(손실)", "당기순손익", "연결당기순이익"],
 }
@@ -62,7 +62,7 @@ def parse_api_accounts(rows: list[dict], cumulative: bool = False) -> dict[str, 
     for key, names in ACCOUNTS.items():
         for nm in names:
             for r in rows:
-                label = re.sub(r"\s", "", r.get("account_nm", ""))
+                label = _clean_label(r.get("account_nm", ""))
                 hit = label == nm or (key == "net_income" and nm == "당기순이익" and re.fullmatch(r"(연결)?(당기|반기|분기)순(이익|손익)(\(손실\))?", label))
                 if hit and r.get("sj_div") in ("BS", "IS", "CIS"):
                     # 분·반기 손익은 3개월분(thstrm_amount)과 누적(thstrm_add_amount)이 따로 있어 누적을 쓴다.
@@ -109,7 +109,19 @@ UNIT_MAP = {"원": 1.0, "천원": 1e3, "백만원": 1e6, "억원": 1e8}
 NET_RE = re.compile(r"(연결)?(당기|반기|분기)순(이익|손익)(\(손실\))?")
 
 
+def _clean_label(label: str) -> str:
+    """'Ⅰ.영업수익(주석25)' 같은 표기에서 번호·주석 꼬리를 떼어 계정명만 남긴다."""
+    t = re.sub(r"\s", "", label)
+    t = re.sub(r"\((?:주석|주)[^)]*\)|\[주석[^\]]*\]|\*+$", "", t)
+    t = re.sub(r"^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ\d\.\)\s]+", "", t)
+    return t
+
+
+REV_RANK = {n: i for i, n in enumerate(ACCOUNTS["revenue"])}
+
+
 def _key_of(label: str) -> str | None:
+    label = _clean_label(label)
     for key, names in ACCOUNTS.items():
         if label in names:
             return key
@@ -124,6 +136,7 @@ def parse_report_xml(xml: str, interim: bool = False) -> dict[str, dict]:
     분·반기 손익계산서는 3개월·누적 열이 같이 있어 누적(두 번째 숫자)을 쓴다. 반환: {'연결': {...}, '별도': {...}}"""
     basis, stmt, unit = None, False, 1.0
     out: dict[str, dict] = {}
+    ranks: dict[str, int] = {}
     pat = re.compile(r"<TITLE[^>]*>(.*?)</TITLE>|(단위\s*[:：]?\s*(?:원|천원|백만원|억원))|<TR[^>]*>(.*?)</TR>", re.S | re.I)
     for m in pat.finditer(xml):
         if m.group(1) is not None:
@@ -147,13 +160,19 @@ def parse_report_xml(xml: str, interim: bool = False) -> dict[str, dict]:
         label = re.sub(r"\s", "", re.sub(r"^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ\d\.\s]+", "", cells[0]))
         key = _key_of(label)
         if key is None:
+            if ("수익" in label or "매출" in label) and len(label) < 30:
+                log.info("  미매칭 손익 계정명(%s): %s", basis, label)
             continue
         nums = [n for n in (num(c) for c in cells[1:]) if n is not None]
         if not nums:
             continue
         v = nums[1] if (interim and key in ("revenue", "op_income", "net_income") and len(nums) >= 4) else nums[0]
         d = out.setdefault(basis, {k: None for k in ACCOUNTS})
-        if d[key] is None:
+        if key == "revenue":
+            rk = REV_RANK.get(_clean_label(cells[0]), 99)
+            if d[key] is None or rk < ranks.get(basis, 99):  # 영업수익 우선, 없으면 매출액
+                d[key], ranks[basis] = v * unit, rk
+        elif d[key] is None:
             d[key] = v * unit
     return {b: d for b, d in out.items() if any(x is not None for x in d.values())}
 
