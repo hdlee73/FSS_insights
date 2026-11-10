@@ -403,12 +403,13 @@ function finView(root, data, params, ctx) {
     return root.append(message("거래소 재무 자료를 아직 가져오지 못했습니다. 다음 집계(매일 24시) 때 DART에서 수집되며, 사업보고서·감사보고서가 공시된 거래소부터 표시됩니다."));
   }
   root.append(note(`DART 사업보고서(정기보고서) 또는 외부감사 보고서의 재무제표 · 갱신 ${fin.updated || "-"} · 금액은 원 단위 환산`));
-  const latest = list.map((e) => ({ ...e, y: e.years[0] }));
+  // 가장 최근 연도의 연결·별도(있는 것만)를 모두 보여 준다. 연결이 없는 법인은 별도만.
+  const latest = list.map((e) => ({ ...e, ys: e.years.filter((y) => y.year === e.years[0]?.year), y: e.years[0] }));
   const cols = [["자산", "assets"], ["부채", "liabilities"], ["자본", "equity"], ["영업수익", "revenue"], ["영업이익", "op_income"], ["당기순이익", "net_income"]];
-  root.append(card("거래소별 비교 (가장 최근 사업연도)", "scale", table(["거래소(법인)", "연도", ...cols.map((c) => c[0]), "부채비율", "영업이익률"],
-    latest.map((e) => e.y
-      ? [`${e.n}(${e.corp || ""})`, `${e.y.year}${e.y.basis ? " " + e.y.basis : ""}`, ...cols.map(([, key]) => (e.y[key] == null ? "-" : won(e.y[key]))), pct(ratioOf(e.y.liabilities, e.y.equity), 0), pct(ratioOf(e.y.op_income, e.y.revenue), 1)]
-      : [`${e.n}(${e.corp || ""})`, "공시 없음", ...cols.map(() => "-"), "-", "-"]))));
+  root.append(card("거래소별 비교 (가장 최근 사업연도 · 연결/별도)", "scale", table(["거래소(법인)", "연도", ...cols.map((c) => c[0]), "부채비율", "영업이익률"],
+    latest.flatMap((e) => (e.ys.length
+      ? e.ys.map((y) => [`${e.n}(${e.corp || ""})`, `${y.year} ${y.basis || ""}`, ...cols.map(([, key]) => (y[key] == null ? "-" : won(y[key]))), pct(ratioOf(y.liabilities, y.equity), 0), pct(ratioOf(y.op_income, y.revenue), 1)])
+      : [[`${e.n}(${e.corp || ""})`, "공시 없음", ...cols.map(() => "-"), "-", "-"]])))));
   const bar = (key, label, color) => {
     const items = latest.filter((e) => e.y?.[key] != null).map((e) => ({ label: e.n, v: e.y[key], color: e.y[key] < 0 ? "#e5484d" : color }));
     return items.length ? card(label, "bar-chart-3", hbars(items.map((i) => ({ ...i, v: Math.max(i.v, 0) })), (v) => won(v))) : null;
@@ -418,7 +419,7 @@ function finView(root, data, params, ctx) {
   root.append(tabs(EXCHANGES.map((e) => e[1]), EXCHANGES.findIndex(([k]) => k === sel), (i) => ctx.go({ ...params, ex: EXCHANGES[i][0] }, { replace: true }), "seg"));
   const cur = list.find((e) => e.k === sel);
   root.append(card(`${cur.n}(${cur.corp || ""}) 연도별 재무·손익`, "table", cur.years.length
-    ? table(["항목", ...cur.years.map((y) => y.year + "년")], [...cols.map(([nm, key]) => [nm, ...cur.years.map((y) => (y[key] == null ? "-" : won(y[key])))]),
+    ? table(["항목", ...cur.years.map((y) => `${y.year} ${y.basis || ""}`)], [...cols.map(([nm, key]) => [nm, ...cur.years.map((y) => (y[key] == null ? "-" : won(y[key])))]),
       ["부채비율", ...cur.years.map((y) => pct(ratioOf(y.liabilities, y.equity), 0))], ["영업이익률", ...cur.years.map((y) => pct(ratioOf(y.op_income, y.revenue), 1))],
       ["출처", ...cur.years.map((y) => (y.source || "").replace("(DART)", ""))]])
     : note("이 거래소는 DART에서 가져올 수 있는 재무제표가 아직 없습니다(외부감사 대상이 아니거나 공시 전).")));
@@ -457,7 +458,7 @@ function reportHtml(data, picked) {
   const lst = Object.entries(s.listings || {});
   add("list", "신규 상장·상장 폐지", `<ul>${lst.map(([k, l]) => `<li><b>${esc(exName(k))}</b> 상장: ${esc((l.listed || []).join(", ") || "없음")} / 폐지: ${esc((l.delisted || []).join(", ") || "없음")}</li>`).join("")}</ul>`);
   const fx = data.fin?.exchanges || {};
-  add("fin", "거래소 재무·손익 (DART, 최근 사업연도)", Object.keys(fx).length ? tblHtml(["거래소", "연도", "자산", "부채", "자본", "영업수익", "영업이익", "순이익"], EXCHANGES.filter(([k]) => fx[k]?.years?.length).map(([k, n]) => { const y = fx[k].years[0]; return [n, y.year, won(y.assets), won(y.liabilities), won(y.equity), won(y.revenue), won(y.op_income), won(y.net_income)]; })) : "");
+  add("fin", "거래소 재무·손익 (DART, 최근 사업연도)", Object.keys(fx).length ? tblHtml(["거래소", "연도", "자산", "부채", "자본", "영업수익", "영업이익", "순이익"], EXCHANGES.filter(([k]) => fx[k]?.years?.length).flatMap(([k, n]) => fx[k].years.filter((y) => y.year === fx[k].years[0].year).map((y) => [n, `${y.year} ${y.basis || ""}`, won(y.assets), won(y.liabilities), won(y.equity), won(y.revenue), won(y.op_income), won(y.net_income)]))) : "");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>국내 가상자산 시장 일보 ${esc(whenText(s))}</title><style>
 body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;color:#1b2a41;max-width:860px;margin:24px auto;padding:0 16px}
 h1{font-size:34px;line-height:1.25;margin:0 0 6px}.meta{color:#5b6b86;font-size:13px;margin-bottom:18px}
