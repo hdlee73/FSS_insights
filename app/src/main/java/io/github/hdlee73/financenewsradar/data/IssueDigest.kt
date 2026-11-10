@@ -23,7 +23,9 @@ object IssueDigestBuilder {
         Regex("금융감독원장|금감원장") to "금융감독원장",
         Regex("금융위원장|금융위\\s*위원장") to "금융위원장"
     )
-    private val sched = Regex("간담회|방문|참석|주재|면담|회동|회의|만나|현장|취임|출범|토론|특강|국정감사|국감|업무보고|기자간담|세미나|포럼|행사|점검|발표|개최|예정|오전|오후|내일|이날")
+    // 실제 일정으로 볼 만한 말만(사진 설명·인사말 기사는 제외)
+    private val sched = Regex("간담회|방문|주재|면담|회동|점검회의|현장|특강|토론회|세미나|포럼|업무보고|국정감사|국감|기자간담|취임식|협약식")
+    private val caption = Regex("대화하는|인사하는|악수|사진|포토|참석한|질의|답변하는|발언하는|입장하는|이야기")
 
     fun titleTerms(title: String): Set<String> {
         val out = LinkedHashSet<String>()
@@ -41,11 +43,11 @@ object IssueDigestBuilder {
         val seen = HashSet<String>()
         return articles.mapNotNull { a ->
             val label = who.firstOrNull { it.first.containsMatchIn(a.title) }?.second ?: return@mapNotNull null
-            if (!sched.containsMatchIn((a.title + " " + a.summary).take(200))) return@mapNotNull null
+            if (caption.containsMatchIn(a.title) || !sched.containsMatchIn(a.title)) return@mapNotNull null
             val key = label + a.title.filter { it.isLetterOrDigit() }.take(14)
             if (!seen.add(key)) return@mapNotNull null
             LeaderSchedule(label, a.title, a.link, a.source, a.publishedAt)
-        }.sortedByDescending { it.at }.take(4)
+        }.sortedByDescending { it.at }.distinctBy { it.who }.take(2)
     }
 
     fun build(articles: List<NewsArticle>, leaderArticles: List<NewsArticle>, now: Instant = Instant.now()): IssueDigest? {
@@ -70,7 +72,7 @@ object IssueDigestBuilder {
         for (a in arts) for (t in titleTerms(a.title)) if (t !in known) freq[t] = (freq[t] ?: 0) + 1
         for (a in arts) for (k in a.matchedKeywords) freq[k.lowercase()] = (freq[k.lowercase()] ?: 0) + 1
         val words = freq.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
-            .filter { it.value >= 2 }.take(8).map { IssueWord(it.key, it.value) }
+            .filter { it.value >= 2 }.take(6).map { IssueWord(it.key, it.value) }
         val lead = arts.filter { PublisherCatalog.isMajor(it.source, it.link) }.sortedByDescending { it.publishedAt }.take(6)
         return IssueDigest(label, arts.size, words, schedules(leaderArticles + arts), lead)
     }

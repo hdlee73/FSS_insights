@@ -260,8 +260,7 @@ private fun IssueCard(digest: IssueDigest, ai: List<String>?, aiBusy: Boolean, o
                 }
             }
             if (digest.words.isNotEmpty()) {
-                Text("${digest.label} 기사에 많이 나온 말", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     digest.words.forEach { w ->
                         Surface(Modifier.clickable { onWord(w.text) }, shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surface, border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                             Text("${w.text} ${w.count}", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.bodyMedium)
@@ -271,12 +270,10 @@ private fun IssueCard(digest: IssueDigest, ai: List<String>?, aiBusy: Boolean, o
             }
             digest.schedules.forEach { x ->
                 Column(Modifier.fillMaxWidth().clickable { onOpenArticle(x.link, x.title) }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(x.who + " 일정", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = AppColors.accent)
-                    Text(x.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(x.source.take(12), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${x.who} · ${x.title}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Text("수집된 기사 제목의 낱말 집계입니다. 기기 AI(Gemini Nano)를 쓸 수 있는 기기에서는 주요 기사 요약이 더해지며 기사 내용은 기기 밖으로 보내지 않습니다.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${digest.label} 기사 ${digest.total}건 수집 · 낱말 집계(원문 확인 필요)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
