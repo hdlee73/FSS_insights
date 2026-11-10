@@ -255,7 +255,10 @@ def parse_gopax(rows: list[dict]) -> list[Ticker]:
 
 
 def fetch_gopax(session: requests.Session) -> list[Ticker]:
-    return parse_gopax(get_json(session, "https://api.gopax.co.kr/trading-pairs/stats"))
+    rows = get_json(session, "https://api.gopax.co.kr/trading-pairs/stats")
+    if not rows:
+        raise ValueError("거래 중단 중(종목 목록 없음)")   # 고팍스는 현재 거래가 중단되어 API 가 빈 목록을 돌려준다
+    return parse_gopax(rows)
 
 
 FETCHERS = {
