@@ -4,7 +4,7 @@
   python build_daily.py --out ../../site            # 실제 수집(GitHub Actions)
   python build_daily.py --out /tmp/site --sample    # 네트워크 없이 샘플 데이터로 모양 확인
 
-집계는 한국시간 매일 12:00, 24:00 두 번(슬롯 1200, 2400). KEY 는 YYYYMMDD-슬롯, 예: 20261110-1200.
+집계는 한국시간 매일 24:00 한 번(슬롯 2400). KEY 는 YYYYMMDD-슬롯, 예: 20261109-2400. 옛 12:00(1200) 기록은 실행 때 정리한다.
 출력(out 아래):
   data/latest.json                  가장 최근 집계 스냅샷 전체
   data/daily/KEY.json               집계별 스냅샷 보관
@@ -234,6 +234,17 @@ def exchange_snapshot(date: str, tickers: dict[str, list[C.Ticker]], prev: dict 
 
 # ---------------------------------------------------------------- 메인
 
+def _prune_noon(out: Path) -> None:
+    """24시 하루 1회 집계로 바꾸기 전에 남은 12:00(1200) 일보·자료 파일을 지운다(혼동 방지)."""
+    n = 0
+    for pat in ("reports/*/*-1200.*", "data/daily/*-1200.json", "data/exchanges/*-1200.json"):
+        for f in out.glob(pat):
+            f.unlink()
+            n += 1
+    if n:
+        log.info("옛 12:00 집계 파일 %d개 정리", n)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, type=Path)
@@ -260,6 +271,10 @@ def main(argv: list[str] | None = None) -> int:
         with requests.Session() as s:
             inp = collect(s)
         history = _read_json(out / "data" / "history.json", [])
+
+    if not args.sample:
+        history = [h for h in history if h.get("slot", "") != "1200"]
+        _prune_noon(out)
 
     if len(inp["tickers"]) < 3:
         log.error("거래소 5곳 중 %d곳만 수집되어 일보를 만들지 않습니다: %s", len(inp["tickers"]), inp["errors"])
@@ -314,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
     _write_json(out / "data" / "coins.json", coins)
     _write_json(ex_dir / f"{key}.json", ex_snap)
     index = _read_json(out / "reports" / "index.json", [])
-    index = [r for r in index if not (r.get("date") == date and r.get("slot", "") == slot)]
+    index = [r for r in index if r.get("slot", "") != "1200" and not (r.get("date") == date and r.get("slot", "") == slot)]
     item = {"date": date, "slot": slot, "slot_label": SLOT_LABEL[slot],
             "pdf": f"reports/{ymd[:4]}/{key}.pdf", "json": f"data/daily/{key}.json"}
     if hwpx:

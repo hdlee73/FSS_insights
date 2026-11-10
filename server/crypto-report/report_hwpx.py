@@ -108,8 +108,8 @@ def render_hwpx(s: dict, history: list[dict], prev: dict | None, out: Path, *,
                          ", ".join(v.get("delisted", [])) or "-"])
         _table(doc, rows, [2, 4, 4])
 
-    doc.add_paragraph("집계는 매일 KST 12:00, 24:00 두 번. 24시간 지표는 각 시각 기준 직전 24시간이며 "
-                      "전일 대비는 전날 같은 시각 집계와 비교. * 거래대금 추정치 포함.")
+    doc.add_paragraph("집계는 매일 KST 24:00 한 번. 24시간 지표는 해당 일 24:00 기준 직전 24시간이며 "
+                      "전일 대비는 전날 24:00 집계와 비교. * 거래대금 추정치 포함.")
 
     report = doc.validate()
     errors = getattr(report, "errors", None)
