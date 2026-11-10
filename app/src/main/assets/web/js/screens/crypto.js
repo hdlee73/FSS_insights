@@ -47,7 +47,8 @@ const won = (v) => (v == null ? "-" : Math.abs(v) >= 1e12 ? num(v / 1e12, 2) + "
 const price = (v) => (v == null ? "-" : v >= 100 ? num(v) : v >= 1 ? num(v, 2) : num(v, 4));
 const pct = (r, d = 1, signed = false) => (r == null ? "-" : (signed && r * 100 >= 0.5 / 10 ** d ? "+" : "") + num(r * 100, d) + "%");
 const pp = (diff) => (diff == null ? "-" : (diff * 100 >= 0.05 ? "+" : "") + num(diff * 100, 1) + "%p");
-const usdT = (v) => (v == null ? "-" : "$" + num(v / 1e12, 2) + "T");
+// $2.51T = 2.51조 달러, $71.9B = 719억 달러
+const usdT = (v) => (v == null ? "-" : v >= 1e12 ? "$" + num(v / 1e12, 2) + "T" : "$" + num(v / 1e9, 1) + "B");
 const ratio = (c, p) => (c == null || p == null || p === 0 ? null : c / p - 1);
 const diff = (c, p) => (c == null || p == null ? null : c - p);
 const sign = (v) => (v == null || v === 0 ? 0 : v > 0 ? 1 : -1);
@@ -76,51 +77,78 @@ function svg(tag, attrs = {}, ...kids) {
 }
 const COLORS = ["#1f6feb", "#0f7b62", "#a36200", "#6d45b8", "#8a94a6"];
 
-function lineChart(series, labels, { height = 180, format = num } = {}) {
+/** 꺾은선 그래프. 세로축은 데이터 범위에 맞춰 확대하고, 왼쪽에 눈금값·각 점·마지막 값을 표시한다.
+ *  series: [{ name, color, data, dashed }], opts: { height, format(눈금·값 서식), dots } */
+const narrowW = () => (innerWidth < 700 ? 360 : 640);
+function lineChart(series, labels, { height = 200, format = num, dots, width } = {}) {
   const vals = series.flatMap((s) => s.data).filter((v) => v != null && Number.isFinite(v));
-  if (vals.length < 2) return h("div", { class: "note" }, "그래프 데이터가 아직 부족합니다.");
-  const W = 600, H = height, L = 8, R = 8, T = 10, B = 22;
+  const n = Math.max(0, ...series.map((s) => s.data.length));
+  if (vals.length < 2) return h("div", { class: "note" }, "그래프를 그리기에 데이터가 아직 부족합니다.");
+  const W = width || narrowW(), H = width && width < 500 ? 190 : height, L = W < 500 ? 54 : 64, R = W < 500 ? 46 : 56, T = 14, B = 24;
   let lo = Math.min(...vals), hi = Math.max(...vals);
-  if (lo === hi) { lo -= 1; hi += 1; }
-  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
-  const n = Math.max(...series.map((s) => s.data.length));
+  const flat = hi === lo;
+  if (flat) { lo -= Math.abs(lo) * 0.01 || 1; hi += Math.abs(hi) * 0.01 || 1; }
+  const pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
   const x = (i) => L + (n <= 1 ? 0 : (i * (W - L - R)) / (n - 1));
   const y = (v) => T + ((hi - v) / (hi - lo)) * (H - T - B);
-  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "cr-chart", role: "img", preserveAspectRatio: "none" });
+  const showDots = dots ?? n <= 40;
+  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "cr-chart", role: "img" });
+  const txt = (xx, yy, anchor, str, fill = "#5b6b86", size = 11, weight = 400) => svg("text", { x: xx, y: yy, "text-anchor": anchor, "font-size": size, "font-weight": weight, fill }, document.createTextNode(str));
   for (let g = 0; g <= 3; g++) {
-    const gy = T + ((H - T - B) * g) / 3;
-    root.append(svg("line", { x1: L, x2: W - R, y1: gy, y2: gy, stroke: "#e2e7ef", "stroke-width": 1 }));
+    const v = hi - ((hi - lo) * g) / 3, gy = y(v);
+    root.append(svg("line", { x1: L, x2: W - R, y1: gy, y2: gy, stroke: "#e2e7ef", "stroke-width": 1 }), txt(L - 6, gy + 4, "end", format(v)));
   }
   for (const s of series) {
-    let d = "", pen = false;
+    let d = "", pen = false, last = -1;
     s.data.forEach((v, i) => {
       if (v == null || !Number.isFinite(v)) { pen = false; return; }
       d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
       pen = true;
+      last = i;
     });
-    root.append(svg("path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-dasharray": s.dashed ? "5 4" : "", "vector-effect": "non-scaling-stroke" }));
+    root.append(svg("path", { d, fill: "none", stroke: s.color, "stroke-width": 2.2, "stroke-linejoin": "round", "stroke-linecap": "round", "stroke-dasharray": s.dashed ? "5 4" : "" }));
+    if (showDots) s.data.forEach((v, i) => v != null && Number.isFinite(v) && root.append(svg("circle", { cx: x(i), cy: y(v), r: 3, fill: "#fff", stroke: s.color, "stroke-width": 2 })));
+    if (last >= 0) {
+      root.append(svg("circle", { cx: x(last), cy: y(s.data[last]), r: 4.5, fill: s.color }), txt(Math.min(x(last) + 8, W - 2), y(s.data[last]) + 4, "start", format(s.data[last]), s.color, 11.5, 700));
+    }
   }
-  const first = labels.findIndex((l) => l), lastIdx = labels.length - 1;
-  const lab = (i, anchor) => (labels[i] ? svg("text", { x: x(i), y: H - 6, "text-anchor": anchor, "font-size": 11, fill: "#5b6b86" }, document.createTextNode(labels[i])) : null);
-  root.append(lab(first < 0 ? 0 : first, "start"), lab(lastIdx, "end"));
+  const first = Math.max(0, labels.findIndex((l) => l));
+  const lab = (i, anchor) => (labels[i] ? txt(x(i), H - 6, anchor, labels[i]) : null);
+  root.append(lab(first, "start"), lab(labels.length - 1, "end"));
   const legend = series.length > 1 ? h("div", { class: "cr-legend" }, series.map((s) => h("span", null, h("i", { style: { background: s.color } }), s.name))) : null;
-  return h("div", null, h("div", { class: "cr-range" }, h("span", null, format(Math.min(...vals))), h("span", null, format(Math.max(...vals)))), root, legend);
+  return h("div", null, flat ? h("div", { class: "note" }, "기간 내 값이 거의 변하지 않았습니다.") : null, root, legend);
+}
+
+/** 추세 카드 한 칸: 제목·쉬운 설명·최신값·처음 대비 변화·그래프. 점이 적으면 그 사실을 알린다. */
+function trend({ title, desc, data, labels, color, format, deltaText, wide }) {
+  const pts = data.filter((v) => v != null && Number.isFinite(v));
+  const lastV = pts.at(-1), firstV = pts[0];
+  const dl = pts.length >= 2 && deltaText ? deltaText(lastV, firstV) : null;
+  return h("section", { class: "card cr-trend" },
+    h("h4", null, title),
+    desc ? h("p", { class: "cr-desc" }, desc) : null,
+    h("div", { class: "cr-head" }, h("b", null, lastV == null ? "-" : format(lastV)), dl ? h("span", { class: "cr-delta " + cls(dl.sign) }, dl.text) : null),
+    lineChart([{ name: title, color, data }], labels, { format, width: wide && innerWidth >= 700 ? 640 : 360 }),
+    pts.length <= 3 ? h("p", { class: "cr-few" }, `아직 집계가 ${pts.length}번뿐이라 선이 짧습니다. 매일 12:00·24:00에 한 번씩 쌓여 점점 길어집니다.`) : null);
 }
 
 function barChart(values, labels, color = COLORS[0]) {
   const vs = values.map((v) => v ?? 0);
   if (!vs.length || Math.max(...vs) <= 0) return h("div", { class: "note" }, "그래프 데이터가 아직 부족합니다.");
   const max = Math.max(...vs);
-  const W = 600, H = 170, B = 22, T = 8, gap = 3;
+  const W = narrowW(), H = 200, B = 24, T = 22, gap = vs.length > 12 ? 3 : 10;
   const bw = (W - gap * (vs.length - 1)) / vs.length;
-  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "cr-chart", role: "img", preserveAspectRatio: "none" });
+  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "cr-chart", role: "img" });
+  const txt = (xx, yy, anchor, str, fill = "#5b6b86", size = 11, weight = 400) => svg("text", { x: xx, y: yy, "text-anchor": anchor, "font-size": size, "font-weight": weight, fill }, document.createTextNode(str));
   vs.forEach((v, i) => {
-    const bh = ((H - T - B) * v) / max;
-    root.append(svg("rect", { x: i * (bw + gap), y: H - B - bh, width: bw, height: Math.max(bh, 0.5), fill: color, rx: 2, opacity: i === vs.length - 1 ? 1 : 0.7 }));
+    const bh = ((H - T - B) * v) / max, bx = i * (bw + gap), last = i === vs.length - 1;
+    const r = svg("rect", { x: bx, y: H - B - bh, width: bw, height: Math.max(bh, 0.5), fill: color, rx: 3, opacity: last ? 1 : 0.65 });
+    r.append(svg("title", {}, document.createTextNode(`${labels[i] || ""} ${won(v)}`)));
+    root.append(r);
+    if (vs.length <= 12 || last) root.append(txt(bx + bw / 2, H - B - bh - 5, "middle", won(v), last ? color : "#5b6b86", 11, last ? 700 : 400));
+    if (vs.length <= 8 || i === 0 || last) root.append(txt(bx + bw / 2, H - 6, i === 0 && vs.length > 8 ? "start" : last && vs.length > 8 ? "end" : "middle", labels[i] || ""));
   });
-  const t = (i, anchor, xx) => svg("text", { x: xx, y: H - 6, "text-anchor": anchor, "font-size": 11, fill: "#5b6b86" }, document.createTextNode(labels[i] || ""));
-  root.append(t(0, "start", 0), t(vs.length - 1, "end", W));
-  return h("div", null, h("div", { class: "cr-range" }, h("span", null, "0"), h("span", null, "최대 " + won(max))), root);
+  return h("div", null, root, vs.length <= 3 ? h("p", { class: "cr-few" }, `아직 집계가 ${vs.length}번뿐입니다. 매일 12:00·24:00에 한 번씩 쌓여 막대가 늘어납니다.`) : null);
 }
 
 function donut(slices) {
@@ -147,8 +175,8 @@ function hbars(items) {
 }
 
 // ---------- 공통 조각 ----------
-function kpi(label, value, sub, sg = 0) {
-  return h("div", { class: "kpi" }, h("small", null, label), h("b", null, value), sub ? h("div", { class: "chg " + (sg > 0 ? "up" : sg < 0 ? "down" : "") }, sub) : null);
+function kpi(label, value, sub, sg = 0, hint = "") {
+  return h("div", { class: "kpi" }, h("small", null, label), h("b", null, value), sub ? h("div", { class: "chg " + (sg > 0 ? "up" : sg < 0 ? "down" : "") }, sub) : null, hint ? h("div", { class: "kpi-hint" }, hint) : null);
 }
 const chgSub = (r) => (r == null ? null : "전일 대비 " + pct(r, 1, true));
 const table = (head, rows) =>
@@ -166,10 +194,10 @@ function summary(root, data, goto) {
   root.append(note(`${whenText(s)} 집계 (다음 ${next}) · 수집 ${s.collected_at || "-"} · 원화마켓 5개 거래소 합산`));
   const dd = diff(g.kimchi_premium, prev?.kimchi_premium);
   root.append(h("div", { class: "kpis" },
-    kpi("국내 24h 거래대금", won(d.total_value_24h) + " 원", chgSub(ratio(d.total_value_24h, prev?.total_value_24h)), sign(ratio(d.total_value_24h, prev?.total_value_24h))),
-    kpi("BTC 가격(업비트)", price(d.btc_price_krw) + " 원", chgSub(ratio(d.btc_price_krw, prev?.btc_price_krw)), sign(ratio(d.btc_price_krw, prev?.btc_price_krw))),
-    kpi("김치 프리미엄", pct(g.kimchi_premium, 1, true), dd == null ? null : "전일 대비 " + pp(dd), sign(dd)),
-    kpi("BTC 도미넌스 국내 vs 글로벌", `${pct(d.btc_dominance)} / ${pct(g.btc_dom_volume)}`, `거래대금 기준 · 시총 기준 글로벌 ${pct(g.btc_dom_mcap)}`)));
+    kpi("국내 24h 거래대금", won(d.total_value_24h) + " 원", chgSub(ratio(d.total_value_24h, prev?.total_value_24h)), sign(ratio(d.total_value_24h, prev?.total_value_24h)), "최근 24시간 동안 국내 원화거래소 5곳에서 거래된 금액 합계(1조=1,000억의 10배)."),
+    kpi("BTC 가격(업비트)", price(d.btc_price_krw) + " 원", chgSub(ratio(d.btc_price_krw, prev?.btc_price_krw)), sign(ratio(d.btc_price_krw, prev?.btc_price_krw)), "국내 최대 거래소 업비트의 비트코인 1개 가격."),
+    kpi("김치 프리미엄", pct(g.kimchi_premium, 1, true), dd == null ? null : "전일 대비 " + pp(dd), sign(dd), "국내 BTC가 해외보다 몇 % 비싼지(+이면 국내가 비쌈)."),
+    kpi("BTC 도미넌스 국내 vs 글로벌", `${pct(d.btc_dominance)} / ${pct(g.btc_dom_volume)}`, `거래대금 기준 · 시총 기준 글로벌 ${pct(g.btc_dom_mcap)}`, 0, "전체 거래 중 비트코인 비중. 앞이 국내, 뒤가 글로벌입니다.")));
   const hist = data.history.slice(-30);
   const palette = [COLORS[0], COLORS[1], COLORS[2], COLORS[3], COLORS[4]];
   root.append(h("div", { class: "grid2" },
@@ -246,8 +274,8 @@ function exchangeView(root, data, params, ctx) {
     : note("가격 기록이 아직 없습니다.")));
   root.append(h("div", { class: "grid2" },
     card(`거래대금 추이 (최근 ${days.length}회 집계)`, "bar-chart-3", barChart(days.map((d) => d.value), days.map((d) => d.label))),
-    card("상장 종목 수 추이 (원화마켓)", "activity", lineChart([{ name: "종목 수", color: COLORS[0], data: days.map((d) => d.markets) }], days.map((d) => d.label)))));
-  root.append(card("BTC 가격 추이 (원화)", "trending-up", lineChart([{ name: "BTC", color: COLORS[0], data: days.map((d) => d.prices?.BTC) }], days.map((d) => d.label), { format: won })));
+    card("상장 종목 수 추이 (원화마켓에서 거래되는 코인 수)", "activity", lineChart([{ name: "종목 수", color: COLORS[0], data: days.map((d) => d.markets) }], days.map((d) => d.label), { format: (v) => num(v) }))));
+  root.append(card("BTC 가격 추이 (원화, 이 거래소 기준)", "trending-up", lineChart([{ name: "BTC", color: COLORS[0], data: days.map((d) => d.prices?.BTC) }], days.map((d) => d.label), { format: (v) => num(v / 1e4) + "만" })));
   const l = s.listings?.[sel];
   root.append(card("신규 상장·상장 폐지", "list", h("div", { class: "stack" },
     h("div", { class: "up" }, "이번 집계 상장: " + (l?.listed?.join(", ") || "없음")),
@@ -256,25 +284,30 @@ function exchangeView(root, data, params, ctx) {
 }
 
 // ---------- 해외 시장 비교 ----------
+const ppDelta = (l, f) => { const d = l - f; return { sign: d, text: `처음 대비 ${pp(d)}` }; };
+const pctDelta = (l, f) => { const r = f ? l / f - 1 : null; return { sign: r, text: `처음 대비 ${pct(r, 1, true)}` }; };
 function globalView(root, data) {
   const s = data.snapshot, g = s.global || {}, d = s.domestic || {};
   const prev = findPrevious(data.history, s.date || (s.as_of || "").slice(0, 10), s.slot || "");
   const hist = data.history.slice(-30), labels = hist.map((x) => slotShort(x.date, x.slot));
   const mr = ratio(g.total_mcap_usd, prev?.total_mcap_usd), kd = diff(g.kimchi_premium, prev?.kimchi_premium);
   const share = g.total_volume_usd && g.usdkrw ? pct(d.total_value_24h / (g.total_volume_usd * g.usdkrw), 2) : "-";
+  root.append(note("용어가 낯설면 카드 아래 설명을 보세요. 전일 대비는 어제 같은 시각(없으면 직전 집계)과 비교한 값입니다."));
   root.append(h("div", { class: "kpis" },
-    kpi("글로벌 시가총액", usdT(g.total_mcap_usd), chgSub(mr), sign(mr)),
-    kpi("BTC 시가총액", usdT(g.btc_mcap_usd), `비중 ${pct(g.btc_dom_mcap)}`),
-    kpi("글로벌 24h 거래대금", usdT(g.total_volume_usd)),
-    kpi("BTC 가격(Coinbase)", g.btc_price_usd == null ? "-" : "$" + num(g.btc_price_usd), g.usdkrw == null ? null : `원/달러 ${num(g.usdkrw, 1)} (${g.fx_source || "-"})`),
-    kpi("김치 프리미엄", pct(g.kimchi_premium, 1, true), kd == null ? null : "전일 대비 " + pp(kd), sign(kd)),
-    kpi("국내 거래대금 / 글로벌", share, "원화 5개 거래소 ÷ 전체(환율 환산)")));
-  root.append(card("BTC 도미넌스 추이 (국내 거래대금 vs 글로벌)", "activity", lineChart([
-    { name: "글로벌 시총", color: COLORS[1], data: hist.map((x) => x.btc_dom_global_mcap) },
-    { name: "글로벌 거래대금", color: "#6fb8a6", dashed: true, data: hist.map((x) => x.btc_dom_global_volume) },
-    { name: "국내 거래대금", color: COLORS[0], data: hist.map((x) => x.btc_dominance_kr) },
-  ], labels, { height: 200, format: (v) => pct(v) })));
-  root.append(card("김치 프리미엄 추이", "activity", lineChart([{ name: "김프", color: "#e5484d", data: hist.map((x) => x.kimchi_premium) }], labels, { format: (v) => pct(v, 1, true) })));
+    kpi("글로벌 시가총액", usdT(g.total_mcap_usd), chgSub(mr), sign(mr), "전 세계 가상자산 전체의 가치 합계(달러). T=조, B=십억. 시장 크기를 보여 줍니다."),
+    kpi("BTC 시가총액", usdT(g.btc_mcap_usd), `전체의 ${pct(g.btc_dom_mcap)}`, 0, "비트코인 하나의 전체 가치. 아래 %는 전체 시장에서 BTC가 차지하는 비중입니다."),
+    kpi("글로벌 24h 거래대금", usdT(g.total_volume_usd), null, 0, "최근 24시간 동안 전 세계에서 실제로 사고판 금액 합계(달러)."),
+    kpi("BTC 가격(Coinbase)", g.btc_price_usd == null ? "-" : "$" + num(g.btc_price_usd), g.usdkrw == null ? null : `원/달러 ${num(g.usdkrw, 1)}`, 0, "미국 거래소 Coinbase의 비트코인 가격(달러). 아래 김치 프리미엄 계산에 쓰는 기준입니다."),
+    kpi("김치 프리미엄", pct(g.kimchi_premium, 1, true), kd == null ? null : "전일 대비 " + pp(kd), sign(kd), "국내 BTC 가격이 해외(달러×환율)보다 몇 % 비싼지. +이면 국내가 더 비싸고, −이면 더 쌉니다. 0%에 가까울수록 국내외 가격이 같습니다."),
+    kpi("국내 거래대금 / 글로벌", share, null, 0, "전 세계 거래대금 중 국내 원화거래소 5곳이 차지하는 비중(환율 환산). 국내 시장의 상대적 크기입니다.")));
+  root.append(h("div", { class: "cr-sechead" }, h("h3", null, "비트코인이 시장에서 차지하는 비중 (BTC 도미넌스)"),
+    h("p", { class: "cr-desc" }, "도미넌스 = 전체 가상자산 중 비트코인이 차지하는 비율입니다. 높을수록 비트코인에 쏠린 시장, 낮을수록 알트코인(비트코인 외 코인)에 관심이 퍼진 시장입니다. 세 가지 기준을 따로 보여 줍니다.")));
+  root.append(h("div", { class: "cr-trends" },
+    trend({ title: "글로벌 · 시가총액 기준", desc: "전 세계 전체 가치 중 BTC 가치의 비중", data: hist.map((x) => x.btc_dom_global_mcap), labels, color: COLORS[1], format: (v) => pct(v), deltaText: ppDelta }),
+    trend({ title: "글로벌 · 거래대금 기준", desc: "전 세계 거래대금 중 BTC 거래의 비중", data: hist.map((x) => x.btc_dom_global_volume), labels, color: "#4aa58f", format: (v) => pct(v), deltaText: ppDelta }),
+    trend({ title: "국내 5개 거래소 · 거래대금 기준", desc: "국내 원화 거래대금 중 BTC 거래의 비중. 글로벌보다 낮으면 국내는 알트코인 거래가 활발합니다.", data: hist.map((x) => x.btc_dominance_kr), labels, color: COLORS[0], format: (v) => pct(v), deltaText: ppDelta })));
+  root.append(h("div", { class: "cr-trends one" },
+    trend({ title: "김치 프리미엄 추이 — 국내 BTC가 해외보다 얼마나 비싼가", desc: "0% 위(빨강 쪽)는 국내가 비싼 때, 아래는 싼 때입니다. 보통 ±1~3% 안에서 움직이며 급등하면 국내 쏠림 신호로 봅니다.", data: hist.map((x) => x.kimchi_premium), labels, color: "#e5484d", format: (v) => pct(v, 1, true), deltaText: ppDelta, wide: true })));
   root.append(note(`출처: ${g.source || "CoinGecko"}(시가총액·거래대금), Coinbase Exchange(BTC 달러 가격). ${SRC_NOTE}`));
 }
 
