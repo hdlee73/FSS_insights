@@ -62,6 +62,11 @@ const cls = (v) => (sign(v) > 0 ? "up" : sign(v) < 0 ? "down" : "");
 const shortDate = (d) => (d && d.length >= 10 ? d.slice(5, 10).replace("-", "/") : d || "");
 const slotShort = (d, s) => shortDate(d) + (s === "1200" ? " 12시" : "");
 const whenText = (s) => (s.date || (s.as_of || "").slice(0, 10)) + " " + (s.slot_label || "24:00") + " 마감";
+/** 값의 기준시점 배지: live=실시간(브라우저가 직접 조회), snap=하루 한 번 집계한 스냅샷. */
+const badge = (kind, text) => h("span", { class: "cr-badge " + kind }, kind === "live" ? h("i") : null, text);
+const snapBadge = (s) => badge("snap", `${shortDate(s.date || (s.as_of || "").slice(0, 10))} 24시 집계`);
+/** 집계 시각 설명: 이름은 24시 집계지만 시세는 실제로 수집한 시각의 값이다. */
+const snapExplain = (s) => `기준일 ${s.date || (s.as_of || "").slice(0, 10)}의 24시 집계본이며, 값은 실제 수집 시각(${s.collected_at || "-"})에 조회한 시세입니다.`;
 const exName = (id) => EXCHANGES.find(([k]) => k === id)?.[1] || id;
 
 const slotRank = (s) => (s === "1200" ? 1 : s === "2400" ? 2 : 0);
@@ -214,7 +219,7 @@ const usd = (v) => (v == null ? "-" : "$" + (v >= 100 ? num(v) : v >= 1 ? num(v,
 function liveTable(ctx, snap, syms, { full = innerWidth >= 560 } = {}) {
   const g = snap.global || {}, cp = snap.coin_premium || {};
   const cells = {};
-  const head = full ? ["코인", "현재가(원)", "24h", "해외가", "김프"] : ["코인", "현재가(원)", "24h", "김프"];
+  const head = full ? ["코인", "현재가(원)", "전일대비", "해외가", "김프"] : ["코인", "현재가(원)", "전일대비", "김프"];
   const body = syms.map((x) => {
     const c = (cells[x] = { p: h("td", { class: "num" }, "-"), r: h("td", { class: "num" }, "-"), u: h("td", { class: "num" }, usd(cp[x]?.usd)), k: h("td", { class: "num" }, pct(cp[x]?.premium, 2, true)) });
     return h("tr", null, h("td", null, h("b", null, x), full ? h("small", { class: "note" }, " " + (MAJOR_NAME[x] || "")) : null), c.p, c.r, full ? c.u : null, c.k);
@@ -239,7 +244,7 @@ function liveTable(ctx, snap, syms, { full = innerWidth >= 560 } = {}) {
   void stop;
   return h("div", { class: "stack" }, stamp,
     h("div", { class: "tbl-wrap" }, h("table", { class: "tbl cr-live-tbl" }, h("thead", null, h("tr", null, head.map((t, i) => h("th", { class: i ? "num" : "" }, t)))), h("tbody", null, body))),
-    note(`현재가=업비트, 해외가=Coinbase(달러), 환율 ${num(g.usdkrw, 1)}원(집계 시점). 김프=원화가÷(해외가×환율)−1. 약 8초마다 갱신.`));
+    note(`현재가=업비트 현재 체결가, 전일대비=업비트 전일 종가(09:00) 대비, 해외가=Coinbase(달러). 김프=원화가÷(해외가×환율)−1이며, 환율 ${num(g.usdkrw, 1)}원은 ${shortDate(snap.date || (snap.as_of || "").slice(0, 10))} 24시 집계 시점 값이라 실시간이 아닙니다. 약 8초마다 갱신.`));
 }
 
 // ---------- 공통 조각 ----------
@@ -454,11 +459,11 @@ function rangeTrend({ title, desc, daily, key, color, format, deltaText }) {
 function summary(root, data, goto, ctx) {
   const s = data.snapshot, d = s.domestic || {}, g = s.global || {};
   const prev = findPrevious(data.history, s.date || (s.as_of || "").slice(0, 10), s.slot || "");
-  root.append(note(`${whenText(s)} 집계(하루 한 번 24시 마감 · 통계·일보 기준) · 수집 ${s.collected_at || "-"} · 원화마켓 5개 거래소 합산. 주요 코인 시세는 실시간입니다.`));
+  root.append(h("div", { class: "cr-basis" }, snapBadge(s), h("span", null, `이 화면의 KPI·그래프는 ${snapExplain(s)} 원화마켓 5개 거래소 합산이며 하루 한 번만 바뀝니다.`), badge("live", "실시간"), h("span", null, "표시가 붙은 시세표만 실시간입니다.")));
   const dd = diff(g.kimchi_premium, prev?.kimchi_premium);
   root.append(h("div", { class: "kpis cr-kpis" },
     kpi("국내 24h 거래대금", won(d.total_value_24h), chgSub(ratio(d.total_value_24h, prev?.total_value_24h)), sign(ratio(d.total_value_24h, prev?.total_value_24h)), "최근 24시간 동안 국내 원화거래소 5곳에서 거래된 금액 합계(1조=1,000억의 10배).", "원"),
-    kpi("BTC 가격(업비트·집계)", price(d.btc_price_krw), chgSub(ratio(d.btc_price_krw, prev?.btc_price_krw)), sign(ratio(d.btc_price_krw, prev?.btc_price_krw)), "국내 최대 거래소 업비트의 비트코인 1개 가격.", "원"),
+    kpi("BTC 가격(업비트·집계 시점)", price(d.btc_price_krw), chgSub(ratio(d.btc_price_krw, prev?.btc_price_krw)), sign(ratio(d.btc_price_krw, prev?.btc_price_krw)), "국내 최대 거래소 업비트의 비트코인 1개 가격.", "원"),
     kpi("김치 프리미엄", pct(g.kimchi_premium, 1, true), dd == null ? null : "전일 대비 " + pp(dd), sign(dd), "국내 BTC가 해외보다 몇 % 비싼지(+이면 국내가 비쌈)."),
     kpi("BTC 도미넌스 · 국내 거래대금", pct(d.btc_dominance), `글로벌 거래대금 ${pct(g.btc_dom_volume)}`, 0, "국내 원화 거래대금 중 비트코인 거래의 비중."),
     kpi("BTC 도미넌스 · 국내 시가총액", pct(d.btc_dom_mcap), `글로벌 시가총액 ${pct(g.btc_dom_mcap)}`, 0, "국내 상장 코인들의 시가총액 합 중 비트코인 비중."),
@@ -468,9 +473,9 @@ function summary(root, data, goto, ctx) {
   root.append(sharePanel(daily, data));
   root.append(h("div", { class: "cr-grid2" },
     card("거래대금 상위 (5개 거래소 합산)", "trending-up", table(["종목", "등락", "거래대금"], (s.top || []).slice(0, 6).map((r) => [r.symbol, chg(r.change_rate), won(r.value_24h)]))),
-    card("주요코인 시세 · 김프 (실시간)", "activity", h("div", { class: "stack" },
+    card("주요코인 시세 · 김프", "activity", h("div", { class: "stack" },
       liveTable(ctx, s, ["BTC", "ETH", "XRP", "SOL", "USDT"], { full: false }),
-      h("button", { type: "button", class: "btn ghost sm", onclick: () => goto("coins") }, "더보기 ›")))));
+      h("button", { type: "button", class: "btn ghost sm", onclick: () => goto("coins") }, "더보기 ›")), badge("live", "실시간"))));
   const bars = [];
   if (g.btc_dom_mcap != null) bars.push({ label: "글로벌 · 시가총액", v: g.btc_dom_mcap, color: COLORS[1] });
   if (g.btc_dom_volume != null) bars.push({ label: "글로벌 · 거래대금", v: g.btc_dom_volume, color: "#6fb8a6" });
@@ -499,26 +504,30 @@ function summary(root, data, goto, ctx) {
 // ---------- 주요코인 시세 ----------
 function coinsView(root, data, params, ctx) {
   const cs = data.coins;
-  root.append(card("주요 코인 실시간 시세와 김치 프리미엄", "activity", liveTable(ctx, data.snapshot, ["BTC", "ETH", "XRP", "SOL", "DOGE", "ADA"])));
-  root.append(card("대표 스테이블코인 (달러 연동 코인)", "coins", liveTable(ctx, data.snapshot, STABLES)));
+  root.append(h("div", { class: "cr-basis stack" },
+    h("div", null, badge("live", "실시간"), h("span", null, "지금 이 순간 거래소 시세를 직접 조회합니다(아래 두 표). 새로고침 없이 약 8초마다 바뀝니다.")),
+    h("div", null, cs ? snapBadge(cs) : badge("snap", "24시 집계"), h("span", null, "하루 한 번 집계해 저장한 값입니다(그래프·전체 비교). " + (cs ? snapExplain(cs) : "")))));
+  root.append(card("주요 코인 시세와 김치 프리미엄", "activity", liveTable(ctx, data.snapshot, ["BTC", "ETH", "XRP", "SOL", "DOGE", "ADA"]), badge("live", "실시간")));
+  root.append(card("대표 스테이블코인 (달러 연동 코인)", "coins", liveTable(ctx, data.snapshot, STABLES), badge("live", "실시간")));
   root.append(note("스테이블코인은 달러와 1:1을 목표로 해서, 원화 가격이 환율과 같으면 김프 0%입니다. 환율보다 높으면 달러 수요가 몰린 것입니다."));
   if (!cs || !(cs.coins || []).length) return root.append(message("당일·1년 그래프 자료를 불러오지 못했습니다. 다음 집계 후 새로고침해 주세요."));
   const coin = cs.coins.find((c) => c.symbol === params.coin) || cs.coins[0];
   const year = params.range === "year";
   const r = (year ? coin.year : coin.day) || {};
-  root.append(note(`업비트 원화마켓 · ${cs.date} ${cs.slot_label || ""} 집계 · 수집 ${cs.collected_at || "-"}`));
   root.append(tabs(cs.coins.map((c) => c.symbol), cs.coins.indexOf(coin), (i) => ctx.go({ ...params, coin: cs.coins[i].symbol }, { replace: true }), "seg"));
   const axis = (t) => (!t ? "" : year ? (t.length >= 7 ? t.slice(2, 7).replace("-", ".") : "") : t.length >= 16 ? t.slice(11, 16) : "");
   const pts = r.points || [];
-  root.append(card(`${coin.name} (${coin.symbol}) · 현재가 ${price(coin.price)} 원`, "activity", h("div", { class: "stack" },
+  root.append(card(`${coin.name} (${coin.symbol}) · 집계 시점 가격 ${price(coin.price)} 원`, "activity", h("div", { class: "stack" },
     tabs(["당일", "1년"], year ? 1 : 0, (i) => ctx.go({ ...params, range: i ? "year" : null }, { replace: true }), "seg"),
     h("div", { class: "cr-row3" },
-      h("div", null, h("small", { class: "note" }, year ? "1년 변동" : "당일 변동"), h("div", null, chg(r.change_rate))),
+      h("div", null, h("small", { class: "note" }, year ? "1년 변동(집계 시점)" : "24시간 변동(집계 시점)"), h("div", null, chg(r.change_rate))),
       h("div", null, h("small", { class: "note" }, "고가"), h("div", null, price(r.high))),
       h("div", null, h("small", { class: "note" }, "저가"), h("div", null, price(r.low)))),
     lineChart([{ name: year ? "1년" : "당일", color: (r.change_rate ?? 0) >= 0 ? "#e5484d" : "#1f6feb", data: pts }], pts.map((_, i) => axis(r.times?.[i])), { format: price }),
-    note(year ? "주봉 종가 기준 최근 1년. 변동률은 1년 전 첫 주 시가 대비 현재가." : "30분봉 종가 기준 최근 24시간. 변동률은 24시간 전 시가 대비 현재가."))));
-  root.append(card("전체 비교 (원화 가격과 변동률)", "table", table(["코인", "현재가", "당일", "1년"], cs.coins.map((c) => [c.symbol, price(c.price), chg(c.day?.change_rate), chg(c.year?.change_rate, 1)]))));
+    note(year ? `주봉 종가 기준 최근 1년(업비트). 변동률은 1년 전 첫 주 시가 대비 집계 시점 가격입니다.` : `30분봉 종가 기준, 집계 수집 시각(${cs.collected_at || "-"}) 직전 24시간(업비트). 당일은 달력상 하루가 아니라 최근 24시간이며, 변동률은 24시간 전 시가 대비 집계 시점 가격입니다.`)), badge("snap", `${shortDate(cs.date)} 24시 집계`)));
+  root.append(card("전체 비교 (집계 시점 원화 가격과 변동률)", "table", h("div", { class: "stack" },
+    table(["코인", "집계 시점 가격", "24시간 변동", "1년 변동"], cs.coins.map((c) => [c.symbol, price(c.price), chg(c.day?.change_rate), chg(c.year?.change_rate, 1)])),
+    note(`가격=${shortDate(cs.date)} 24시 집계본의 업비트 가격(실제 수집 ${cs.collected_at || "-"})으로, 위 실시간 시세표와 값이 다를 수 있습니다. 24시간 변동=수집 직전 24시간 전 시가 대비, 1년 변동=1년 전 첫 주 시가 대비입니다.`)), badge("snap", `${shortDate(cs.date)} 24시 집계`)));
   root.append(note(`출처: 업비트 공개 API. ${SRC_NOTE}`));
 }
 
@@ -708,7 +717,7 @@ function reportView(root, data) {
 
 // ---------- 화면 ----------
 export async function render(root, params, ctx) {
-  setHeader("가상자산 시장 동향", "국내 원화거래소 5곳 합산 · 매일 24시 마감 집계 · 시세는 실시간", []);
+  setHeader("가상자산 시장 동향", "국내 원화거래소 5곳 합산 · 매일 24시 집계(고정값) · 시세표는 실시간", []);
   const idx = Math.max(0, TABS.findIndex(([k]) => k === params.tab));
   root.append(tabs(TABS.map((t) => t[1]), idx, (i) => ctx.go({ tab: TABS[i][0] }, { replace: true })));
   const body = h("div", { class: "stack" }, loading());
