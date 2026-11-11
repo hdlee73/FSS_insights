@@ -76,4 +76,13 @@ class StatsApiTest {
         assertEquals(listOf("^KS11"), selection.briefingItems.map { it.symbol })
         assertEquals(setOf("^N225", "^KS11", "^GSPC"), selection.all)
     }
+
+    @Test
+    fun macroCatalogDefaultsAndDigits() {
+        assertEquals(4, DEFAULT_MACRO.size)
+        assertTrue(DEFAULT_MACRO.all { id -> MACRO_CATALOG.any { it.id == id } })
+        val item = parseStats("""{"items":[{"id":"cpi-yoy","name":"소비자물가 상승률","unit":"%","value":2.4,"previous":2.2,"period":"202610","digits":1}]}""").single()
+        assertEquals(1, item.digits)
+        assertEquals("물가", item.group)
+    }
 }
