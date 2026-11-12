@@ -489,7 +489,7 @@ async function fetchDayCandles(sym) {
 
 /**
  * 종목 차트 카드. 현재가·변동률·고저가는 업비트 웹소켓(끊기면 3초 폴링)으로 실시간 갱신하고,
- * 당일 차트는 업비트 30분봉(최근 24시간)을 직접 불러 마지막 점을 현재가로 잇는다(1분마다 봉 다시 조회).
+ * 당일 차트는 업비트 30분봉(최근 24시간)을 직접 불러 마지막 점을 현재가로 잇는다(2분마다 봉 다시 조회).
  * 1년 차트는 하루 한 번 집계한 주봉이며 마지막 점만 현재가로 바꾼다. 캔들을 못 받으면 집계본으로 대신 그린다.
  */
 function coinChartCard(ctx, cs, coin, year, params) {
@@ -540,7 +540,7 @@ function coinChartCard(ctx, cs, coin, year, params) {
     const noteTxt = year
       ? `주봉 종가 기준 최근 1년(업비트)은 ${shortDate(cs.date)} 24시 집계본이고, 마지막 점·고저가·변동률만 실시간 현재가로 이어집니다. 변동률은 1년 전 첫 주 시가 대비 현재가입니다.`
       : v.candles
-        ? "업비트 30분봉을 직접 불러온 최근 24시간(1분마다 갱신)이며 마지막 점은 실시간 현재가입니다. 당일은 달력상 하루가 아니라 최근 24시간이고, 변동률은 24시간 전 시가 대비 현재가입니다."
+        ? "업비트 30분봉을 직접 불러온 최근 24시간(2분마다 갱신)이며 마지막 점은 실시간 현재가입니다. 당일은 달력상 하루가 아니라 최근 24시간이고, 변동률은 24시간 전 시가 대비 현재가입니다."
         : `30분봉을 불러오지 못해 ${shortDate(cs.date)} 24시 집계본(수집 ${cs.collected_at || "-"} 직전 24시간)을 보여 줍니다. 마지막 점·고저가·변동률만 실시간 현재가로 이어집니다.`;
     stats.replaceChildren(
       h("div", null, h("small", { class: "note" }, year ? "1년 변동" : "24시간 변동"), h("div", null, chg(v.rate))),
@@ -558,9 +558,9 @@ function coinChartCard(ctx, cs, coin, year, params) {
     stampEl.classList.toggle("off", m === "down");
     stampEl.lastChild.textContent = `${MODE_TEXT[m]} · ${new Date(st.at).toTimeString().slice(0, 8)} 수신`;
     if (ctx.alive()) draw();
-  }, { bithumb: false, usd: false });
+  });
 
-  // 당일 30분봉(1분마다 갱신, 화면이 숨겨져 있으면 건너뜀)
+  // 당일 30분봉(2분마다 갱신, 화면이 숨겨져 있으면 건너뜀)
   if (!year) {
     let timer = 0;
     const load = async () => {
@@ -571,7 +571,8 @@ function coinChartCard(ctx, cs, coin, year, params) {
         if (!ctx.alive()) return;
         draw();
       }
-      timer = setTimeout(load, 60000);
+      // 업비트 REST는 Origin 기준 10초에 1회 제한이라 실패하면 11초 뒤 다시, 성공하면 2분마다(마지막 점은 실시간이라 충분).
+      timer = setTimeout(load, candleErr ? 11000 : 120000);
     };
     load();
   }
