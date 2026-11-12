@@ -11,6 +11,7 @@ const FETCH_HOSTS = [
   "sec.gov", "mas.gov.sg", "bok.or.kr", "mofe.go.kr", "moef.go.kr", "stock.naver.com", "finance.naver.com",
   "finance.yahoo.com", "kofia.or.kr", "kofiabond.or.kr", "krx.co.kr",
   "news.google.com", // 뉴스검색: 네이버가 안 될 때 대신 쓰는 Google 뉴스 RSS
+  "api.open-meteo.com", // 브리핑 날씨: 직장 망 등에서 브라우저가 직접 못 읽을 때 대신 읽는다
 ];
 const MAX_BYTES = 4 * 1024 * 1024;
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
