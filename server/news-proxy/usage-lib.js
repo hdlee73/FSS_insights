@@ -81,8 +81,27 @@ export async function usagePing(request, env) {
   return reply({ ok: true });
 }
 
+/** 버전 이름이 'web-'으로 시작하면 웹, 아니면 앱. */
+export const platformOf = (version) => (String(version ?? "").startsWith("web-") ? "web" : "app");
 /** 일자별 DAU와 7일·30일 이동 활성사용자, 최근 7일 버전 분포, 기간 내 메뉴별 이용량. */
-export function summarize(rows, menuRows, from, to, menuUserRows = []) {
+export function summarize(allRows, menuRows, from, to, menuUserRows = [], platform = "all") {
+  // 오늘 기준 앱/웹 나눠 보기(전체 보기에서도 함께 보여 준다)
+  const split = {};
+  for (const pf of ["app", "web"]) {
+    const part = allRows.filter((r) => platformOf(r.version) === pf);
+    const per = (end, len) => {
+      const set = new Set();
+      for (const r of part) if (r.day <= end && r.day > dayShift(end, -len)) set.add(r.uid);
+      return set.size;
+    };
+    split[pf] = { dau: per(to, 1), wau: per(to, 7), mau: per(to, 30) };
+  }
+  const rows = platform === "all" ? allRows : allRows.filter((r) => platformOf(r.version) === platform);
+  const platformUids = new Set(rows.map((r) => r.uid));
+  if (platform !== "all") {
+    menuUserRows = menuUserRows.filter((m) => platformUids.has(m.uid));
+    if (platform === "web") menuRows = []; // 예전 합계 표는 앱 시절 기록이라 웹에는 넣지 않는다
+  }
   const byDay = new Map();
   const latestVersion = new Map();
   for (const r of rows) {
@@ -118,7 +137,7 @@ export function summarize(rows, menuRows, from, to, menuUserRows = []) {
     if (m.day >= weekStart) e.daily[m.day] = (e.daily[m.day] ?? 0) + 1;
   }
   for (const [name, set] of uniq) menus[name].users = set.size;
-  return { series, versions, menus, weekDays: Array.from({ length: 7 }, (_, i) => dayShift(weekStart, i)) };
+  return { platform, split, series, versions, menus, weekDays: Array.from({ length: 7 }, (_, i) => dayShift(weekStart, i)) };
 }
 
 export async function adminApi(request, url, env) {
@@ -128,13 +147,18 @@ export async function adminApi(request, url, env) {
   const span = Math.min(120, Math.max(7, parseInt(url.searchParams.get("days"), 10) || 30));
   const to = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); // 한국 날짜 기준
   const from = dayShift(to, -(span - 1));
+  const pf = ["app", "web"].includes(url.searchParams.get("platform")) ? url.searchParams.get("platform") : "all";
+  const totalSql =
+    pf === "web" ? "SELECT COUNT(DISTINCT uid) AS n FROM usage_daily WHERE version LIKE 'web-%'"
+    : pf === "app" ? "SELECT COUNT(DISTINCT uid) AS n FROM usage_daily WHERE version NOT LIKE 'web-%'"
+    : "SELECT COUNT(DISTINCT uid) AS n FROM usage_daily";
   const [daily, menu, menuUser, total] = await Promise.all([
     env.DB.prepare("SELECT day, uid, version FROM usage_daily WHERE day >= ?").bind(dayShift(from, -29)).all(),
     env.DB.prepare("SELECT day, menu, hits FROM usage_menu WHERE day >= ?").bind(from).all(),
     env.DB.prepare("SELECT day, menu, uid, hits FROM usage_menu_user WHERE day >= ?").bind(from).all(),
-    env.DB.prepare("SELECT COUNT(DISTINCT uid) AS n FROM usage_daily").first(),
+    env.DB.prepare(totalSql).first(),
   ]);
-  return reply({ from, to, totalInstalls: total?.n ?? 0, ...summarize(daily.results ?? [], menu.results ?? [], from, to, menuUser.results ?? []) });
+  return reply({ from, to, totalInstalls: total?.n ?? 0, ...summarize(daily.results ?? [], menu.results ?? [], from, to, menuUser.results ?? [], pf) });
 }
 
 export function adminPage() {
@@ -154,9 +178,9 @@ svg{width:100%;height:200px}.leg{font-size:12px;color:var(--mut)}.leg b{display:
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 6px;border-bottom:1px solid var(--ln);text-align:right}td:first-child,th:first-child{text-align:left}
 </style></head><body><main>
 <h1>FSS Insights 사용 통계</h1>
-<div class="card"><input id="tok" type="password" placeholder="관리자 토큰" autocomplete="off"> <select id="span"><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option></select> <button id="go">조회</button> <span id="msg" class="leg"></span></div>
+<div class="card"><input id="tok" type="password" placeholder="관리자 토큰" autocomplete="off"> <select id="pf"><option value="all">전체(앱+웹)</option><option value="app">앱만</option><option value="web">웹만</option></select> <select id="span"><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option></select> <button id="go">조회</button> <span id="msg" class="leg"></span></div>
 <div id="out" hidden>
-<div class="card"><div class="kpi"><div><b id="k1"></b><span>오늘 DAU</span></div><div><b id="k2"></b><span>최근 7일 WAU</span></div><div><b id="k3"></b><span>최근 30일 MAU</span></div><div><b id="k4"></b><span>누적 설치(고유)</span></div></div></div>
+<div class="card"><div class="kpi"><div><b id="k1"></b><span>오늘 DAU</span></div><div><b id="k2"></b><span>최근 7일 WAU</span></div><div><b id="k3"></b><span>최근 30일 MAU</span></div><div><b id="k4"></b><span>누적 설치(고유)</span></div></div><div id="split" class="leg" style="margin-top:8px;text-align:center"></div></div>
 <div class="card"><h2>일자별 활성사용자</h2><svg id="chart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg><div class="leg"><b style="background:var(--a)"></b>DAU<b style="background:var(--b)"></b>WAU(7일)<b style="background:var(--c)"></b>MAU(30일)</div></div>
 <div class="card"><h2>버전별 분포 (최근 7일 활성)</h2><div id="ver"></div></div>
 <div class="card"><h2>메뉴별 사용자 수·열린 횟수</h2><table id="menu"></table><div class="leg">사용자 수는 조회 기간 중 그 메뉴를 연 서로 다른 설치 수입니다. 메뉴 기록은 사용자가 다음 날 앱을 열 때 올라오므로 오늘 것은 내일부터 보입니다.</div></div>
@@ -168,10 +192,10 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",
 function bars(el,obj){const e=Object.entries(obj).sort((a,b)=>b[1]-a[1]);const m=Math.max(1,...e.map(x=>x[1]));el.innerHTML=e.length?e.map(([k,v])=>'<div class="bar"><em>'+esc(k)+'</em><i style="width:'+Math.round(v/m*55)+'%"></i>'+v+'</div>').join(""):'<span class="leg">자료 없음</span>'}
 function line(s,key,color,max){const n=s.length;return '<polyline fill="none" stroke="'+color+'" stroke-width="2" points="'+s.map((p,i)=>(n>1?i/(n-1)*580+10:300)+","+(185-p[key]/max*170)).join(" ")+'"/>'}
 async function load(){$("msg").textContent="불러오는 중…";sessionStorage.setItem("t",$("tok").value);
-const r=await fetch("/admin/api?days="+$("span").value,{headers:{"X-Admin-Token":$("tok").value}});
+const r=await fetch("/admin/api?days="+$("span").value+"&platform="+$("pf").value,{headers:{"X-Admin-Token":$("tok").value}});
 if(!r.ok){$("msg").textContent=r.status==401?"토큰이 맞지 않습니다":"오류 "+r.status;return}
 const d=await r.json();$("msg").textContent=d.from+" ~ "+d.to;$("out").hidden=false;const s=d.series,l=s[s.length-1];
-$("k1").textContent=l.dau;$("k2").textContent=l.wau;$("k3").textContent=l.mau;$("k4").textContent=d.totalInstalls;
+$("k1").textContent=l.dau;$("k2").textContent=l.wau;$("k3").textContent=l.mau;$("k4").textContent=d.totalInstalls;const sp=d.split;$("split").textContent="오늘 DAU 앱 "+sp.app.dau+" · 웹 "+sp.web.dau+"  /  7일 앱 "+sp.app.wau+" · 웹 "+sp.web.wau+"  /  30일 앱 "+sp.app.mau+" · 웹 "+sp.web.mau+" (한 사람이 앱과 웹을 모두 쓰면 양쪽에 1명씩 잡힙니다)";
 const max=Math.max(1,...s.map(p=>p.mau));$("chart").innerHTML='<line x1="10" x2="590" y1="185" y2="185" stroke="currentColor" opacity=".2"/>'+line(s,"mau","var(--c)",max)+line(s,"wau","var(--b)",max)+line(s,"dau","var(--a)",max);
 bars($("ver"),d.versions);
 const ms=Object.entries(d.menus).sort((a,b)=>b[1].users-a[1].users||b[1].hits-a[1].hits);
