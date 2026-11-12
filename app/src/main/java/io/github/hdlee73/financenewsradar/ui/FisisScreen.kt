@@ -230,7 +230,19 @@ private fun CompanyList(state: FisisUiState, viewModel: FisisViewModel) {
     val assets = state.assets[sector.code].orEmpty()
     // 총자산이 큰 순서. 총자산을 아직 못 받은 회사는 이름순으로 뒤에 둔다.
     // 증권사는 국내 증권사를 먼저, 그다음 외국계를 각각 총자산 큰 순으로 둔다.
-    val sorted = remember(all, assets, sector.code) {
+    // 운용사(G)는 총자산이 아니라 금융투자협회 펀드 순자산(최근일자 공모+사모) 큰 순서이고, 자료가 없는 회사는 맨 뒤(이름순)다.
+    val fundVm: FundAumViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val fundState by fundVm.state.collectAsStateWithLifecycle()
+    LaunchedEffect(sector.code) { if (sector.code == "G") fundVm.ensure() }
+    val fundData = if (sector.code == "G") fundState.data else null
+    val fundAum: Map<String, Long> = remember(all, fundData) {
+        if (fundData == null) emptyMap()
+        else all.mapNotNull { c -> fundData.find(c.name, "G")?.total(0)?.takeIf { it > 0 }?.let { c.code to it } }.toMap()
+    }
+    val sorted = remember(all, assets, sector.code, fundData, fundAum) {
+        if (fundData != null) return@remember all.sortedWith(
+            compareByDescending<FisisCompany> { fundAum[it.code] ?: Long.MIN_VALUE }.thenBy { it.name }
+        )
         all.sortedWith(
             compareBy<FisisCompany> { if (sector.code == "F" && FOREIGN_BROKER.containsMatchIn(it.name)) 1 else 0 }
                 .thenByDescending { assets[it.code]?.let { a -> fisisWon(a.value, a.unit) } ?: Double.NEGATIVE_INFINITY }
@@ -268,7 +280,16 @@ private fun CompanyList(state: FisisUiState, viewModel: FisisViewModel) {
                         ListCard(onClick = { viewModel.open(FisisView.Detail(company)) }) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 InitialAvatar(company.name, AppColors.heroEnd)
-                                Text(company.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                                Column(Modifier.weight(1f)) {
+                                    Text(company.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                                    if (fundData != null) {
+                                        val v = fundAum[company.code]
+                                        Text(
+                                            if (v != null) "${if (query.isBlank()) "${shown.indexOf(company) + 1}위 · " else ""}펀드 순자산 ${eokText(v)}원 (${dateLabel(fundData.asOf.recent)})" else "펀드 순자산 자료 없음",
+                                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                                 Checkbox(checked = company in state.picks, onCheckedChange = { viewModel.togglePick(company) })
                             }
                         }
