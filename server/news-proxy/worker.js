@@ -337,6 +337,32 @@ export const STAT_SPECS = [
   { id: "bank-delinquency-corp", name: "은행 기업대출 연체율", unit: "%", cycle: "M", tableCode: "901Y054", want: ["기업대출", "은행전체"] },
   { id: "loan-rate", name: "예금은행 대출금리", unit: "%", cycle: "M", tableCode: "121Y006", itemCode: "BECBLA01" },
   { id: "mortgage-rate", name: "예금은행 주택담보대출금리", unit: "%", cycle: "M", tableCode: "121Y006", itemCode: "BECBLA0302" },
+  // 거시경제 지표(금융시장 동향 및 거시경제 지표 메뉴). yoy: 지수를 전년 같은 달 대비 상승률(%)로 바꾼다. digits: 화면에 보일 소수 자릿수.
+  { id: "gdp-growth", name: "실질GDP 성장률(전기 대비)", unit: "%", digits: 1, cycle: "Q", tableCode: "200Y102", itemCode: "10111" },
+  { id: "cpi-yoy", name: "소비자물가 상승률(전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y009", itemCode: "0", yoy: true },
+  { id: "ppi-yoy", name: "생산자물가 상승률(전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "404Y014", itemCode: "*AA", yoy: true },
+  { id: "unemployment", name: "실업률", unit: "%", digits: 1, cycle: "M", tableCode: "901Y027", itemCode: "I61BC/I28A" },
+  { id: "employment-rate", name: "고용률", unit: "%", digits: 1, cycle: "M", tableCode: "901Y027", itemCode: "I61E/I28A" },
+  { id: "employed", name: "취업자 수", unit: "만명", digits: 0, scale: 0.1, cycle: "M", tableCode: "901Y027", itemCode: "I61BA/I28A" },
+  { id: "current-account", name: "경상수지", unit: "억달러", digits: 1, scale: 0.01, cycle: "M", tableCode: "301Y013", itemCode: "000000" },
+  { id: "exports-sa", name: "상품수출(계절조정)", unit: "억달러", digits: 0, scale: 0.01, cycle: "M", tableCode: "301Y017", itemCode: "SA110" },
+  { id: "usdkrw", name: "원/달러 환율(매매기준율)", unit: "원", digits: 1, cycle: "D", tableCode: "731Y001", itemCode: "0000001" },
+  // 분야별 추가 지표(성장·소득, 물가, 고용·인구, 생산·투자·소비, 경기·심리, 대외)
+  { id: "consumption-growth", name: "민간소비 증감률(전기 대비)", unit: "%", digits: 1, cycle: "Q", tableCode: "200Y102", itemCode: "10122" },
+  { id: "facility-growth", name: "설비투자 증감률(전기 대비)", unit: "%", digits: 1, cycle: "Q", tableCode: "200Y102", itemCode: "10123" },
+  { id: "gni-growth", name: "실질 GNI 증감률(전기 대비)", unit: "%", digits: 1, cycle: "Q", tableCode: "200Y102", itemCode: "20112" },
+  { id: "core-cpi-yoy", name: "근원물가 상승률(농산물·석유류 제외)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y010", itemCode: "QB", yoy: true },
+  { id: "living-cpi-yoy", name: "생활물가 상승률(전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y010", itemCode: "110", yoy: true },
+  { id: "labor-participation", name: "경제활동참가율", unit: "%", digits: 1, cycle: "M", tableCode: "901Y027", itemCode: "I61D/I28A" },
+  { id: "production-yoy", name: "전산업생산 증감률(전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y033", itemCode: "A00/1", yoy: true },
+  { id: "retail-yoy", name: "소매판매 증감률(불변, 전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y100", itemCode: "G0/T2", yoy: true },
+  { id: "facility-index-yoy", name: "설비투자지수 증감률(전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y066", itemCode: "I15A", yoy: true },
+  { id: "utilization", name: "제조업 평균가동률", unit: "%", digits: 1, cycle: "M", tableCode: "901Y025", itemCode: "I31A" },
+  { id: "ccsi", name: "소비자심리지수", unit: "", digits: 1, cycle: "M", tableCode: "511Y002", itemCode: "FME/99988" },
+  { id: "esi", name: "경제심리지수", unit: "", digits: 1, cycle: "M", tableCode: "513Y001", itemCode: "E1000" },
+  { id: "bsi", name: "기업경기실사지수(전산업 업황실적)", unit: "", digits: 0, cycle: "M", tableCode: "512Y013", itemCode: "99988/AA" },
+  { id: "leading-index", name: "선행지수 순환변동치", unit: "", digits: 1, cycle: "M", tableCode: "901Y067", itemCode: "I16E" },
+  { id: "imports-sa", name: "상품수입(FOB)", unit: "억달러", digits: 0, scale: 0.01, cycle: "M", tableCode: "301Y017", itemCode: "SA120" },
   { id: "fx-reserves", name: "외환보유액", unit: "", cycle: "M", table: ["외환보유액"], item: [] },
 ];
 export const DEFAULT_STAT_IDS = ["base-rate", "ktb-3y", "ktb-10y", "cd-91", "corp-aa", "household-credit", "bank-household-loan", "bank-delinquency", "loan-rate", "fx-reserves"];
@@ -377,6 +403,19 @@ export const filterRows = (rows, want) =>
     return want.every((w) => names.includes(w));
   });
 
+// 지수 행을 전년 같은 달(분기는 같은 분기) 대비 상승률(%) 행으로 바꾼다. 비교할 전년 값이 없는 행은 뺀다.
+export const toYoy = (rows) => {
+  const byTime = new Map(rows.map((r) => [String(r.TIME), parseFloat(String(r.DATA_VALUE).replace(/,/g, ""))]));
+  const prevYear = (t) => (/^\d{6}$/.test(t) ? `${Number(t.slice(0, 4)) - 1}${t.slice(4)}` : /^\d{4}Q\d$/.test(t) ? `${Number(t.slice(0, 4)) - 1}${t.slice(4)}` : "");
+  return rows
+    .map((r) => {
+      const now = byTime.get(String(r.TIME));
+      const before = byTime.get(prevYear(String(r.TIME)));
+      return Number.isFinite(now) && Number.isFinite(before) && before !== 0 ? { ...r, DATA_VALUE: String(Math.round(((now / before - 1) * 100) * 100) / 100), UNIT_NAME: "%" } : null;
+    })
+    .filter(Boolean);
+};
+
 // ECOS 행(시간순)에서 최근값과 비교값을 뽑는다. lastChange면 마지막으로 값이 바뀌기 전 값을 비교값으로 쓴다.
 export const latestPair = (rows, lastChange) => {
   const points = rows
@@ -407,11 +446,12 @@ async function statOne(spec, env, tables) {
     itemCode = item.ITEM_CODE;
     source += ` / ${item.ITEM_NAME}`;
   }
-  const [from, to] = range(spec.cycle, new Date(), spec.want ? 18 : 36);
+  const [from, to] = range(spec.cycle, new Date(), spec.want ? 18 : spec.yoy ? 30 : 36);
   const path = `StatisticSearch/{key}/json/kr/1/500/${tableCode}/${spec.cycle}/${from}/${to}` + (itemCode ? `/${itemCode}` : "");
   let rows = (await ecos(env, path)).StatisticSearch.row;
   const fetched = rows.length;
   if (spec.want) rows = filterRows(rows, spec.want);
+  if (spec.yoy) rows = toYoy(rows);
   const pair = latestPair(rows, spec.lastChange);
   if (!pair) throw new Error(`값 없음(${tableCode} 조회 ${fetched}행, 조건 일치 ${rows.length}행${fetched >= 500 ? ", 500행 한도 도달" : ""})`);
   const scale = spec.scale || 1;
@@ -423,13 +463,14 @@ async function statOne(spec, env, tables) {
     previous: pair.previous == null ? null : pair.previous * scale,
     period: pair.period,
     unit: spec.unit || pair.unit,
+    ...(spec.digits != null ? { digits: spec.digits } : {}),
     source,
   };
 }
 
 // ids를 알려진 통계로 좁힌다. 비었거나 모르는 id뿐이면 기본 묶음.
 export const selectSpecs = (idsParam) => {
-  const ids = String(idsParam || "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 24);
+  const ids = String(idsParam || "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 40);
   const chosen = STAT_SPECS.filter((s) => ids.includes(s.id));
   return chosen.length ? chosen : STAT_SPECS.filter((s) => DEFAULT_STAT_IDS.includes(s.id));
 };
@@ -437,7 +478,7 @@ export const selectSpecs = (idsParam) => {
 async function stats(url, env, ctx) {
   if (!env.ECOS_API_KEY) return fail(503, "ECOS_API_KEY가 설정되지 않았습니다");
   const specs = selectSpecs(url.searchParams.get("ids"));
-  const cacheKey = new Request(`https://stats.cache/ecos-v4/${specs.map((s) => s.id).sort().join(",")}`);
+  const cacheKey = new Request(`https://stats.cache/ecos-v5/${specs.map((s) => s.id).sort().join(",")}`);
   const cache = caches.default;
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
