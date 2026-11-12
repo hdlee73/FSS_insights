@@ -476,30 +476,127 @@ function summary(root, data, goto, ctx) {
   root.append(note(`${SRC_NOTE} 출처: 각 거래소 공개 API, ${g.source || "CoinGecko"}, Coinbase`));
 }
 
+
+// ---------- 종목 차트(실시간) ----------
+/** 업비트 30분봉 최근 24시간(오래된 것부터). 실패하면 null. */
+async function fetchDayCandles(sym) {
+  const r = await fetch(`https://api.upbit.com/v1/candles/minutes/30?market=KRW-${sym}&count=48`);
+  if (!r.ok) throw new Error("upbit candles " + r.status);
+  const arr = (await r.json()).slice().reverse();
+  if (arr.length < 2) throw new Error("candles empty");
+  return arr.map((c) => ({ t: String(c.candle_date_time_kst || ""), o: c.opening_price, h: c.high_price, l: c.low_price, c: c.trade_price }));
+}
+
+/**
+ * 종목 차트 카드. 현재가·변동률·고저가는 업비트 웹소켓(끊기면 3초 폴링)으로 실시간 갱신하고,
+ * 당일 차트는 업비트 30분봉(최근 24시간)을 직접 불러 마지막 점을 현재가로 잇는다(2분마다 봉 다시 조회).
+ * 1년 차트는 하루 한 번 집계한 주봉이며 마지막 점만 현재가로 바꾼다. 캔들을 못 받으면 집계본으로 대신 그린다.
+ */
+function coinChartCard(ctx, cs, coin, year, params) {
+  const sym = coin.symbol;
+  const snapDay = coin.day || {}, snapYear = coin.year || {};
+  let candles = null, candleErr = false, live = null;
+  const titleEl = h("h3", null);
+  const stats = h("div", { class: "cr-row3" }), chartBox = h("div", null), noteEl = note("");
+  const body = h("div", { class: "stack" }, tabs(["당일", "1년"], year ? 1 : 0, (i) => ctx.go({ ...params, range: i ? "year" : null }, { replace: true }), "seg"), stats);
+  const stampEl = h("span", { class: "cr-live" }, h("i"), "실시간 연결 중…");
+  const badgeBox = h("span", null);
+  const axisDay = (t) => (t && t.length >= 16 ? t.slice(11, 16) : "");
+  const axisYear = (t) => (t && t.length >= 7 ? t.slice(2, 7).replace("-", ".") : "");
+  const col = (rate) => ((rate ?? 0) >= 0 ? "#e5484d" : "#1f6feb");
+
+  /** 현재 보여 줄 값 계산: { pts, labels, high, low, rate, usingLive, usingCandles } */
+  const compute = () => {
+    const px = live?.price;
+    const hasPx = Number.isFinite(px);
+    if (year) {
+      const pts = (snapYear.points || []).slice(), labels = (snapYear.times || []).map(axisYear);
+      const base = snapYear.change_rate != null && coin.price ? coin.price / (1 + snapYear.change_rate) : null;
+      let high = snapYear.high, low = snapYear.low;
+      if (hasPx && pts.length) { pts[pts.length - 1] = px; high = Math.max(high ?? px, px); low = Math.min(low ?? px, px); }
+      return { pts, labels, high, low, rate: hasPx && base ? px / base - 1 : snapYear.change_rate, liveLast: hasPx && pts.length > 0, candles: false };
+    }
+    if (candles) {
+      const pts = candles.map((c) => c.c), labels = candles.map((c) => axisDay(c.t));
+      let high = Math.max(...candles.map((c) => c.h)), low = Math.min(...candles.map((c) => c.l));
+      if (hasPx) { pts[pts.length - 1] = px; high = Math.max(high, px); low = Math.min(low, px); }
+      const base = candles[0].o;
+      const last = hasPx ? px : pts.at(-1);
+      return { pts, labels, high, low, rate: base ? last / base - 1 : null, liveLast: hasPx, candles: true };
+    }
+    const pts = (snapDay.points || []).slice(), labels = (snapDay.times || []).map(axisDay);
+    let high = snapDay.high, low = snapDay.low;
+    if (hasPx && pts.length) { pts[pts.length - 1] = px; high = Math.max(high ?? px, px); low = Math.min(low ?? px, px); }
+    const base = snapDay.change_rate != null && coin.price ? coin.price / (1 + snapDay.change_rate) : null;
+    return { pts, labels, high, low, rate: hasPx && base ? px / base - 1 : snapDay.change_rate, liveLast: hasPx && pts.length > 0, candles: false };
+  };
+
+  const draw = () => {
+    const v = compute();
+    const shown = Number.isFinite(live?.price) ? live.price : coin.price;
+    titleEl.textContent = `${coin.name} (${sym}) · ${Number.isFinite(live?.price) ? "현재가" : "집계 시점 가격"} ${price(shown)} 원`;
+    const isLive = Number.isFinite(live?.price);
+    badgeBox.replaceChildren(isLive ? badge("live", "실시간") : badge("snap", `${shortDate(cs.date)} 24시 집계`));
+    const noteTxt = year
+      ? `주봉 종가 기준 최근 1년(업비트)은 ${shortDate(cs.date)} 24시 집계본이고, 마지막 점·고저가·변동률만 실시간 현재가로 이어집니다. 변동률은 1년 전 첫 주 시가 대비 현재가입니다.`
+      : v.candles
+        ? "업비트 30분봉을 직접 불러온 최근 24시간(2분마다 갱신)이며 마지막 점은 실시간 현재가입니다. 당일은 달력상 하루가 아니라 최근 24시간이고, 변동률은 24시간 전 시가 대비 현재가입니다."
+        : `30분봉을 불러오지 못해 ${shortDate(cs.date)} 24시 집계본(수집 ${cs.collected_at || "-"} 직전 24시간)을 보여 줍니다. 마지막 점·고저가·변동률만 실시간 현재가로 이어집니다.`;
+    stats.replaceChildren(
+      h("div", null, h("small", { class: "note" }, year ? "1년 변동" : "24시간 변동"), h("div", null, chg(v.rate))),
+      h("div", null, h("small", { class: "note" }, year ? "1년 고가" : "24시간 고가"), h("div", null, price(v.high))),
+      h("div", null, h("small", { class: "note" }, year ? "1년 저가" : "24시간 저가"), h("div", null, price(v.low))));
+    chartBox.replaceChildren(lineChart([{ name: year ? "1년" : "당일", color: col(v.rate), data: v.pts }], v.labels, { format: price }));
+    noteEl.textContent = noteTxt;
+  };
+
+  // 실시간 시세(업비트만)
+  liveCrypto(ctx, [sym], (st) => {
+    const q = st.up[sym];
+    if (q && Number.isFinite(q.price)) live = q;
+    const m = st.mode.upbit || "down";
+    stampEl.classList.toggle("off", m === "down");
+    stampEl.lastChild.textContent = `${MODE_TEXT[m]} · ${new Date(st.at).toTimeString().slice(0, 8)} 수신`;
+    if (ctx.alive()) draw();
+  });
+
+  // 당일 30분봉(2분마다 갱신, 화면이 숨겨져 있으면 건너뜀)
+  if (!year) {
+    let timer = 0;
+    const load = async () => {
+      timer = 0;
+      if (!ctx.alive()) return;
+      if (!document.hidden) {
+        try { candles = await fetchDayCandles(sym); candleErr = false; } catch { candleErr = true; }
+        if (!ctx.alive()) return;
+        draw();
+      }
+      // 업비트 REST는 Origin 기준 10초에 1회 제한이라 실패하면 11초 뒤 다시, 성공하면 2분마다(마지막 점은 실시간이라 충분).
+      timer = setTimeout(load, candleErr ? 11000 : 120000);
+    };
+    load();
+  }
+
+  body.append(stampEl, chartBox, noteEl);
+  const el = h("section", { class: "card" }, h("div", { class: "ch" }, icon("activity"), titleEl, h("div", { class: "ch-acts" }, badgeBox)), body);
+  draw();
+  return el;
+}
+
 // ---------- 주요코인 시세 ----------
 function coinsView(root, data, params, ctx) {
   const cs = data.coins;
   root.append(h("div", { class: "cr-basis stack" },
-    h("div", null, badge("live", "실시간"), h("span", null, "지금 이 순간 거래소 시세를 직접 조회합니다(아래 두 표). 새로고침 없이 약 8초마다 바뀝니다.")),
-    h("div", null, cs ? snapBadge(cs) : badge("snap", "24시 집계"), h("span", null, "하루 한 번 집계해 저장한 값입니다(그래프·전체 비교). " + (cs ? snapExplain(cs) : "")))));
+    h("div", null, badge("live", "실시간"), h("span", null, "지금 이 순간 거래소 시세를 직접 조회합니다(아래 두 표). 새로고침 없이 체결되는 대로 바뀝니다.")),
+    h("div", null, cs ? snapBadge(cs) : badge("snap", "24시 집계"), h("span", null, "하루 한 번 집계해 저장한 값은 1년 그래프와 맨 아래 전체 비교뿐입니다. 종목별 당일 그래프·현재가·고저가·변동률은 실시간입니다. " + (cs ? snapExplain(cs) : "")))));
   root.append(card("주요 코인 시세와 김치 프리미엄", "activity", liveTable(ctx, data.snapshot, ["BTC", "ETH", "XRP", "SOL", "DOGE", "ADA"]), badge("live", "실시간")));
   root.append(card("대표 스테이블코인 (달러 연동 코인)", "coins", liveTable(ctx, data.snapshot, STABLES), badge("live", "실시간")));
   root.append(note("스테이블코인은 달러와 1:1을 목표로 해서, 원화 가격이 환율과 같으면 김프 0%입니다. 환율보다 높으면 달러 수요가 몰린 것입니다."));
   if (!cs || !(cs.coins || []).length) return root.append(message("당일·1년 그래프 자료를 불러오지 못했습니다. 다음 집계 후 새로고침해 주세요."));
   const coin = cs.coins.find((c) => c.symbol === params.coin) || cs.coins[0];
   const year = params.range === "year";
-  const r = (year ? coin.year : coin.day) || {};
   root.append(tabs(cs.coins.map((c) => c.symbol), cs.coins.indexOf(coin), (i) => ctx.go({ ...params, coin: cs.coins[i].symbol }, { replace: true }), "seg"));
-  const axis = (t) => (!t ? "" : year ? (t.length >= 7 ? t.slice(2, 7).replace("-", ".") : "") : t.length >= 16 ? t.slice(11, 16) : "");
-  const pts = r.points || [];
-  root.append(card(`${coin.name} (${coin.symbol}) · 집계 시점 가격 ${price(coin.price)} 원`, "activity", h("div", { class: "stack" },
-    tabs(["당일", "1년"], year ? 1 : 0, (i) => ctx.go({ ...params, range: i ? "year" : null }, { replace: true }), "seg"),
-    h("div", { class: "cr-row3" },
-      h("div", null, h("small", { class: "note" }, year ? "1년 변동(집계 시점)" : "24시간 변동(집계 시점)"), h("div", null, chg(r.change_rate))),
-      h("div", null, h("small", { class: "note" }, "고가"), h("div", null, price(r.high))),
-      h("div", null, h("small", { class: "note" }, "저가"), h("div", null, price(r.low)))),
-    lineChart([{ name: year ? "1년" : "당일", color: (r.change_rate ?? 0) >= 0 ? "#e5484d" : "#1f6feb", data: pts }], pts.map((_, i) => axis(r.times?.[i])), { format: price }),
-    note(year ? `주봉 종가 기준 최근 1년(업비트). 변동률은 1년 전 첫 주 시가 대비 집계 시점 가격입니다.` : `30분봉 종가 기준, 집계 수집 시각(${cs.collected_at || "-"}) 직전 24시간(업비트). 당일은 달력상 하루가 아니라 최근 24시간이며, 변동률은 24시간 전 시가 대비 집계 시점 가격입니다.`)), badge("snap", `${shortDate(cs.date)} 24시 집계`)));
+  root.append(coinChartCard(ctx, cs, coin, year, params));
   root.append(card("전체 비교 (집계 시점 원화 가격과 변동률)", "table", h("div", { class: "stack" },
     table(["코인", "집계 시점 가격", "24시간 변동", "1년 변동"], cs.coins.map((c) => [c.symbol, price(c.price), chg(c.day?.change_rate), chg(c.year?.change_rate, 1)])),
     note(`가격=${shortDate(cs.date)} 24시 집계본의 업비트 가격(실제 수집 ${cs.collected_at || "-"})으로, 위 실시간 시세표와 값이 다를 수 있습니다. 24시간 변동=수집 직전 24시간 전 시가 대비, 1년 변동=1년 전 첫 주 시가 대비입니다.`)), badge("snap", `${shortDate(cs.date)} 24시 집계`)));
