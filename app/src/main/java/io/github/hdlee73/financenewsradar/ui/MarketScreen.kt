@@ -426,14 +426,14 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
     var kofiaPicking by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    // 화면이 보이는 동안만 갱신한다(탭을 벗어나면 중단): 지수 10초, 전체 20초.
+    // 화면이 보이는 동안만 갱신한다(탭을 벗어나면 중단): 지수 5초, 전체 20초.
     LaunchedEffect(Unit) {
         viewModel.refresh()
         var tick = 0
         while (true) {
-            delay(10_000)
+            delay(5_000)
             tick++
-            if (tick % 2 == 0) viewModel.refresh() else viewModel.refreshPanel()
+            if (tick % 4 == 0) viewModel.refresh() else viewModel.refreshPanel()
         }
     }
 

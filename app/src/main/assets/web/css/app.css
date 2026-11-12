@@ -687,10 +687,24 @@ button.sh.has-on > .gl { color: var(--side-accent, #7fb2ff); }
 .sec.grouped .mi { margin-left: 22px; padding: 6px 10px 6px 12px; border-left: 2px solid #2b3f6b; border-radius: 0 8px 8px 0; font-size: 13px; opacity: .92; }
 .sec.grouped .mi .i { width: 16px; height: 16px; }
 .sec.grouped .mi.on { opacity: 1; border-left-color: var(--side-accent); box-shadow: none; }
-.sec.grouped .mi:last-child { margin-bottom: 4px; }
-.sec.folded .mi { display: none; }
-body.collapsed .sec.folded .mi { display: flex; }
-@media (max-width: 860px) { body.collapsed .sec.folded .mi { display: none; } }
+.sec.grouped .mr:last-child .mi { margin-bottom: 4px; }
+.sec.folded .mr { display: none; }
+body.collapsed .sec.folded .mr { display: block; }
+@media (max-width: 860px) { body.collapsed .sec.folded .mr { display: none; } }
+
+/* 메뉴 즐겨찾기 별: 항목 오른쪽 끝. 마우스를 올리거나 키보드로 닿을 때 보이고, 등록된 것은 늘 보인다. 터치 기기는 늘 흐리게 보인다. */
+.mr { position: relative; }
+.menu .sec .mr .mi { padding-right: 34px; }
+.mr .fav { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: var(--side-fg); opacity: 0; background: none; border: 0; cursor: pointer; padding: 0; }
+.mr .fav .i { width: 15px; height: 15px; }
+.mr:hover .fav, .mr .fav:focus-visible { opacity: .6; }
+.mr .fav:hover { opacity: 1; background: #1b2b4d; }
+.mr .fav.on { opacity: 1; color: #f5b83d; }
+.mr .fav.on .i { fill: currentColor; }
+@media (hover: none) { .mr .fav { opacity: .4; } .mr .fav.on { opacity: 1; } }
+body.collapsed .mr .fav { display: none; }
+body.collapsed .menu .sec .mr .mi { padding-right: 0; }
+@media (max-width: 860px) { body.collapsed .mr .fav { display: grid; } body.collapsed .menu .sec .mr .mi { padding-right: 34px; } }
 
 /* ---- 헤더 우측: 마지막 업데이트·빠른 검색·새로고침 ---- */
 .fresh { display: flex; align-items: center; gap: 2px; color: var(--muted); font-size: 12px; flex: none; }
@@ -701,12 +715,12 @@ body.collapsed .sec.folded .mi { display: flex; }
 #fresh-btn.busy .i { animation: spin .8s linear infinite; }
 .fresh-short { display: none; }
 @media (max-width: 860px) {
-  .fresh-k, .fresh-full { display: none; }
-  .fresh-short { display: inline; }
-  .fresh-t { font-size: 11px; max-width: 84px; white-space: normal; }
-  .fresh-t b { display: block; }
+  /* 좁은 화면에서는 시각 글자를 숨겨 메뉴 이름이 잘리지 않게 한다(시각은 새로고침 단추를 길게 누르면 툴팁으로 확인). 저장본·오프라인이면 단추에 주황 점을 붙인다. */
+  .fresh-t { display: none; }
   .fresh .ib { width: 30px; height: 30px; }
-  .fresh-tag { margin: 0; display: block; width: max-content; margin-left: auto; }
+  .fresh.stale #fresh-btn { color: var(--warn-fg); position: relative; }
+  .fresh.stale #fresh-btn::after { content: ""; position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn-fg); }
+}
 }
 
 /* ---- 읽은 글은 흐리게 ---- */
@@ -1004,3 +1018,11 @@ textarea.facts { width: 100%; padding: 10px; border: 1px solid var(--line); bord
 .cr-sharebar { display: flex; height: 30px; border-radius: 8px; overflow: hidden; background: var(--chip); }
 .cr-sharebar span { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 700; min-width: 0; overflow: hidden; }
 .cr-range select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: inherit; }
+.cr-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.cr-badge.live { color: #0f7b3a; background: rgba(29, 185, 84, .14); }
+.cr-badge.live i { width: 7px; height: 7px; border-radius: 50%; background: #1db954; animation: crpulse 1.6s infinite; }
+.cr-badge.snap { color: #8a5a00; background: rgba(214, 150, 20, .16); }
+.cr-basis { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12.5px; color: var(--muted); background: var(--chip); border-radius: var(--r); padding: 8px 12px; }
+.cr-basis.stack { flex-direction: column; align-items: flex-start; }
+.cr-basis div { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.cr-live.off i { background: #c0392b; animation: none; }
