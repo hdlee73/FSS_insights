@@ -10,6 +10,7 @@
 // 웹 버전(fss-insights-web)은 앱 토큰을 숨길 수 없어서, 허용 출처(WEB_ORIGINS)에서 온 요청은 토큰 없이 받고 IP별 요청 수를 제한한다.
 import fisisData from "./fisis-data.json";
 import { usagePing, adminApi, adminPage } from "./usage-lib.js";
+import { publicNotices, adminNotices, noticesPage } from "./notices-lib.js";
 import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, webSearchCorps, withDartClass } from "./dart-lib.js";
 import { corsPreflight, proxyFetch, webAccess, withCors } from "./web-lib.js";
 import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos } from "./fisis-lib.js";
@@ -60,6 +61,14 @@ async function route(request, url, env, ctx, fromWeb) {
         return fail(502, `통계 조회 오류: ${e.message}`);
       }
     }
+    if (url.pathname === "/admin/notices" && request.method === "GET") return noticesPage();
+    if (url.pathname === "/admin/notices/api") {
+      try {
+        return await adminNotices(request, env);
+      } catch (e) {
+        return fail(502, `공지 처리 오류: ${e.message}`);
+      }
+    }
     if (!fromWeb && (!env.APP_TOKEN || request.headers.get("X-App-Token") !== env.APP_TOKEN)) {
       return new Response("Unauthorized", { status: 401 });
     }
@@ -68,6 +77,13 @@ async function route(request, url, env, ctx, fromWeb) {
         return await proxyFetch(request, url, ctx);
       } catch (e) {
         return fail(502, `사이트 읽기 오류: ${e.message}`);
+      }
+    }
+    if (url.pathname === "/notices" && request.method === "GET") {
+      try {
+        return await publicNotices(env);
+      } catch (e) {
+        return json({ notices: [] });
       }
     }
     if (url.pathname === "/usage/ping" && request.method === "POST") {
