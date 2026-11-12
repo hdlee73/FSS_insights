@@ -44,7 +44,7 @@ internal fun CapitalMarketPanel(all: List<KofiaGroup>, hidden: Set<String>, load
         if (sections.isEmpty()) null else g.copy(sections = sections)
     }
     Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-        SubHeading("자본시장 통계") { if (all.isNotEmpty()) SoftButton(onClick = onPick) { Text("항목 선택", fontSize = 12.sp) } }
+        SubHeading("자본시장 통계(금투협)") { if (all.isNotEmpty()) SoftButton(onClick = onPick) { Text("항목 선택", fontSize = 12.sp) } }
         val shape = RoundedCornerShape(10.dp)
         if (groups.isEmpty()) {
             Text(

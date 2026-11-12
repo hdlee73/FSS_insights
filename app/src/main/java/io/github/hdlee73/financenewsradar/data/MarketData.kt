@@ -148,6 +148,13 @@ class WatchlistStore(context: Context) {
         preferences.edit().putStringSet(STAT_MARKET, selection.market).putStringSet(STAT_BRIEFING, selection.briefing).apply()
     }
 
+    /** 거시경제 지표 선택. 저장된 값이 없으면 기본 4개. */
+    fun loadMacroSelection(): Set<String> = preferences.getStringSet(MACRO_SELECTED, null) ?: DEFAULT_MACRO.toSet()
+
+    fun saveMacroSelection(ids: Set<String>) {
+        preferences.edit().putStringSet(MACRO_SELECTED, ids).apply()
+    }
+
     /** 자본시장 통계에서 숨긴 항목 키. 저장된 값이 없으면 전부 보이고, 새로 생긴 항목도 기본으로 보인다. */
     fun loadKofiaHidden(): Set<String> = preferences.getStringSet(KOFIA_HIDDEN, null) ?: emptySet()
 
@@ -192,6 +199,7 @@ class WatchlistStore(context: Context) {
         const val HIDDEN_STATS = "hidden_stats"
         const val STAT_MARKET = "stat_market_v1"
         const val STAT_BRIEFING = "stat_briefing_v1"
+        const val MACRO_SELECTED = "macro_selected_v1"
         const val KOFIA_HIDDEN = "kofia_hidden_v1"
         const val ITEMS = "items"
         const val PANEL = "panel_slots"

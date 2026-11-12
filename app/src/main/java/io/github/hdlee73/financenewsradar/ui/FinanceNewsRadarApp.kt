@@ -141,7 +141,7 @@ private const val SCREEN_CRYPTO = 20
 private val appScreens = listOf(
     AppScreen("오늘의 브리핑", Icons.Filled.WbSunny),
     AppScreen("뉴스검색", Icons.Filled.Newspaper),
-    AppScreen("금융시장 동향", Icons.Filled.ShowChart),
+    AppScreen("금융시장 동향 및 거시경제 지표", Icons.Filled.ShowChart),
     AppScreen("금융당국 등 보도자료", Icons.Filled.Description),
     AppScreen("금융관련 리포트", Icons.Filled.Science),
     AppScreen("기타 참고자료", Icons.Filled.FolderOpen),
