@@ -72,12 +72,13 @@ fun UpdatePrompt(onOpenAppInfo: () -> Unit) {
                     if (p >= 0f) LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
                     else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
+                flow.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
                 flow.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {
             if (update.apkUrl != null) {
-                TextButton(onClick = { flow.start(update) }, enabled = !flow.busy) { Text("지금 업데이트") }
+                TextButton(onClick = { flow.start(update) }, enabled = !flow.busy) { Text("내려받기") }
             } else {
                 TextButton(onClick = { dismissedVersion = update.version; onOpenAppInfo() }) { Text("앱 정보로 이동") }
             }
