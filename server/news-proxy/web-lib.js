@@ -3,7 +3,7 @@
 // 토큰 없이 받고, 남용을 막으려고 IP별 요청 수를 제한한다(WEB_LIMIT 바인딩, wrangler.toml).
 // 네이버 뉴스(/news)도 웹 뉴스검색에서 쓴다(네이버 키는 서버 비밀값에만 있다).
 
-const WEB_PATHS = /^\/(news|law|dart|fisis|stats|library|fetch|usage\/ping)(\/|$)/;
+const WEB_PATHS = /^\/(news|law|dart|fisis|stats|library|fetch|notices|usage\/ping)(\/|$)/;
 
 // /fetch 가 대신 읽어 줄 수 있는 사이트(앱이 기기에서 직접 읽던 곳). 이 밖의 주소는 거절한다.
 const FETCH_HOSTS = [
