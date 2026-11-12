@@ -98,9 +98,10 @@ function exchangeFeed(ctx, { name, syms, wsUrl, hello, parse, poll, onData, onMo
 /**
  * 코인 목록(syms)의 업비트·빗썸 시세와 해외(Coinbase, 달러) 시세를 계속 받는다.
  * onChange(state)는 최대 초당 1회 호출된다. state = { up, bi, usd, mode:{upbit,bithumb}, at }.
+ * 옵션 { bithumb:false, usd:false }로 빗썸·해외가 연결을 끌 수 있다(종목 차트는 업비트만 쓴다).
  * 반환값은 정리 함수(화면이 닫히면 자동으로도 정리된다).
  */
-export function liveCrypto(ctx, syms, onChange) {
+export function liveCrypto(ctx, syms, onChange, { bithumb = true, usd = true } = {}) {
   const state = { up: {}, bi: {}, usd: {}, mode: {}, at: 0 };
   let dirty = false, timer = 0;
   const flush = () => { timer = 0; if (!ctx.alive()) return stopAll(); if (dirty) { dirty = false; onChange(state); } };
@@ -114,12 +115,12 @@ export function liveCrypto(ctx, syms, onChange) {
       parse: (m) => (m?.type === "ticker" && m.code ? { [String(m.code).replace("KRW-", "")]: { price: m.trade_price, rate: m.signed_change_rate } } : null),
       onData: (d) => { Object.assign(state.up, d); touch(); },
     }),
-    exchangeFeed(ctx, {
+    ...(!bithumb ? [] : [exchangeFeed(ctx, {
       name: "bithumb", syms, wsUrl: BITHUMB_WS, poll: pollBithumb, onMode,
       hello: (s) => JSON.stringify({ type: "ticker", symbols: s.map((x) => x + "_KRW"), tickTypes: ["24H"] }),
       parse: (m) => (m?.type === "ticker" && m.content?.symbol ? { [String(m.content.symbol).replace("_KRW", "")]: { price: Number(m.content.closePrice), rate: Number(m.content.chgRate) / 100 } } : null),
       onData: (d) => { Object.assign(state.bi, d); touch(); },
-    }),
+    })]),
   ];
   // 해외 달러가는 웹소켓 없이 5초마다 읽는다.
   let usdTimer = 0, usdStop = false;
@@ -129,7 +130,7 @@ export function liveCrypto(ctx, syms, onChange) {
     if (!document.hidden) { try { Object.assign(state.usd, await pollUsd(syms)); touch(); } catch { /* 다음 주기 */ } }
     if (!usdStop && ctx.alive()) usdTimer = setTimeout(usdTick, 5000);
   };
-  usdTick();
+  if (usd) usdTick();
   function stopAll() { usdStop = true; clearTimeout(usdTimer); clearTimeout(timer); stops.forEach((f) => f()); }
   return stopAll;
 }
