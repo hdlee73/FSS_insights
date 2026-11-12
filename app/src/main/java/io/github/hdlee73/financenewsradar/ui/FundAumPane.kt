@@ -73,7 +73,7 @@ internal fun eokText(v: Long): String = when {
     else -> "%,d억".format(v)
 }
 
-private fun dateLabel(ymd: String): String =
+internal fun dateLabel(ymd: String): String =
     if (ymd.length == 8) "${ymd.substring(0, 4)}.${ymd.substring(4, 6)}.${ymd.substring(6)}" else ymd
 
 @Composable
