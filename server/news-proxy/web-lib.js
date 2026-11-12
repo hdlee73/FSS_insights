@@ -83,6 +83,7 @@ export async function proxyFetch(request, url, ctx) {
     /* 잘못된 ref는 무시 */
   }
   const cache = caches.default;
+  const ttl = cacheSeconds(target);
   const cacheKey = new Request(`https://fetch-cache.invalid/?u=${encodeURIComponent(target.href)}&r=${encodeURIComponent(referer || "")}`);
   if (!isPost) {
     const hit = await cache.match(cacheKey);
@@ -113,11 +114,21 @@ export async function proxyFetch(request, url, ctx) {
     status: upstream.status,
     headers: {
       "Content-Type": upstream.headers.get("Content-Type") || "application/octet-stream",
-      // 시세는 1분, 그 밖의 목록은 10분 동안 캐시한다.
-      "Cache-Control": `public, max-age=${/(^|\.)(stock\.naver\.com|finance\.yahoo\.com)$/.test(target.hostname) ? 60 : 600}`,
+      // 실시간 시세(현재가·분봉)는 3초, 그 밖의 시세는 1분, 목록은 10분 동안 캐시한다.
+      "Cache-Control": `public, max-age=${cacheSeconds(target)}`,
       "X-Final-Url": finalUrl,
     },
   });
-  if (!isPost && upstream.ok) ctx.waitUntil(cache.put(cacheKey, out.clone()));
+  if (!isPost && upstream.ok && ttl > 0) ctx.waitUntil(cache.put(cacheKey, out.clone()));
   return out;
+}
+
+/** 실시간 시세(NAVER 현재가·분봉, Yahoo 차트)는 짧게, 그 밖의 시세는 1분, 나머지는 10분 캐시한다. */
+export function cacheSeconds(target) {
+  const host = target.hostname, path = target.pathname;
+  const quoteSite = /(^|\.)(stock\.naver\.com|finance\.yahoo\.com)$/.test(host);
+  if (!quoteSite) return 600;
+  if (/(^|\.)finance\.yahoo\.com$/.test(host) && path.startsWith("/v8/finance/chart/")) return 3;
+  if (/(^|\.)stock\.naver\.com$/.test(host) && (/\/basic$/.test(path) || /\/chart\/domestic\/.+\/minute$/.test(path))) return 3;
+  return 60;
 }
