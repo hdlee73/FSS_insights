@@ -390,7 +390,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 6px;b
 <div class="card"><h2>일자별 활성사용자</h2><svg id="chart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg><div class="leg"><b style="background:var(--a)"></b>DAU<b style="background:var(--b)"></b>WAU(7일)<b style="background:var(--c)"></b>MAU(30일)</div></div>
 <div class="card"><h2>버전별 분포 (최근 7일 활성)</h2><div id="ver"></div></div>
 <div class="card"><h2>메뉴별 사용자 수·열린 횟수</h2><table id="menu"></table><div class="leg">사용자 수는 조회 기간 중 그 메뉴를 연 서로 다른 설치 수입니다. 메뉴 기록은 사용자가 다음 날 앱을 열 때 올라오므로 오늘 것은 내일부터 보입니다.</div></div>
-<div class="card"><h2>신규 vs 재방문 (일자별 활성사용자)</h2><svg id="nr" viewBox="0 0 600 160" preserveAspectRatio="none"></svg><div class="leg"><b style="background:var(--c)"></b>신규(처음 나타난 날)<b style="background:var(--a)"></b>재방문 · 자료가 쌓이기 전부터 쓰던 사용자는 첫 기록일에 신규로 잡힙니다.</div></div>
+<div class="card"><h2>신규 vs 재방문 (일자별 활성사용자)</h2><svg id="nr" viewBox="0 0 600 186"></svg><div class="leg"><b style="background:var(--c)"></b>신규(처음 나타난 날)<b style="background:var(--a)"></b>재방문 · 자료가 쌓이기 전부터 쓰던 사용자는 첫 기록일에 신규로 잡힙니다. 막대 위 숫자는 그날 활성사용자 수(명)이고, 막대를 가리키거나 누르면 날짜별 신규·재방문 인원이 나옵니다.</div><details style="margin-top:8px"><summary class="leg">날짜별 인원 표</summary><table id="nrt"></table></details></div>
 <div class="card"><h2>재방문율 (첫 사용 뒤 다시 사용)</h2><div id="ret" class="kpi" style="grid-template-columns:repeat(2,1fr)"></div><table id="coh" style="margin-top:8px"></table><div class="leg">7일/30일 뒤 재방문 = 첫 사용일로부터 그 일수 이후에도 다시 쓴 비율(그 일수가 아직 지나지 않은 사용자는 제외).</div></div>
 <div class="card"><h2>사용 빈도 (최근 30일 중 사용한 날 수)</h2><div id="freq"></div></div>
 <div class="card"><h2>메뉴 조합 (기간 중 같은 사용자가 함께 쓴 메뉴 TOP 10)</h2><div id="pairs"></div></div>
@@ -416,7 +416,15 @@ const ms=Object.entries(d.menus).sort((a,b)=>b[1].users-a[1].users||b[1].hits-a[
 $("menu").innerHTML="<tr><th>메뉴</th><th>사용자</th><th>이전 기간</th><th>횟수</th>"+d.weekDays.map(x=>"<th>"+x.slice(5)+"</th>").join("")+"</tr>"+(ms.length?ms.map(([k,v])=>"<tr><td>"+esc(k)+"</td><td>"+v.users+"</td><td>"+(d.detail.prevMenuUsers[k]??0)+"</td><td>"+v.hits+"</td>"+d.weekDays.map(x=>"<td>"+(v.daily[x]||"")+"</td>").join("")+"</tr>").join(""):"<tr><td colspan=11>자료 없음</td></tr>");
 
 const D=d.detail;
-(function(){const n=D.newReturning,m=Math.max(1,...n.map(x=>x.total)),w=580/n.length;$("nr").innerHTML=n.map((x,i)=>{const h1=x.returning/m*150,h2=x.new/m*150,xx=10+i*w;return '<rect x="'+xx+'" width="'+Math.max(1,w-2)+'" y="'+(155-h1)+'" height="'+h1+'" fill="var(--a)"/><rect x="'+xx+'" width="'+Math.max(1,w-2)+'" y="'+(155-h1-h2)+'" height="'+h2+'" fill="var(--c)"/>'}).join("")})();
+(function(){const n=D.newReturning,N=n.length,m=Math.max(1,...n.map(x=>x.total)),W=600,L=26,B=170,H=B-22,w=(W-L-6)/N,bw=Math.max(1,w-2);
+let g='<line x1="'+L+'" x2="'+W+'" y1="'+B+'" y2="'+B+'" stroke="currentColor" opacity=".25"/><text x="0" y="'+(B-H+4)+'" font-size="9" fill="currentColor" opacity=".6">'+m+'</text><text x="0" y="'+(B-1)+'" font-size="9" fill="currentColor" opacity=".6">0</text>';
+const step=N>45?7:N>20?3:1,showNum=N<=31;
+n.forEach((x,i)=>{const h1=x.returning/m*H,h2=x.new/m*H,xx=L+i*w;
+g+='<g><title>'+x.day+' · 활성 '+x.total+'명 (신규 '+x.new+' · 재방문 '+x.returning+')</title><rect x="'+xx+'" width="'+bw+'" y="'+(B-h1)+'" height="'+h1+'" fill="var(--a)"/><rect x="'+xx+'" width="'+bw+'" y="'+(B-h1-h2)+'" height="'+h2+'" fill="var(--c)"/><rect x="'+xx+'" width="'+bw+'" y="0" height="'+B+'" fill="transparent"/></g>';
+if(showNum&&x.total)g+='<text x="'+(xx+bw/2)+'" y="'+(B-h1-h2-2)+'" font-size="8" text-anchor="middle" fill="currentColor">'+x.total+'</text>';
+if(i%step===0||i===N-1)g+='<text x="'+(xx+bw/2)+'" y="'+(B+11)+'" font-size="8" text-anchor="middle" fill="currentColor" opacity=".75">'+x.day.slice(5).replace("-","/")+'</text>'});
+$("nr").setAttribute("viewBox","0 0 "+W+" "+(B+16));$("nr").style.height="auto";$("nr").innerHTML=g;
+$("nrt").innerHTML="<tr><th>날짜</th><th>활성</th><th>신규</th><th>재방문</th></tr>"+n.slice().reverse().map(x=>"<tr><td>"+x.day+"</td><td>"+x.total+"</td><td>"+x.new+"</td><td>"+x.returning+"</td></tr>").join("")})();
 const pc=v=>v==null?"-":Math.round(v*100)+"%";
 $("ret").innerHTML=[7,30].map(n=>{const r=D.retention[n];return '<div><b>'+pc(r.rate)+'</b><span>'+n+'일 뒤 재방문 ('+r.back+'/'+r.base+'명)</span></div>'}).join("");
 $("coh").innerHTML="<tr><th>첫 사용 주(월요일)</th><th>신규</th><th>7일 재방문</th></tr>"+(D.cohorts.length?D.cohorts.map(c=>"<tr><td>"+c.week+"</td><td>"+c.size+"</td><td>"+(c.base?pc(c.rate)+" ("+c.back+"/"+c.base+")":"-")+"</td></tr>").join(""):"<tr><td colspan=3>자료 없음</td></tr>");
