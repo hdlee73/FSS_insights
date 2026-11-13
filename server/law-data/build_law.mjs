@@ -1,7 +1,7 @@
 // 스마트 법령검색 사전수집. 금융 관련 법령의 국가법령정보 응답(XML)을 그대로 모아 law-data 브랜치에 올린다.
 // 웹·앱은 같은 요청이면 이 파일을 먼저 쓰고(서버 왕복 없음), 목록에 없는 법령만 실시간 조회한다.
 //  - index.json : { updated, keys: { <요청 키>: <파일명> } }   - <해시>.xml : 응답 원문(OC 값은 지운다)
-// 요청 키는 웹의 js/lib/law-core.js drf()와 같은 규칙이다: "law:<endpoint>?<type=XML&…>" (조문 번호 JO는 뺀다).
+// 요청 키 규칙은 keyOf() 참고(웹 js/lib/law-core.js, 앱 PrecollectedLawApi.kt가 같은 규칙으로 찾는다).
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 
@@ -12,9 +12,8 @@ const cfg = JSON.parse(readFileSync(new URL("./laws.json", import.meta.url), "ut
 const compact = (s) => String(s || "").replace(/ /g, "");
 
 export function keyOf(endpoint, params) {
-  const p = { type: "XML", ...params };
-  delete p.JO;
-  return "law:" + endpoint + "?" + new URLSearchParams(Object.entries(p).filter(([, v]) => v != null)).toString();
+  // 요청 키: 인코딩에 영향받지 않게 "엔드포인트?이름=값&…"(이름순, type·JO 제외)로 만든다. 웹·앱이 같은 규칙으로 찾는다.
+  return endpoint + "?" + Object.entries(params).filter(([k, v]) => v != null && k !== "type" && k !== "JO").map(([k, v]) => `${k}=${v}`).sort().join("&");
 }
 const keys = {};
 let bytes = 0;
