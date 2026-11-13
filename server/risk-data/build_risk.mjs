@@ -4,6 +4,7 @@
 //  - meta.json         : 수집 시각
 // 서버(Worker)의 공개 읽기 경로를 쓰므로 별도 비밀키가 필요 없다(키는 Worker가 가진다).
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { findDart } from "./dartmatch.mjs"; // 웹(js/lib/dartmatch.js)과 같은 규칙. 이 파일은 그 사본이므로 함께 고친다.
 
 const BASE = process.env.RISK_BASE || "https://news-proxy.hdlee73.workers.dev";
 const ORIGIN = process.env.RISK_ORIGIN || "https://www.fssinsights.com";
@@ -12,17 +13,7 @@ const KEEP = ["bis", "npl", "delinq", "ncr", "ncr_c", "lev", "liq", "solv", "adj
 const SECTORS = ["A", "E", "F", "H", "I", "C"];
 const FOREIGN = /지점|골드만|모간스탠리|모건스탠리|메릴린치|비엔피|BNP|씨엘에스에이|CLSA|크레디|노무라|맥쿼리|유비에스|UBS|제이피모간|JP모간|도이치|소시에테|나틱시스|다이와|미즈호|HSBC|에이치에스비씨|바클레이|스탠다드차타드|씨티|ING|아이엔지|SMBC|라자드|이스트스프링|아이씨엠|ICM|CMS|씨엠에스|에스지|SG|CGS|CIMB|씨아이엠비|글로벌마켓|알비에스|RBS|스미토모|미쓰비시|도쿄|SBI증권/;
 const clean = (n) => String(n || "").replace(/\(\s*주\s*\)|㈜|주식회사/g, " ").replace(/\s+/g, " ").trim();
-const RENAMED = [["에스비아이저축은행", "교보에스비아이저축은행"]];
-const canon = (k) => { const x = k.replace(/주식회사|유한회사|\(주\)|㈜|\(유\)|\s|[.,·]/g, "").toLowerCase(); for (const [o, n] of RENAMED) if (x.startsWith(o)) return n + x.slice(o.length); return k; };
-const nameKey = (n) => canon(String(n || "").replace(/주식회사|유한회사|\(주\)|㈜|\(유\)|\s|[.,·]/g, "").toLowerCase());
-const canonQuery = (n) => n.replace(/^에스비아이저축은행/, "교보에스비아이저축은행");
-function pickDart(name, items) {
-  const k = nameKey(name);
-  const ex = items.find((i) => nameKey(i.name) === k);
-  if (ex) return { match: "exact", item: ex };
-  const g = items.find((i) => { const o = nameKey(i.name); return o && (o.startsWith(k) || k.startsWith(o)); });
-  return g ? { match: "guess", item: g } : { match: "none", item: null };
-}
+const nameKey = (n) => String(n || "").replace(/주식회사|유한회사|\(주\)|㈜|\(유\)|\s|[.,·]/g, "").toLowerCase();
 
 async function api(path, params, tries = 4) {
   const url = BASE + path + "?" + new URLSearchParams(params);
@@ -64,9 +55,13 @@ async function dartOf(name, parent, own = {}) {
     const [company, holders] = await Promise.all([api("/dart/company", { corp: ownCorp }).catch(() => null), api("/dart/holders", { corp: ownCorp }).catch(() => null)]);
     return { rel: "본인", match: "exact", corp: ownCorp, name: company?.name || clean(name), company, holders };
   }
-  const [q, rel] = parent[nameKey(name)] || parent[name] || [canonQuery(clean(name)), "본인"];
-  const found = await api("/dart/search", { q }).catch(() => ({ items: [] }));
-  const { match, item } = pickDart(q, found.items || []);
+  const hit = parent[nameKey(name)] || parent[name];
+  const rel = hit ? hit[1] : "본인";
+  const ymd = (y) => { const d = new Date(); d.setFullYear(d.getFullYear() + y); return d.toISOString().slice(0, 10).replace(/-/g, ""); };
+  const search = async (q) => (await api("/dart/search", { q }).catch(() => ({ items: [] }))).items || [];
+  const detail = (c) => api("/dart/company", { corp: c });
+  const recent = async (c) => (await api("/dart/filings", { corp: c, type: "a", from: ymd(-2), to: ymd(0) })).items?.[0]?.date || "";
+  const { match, item } = hit ? await findDart(hit[0], search) : await findDart(clean(name), search, detail, recent);
   if (!item) return { rel, match: "none" };
   const [company, holders] = await Promise.all([api("/dart/company", { corp: item.corp }).catch(() => null), api("/dart/holders", { corp: item.corp }).catch(() => null)]);
   return { rel, match: rel === "본인" ? match : "exact", corp: item.corp, name: item.name, company, holders };
