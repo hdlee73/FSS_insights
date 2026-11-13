@@ -55,8 +55,8 @@ class PrecollectedLawInterceptorTest {
         assertEquals(1, live.requestCount)
     }
 
-    @Test fun `3일 넘게 갱신 안 된 자료와 자료 없음은 쓰지 않는다`() {
-        start(nowKst(4 * 86_400_000L))
+    @Test fun `5일 넘게 갱신 안 된 자료와 자료 없음은 쓰지 않는다`() {
+        start(nowKst(6 * 86_400_000L))
         assertEquals("LIVE", get(client(), "lawService.do?target=law&type=XML&MST=1"))
         data.shutdown(); live.shutdown()
         val d2 = MockWebServer(); d2.dispatcher = object : Dispatcher() { override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(404) }; d2.start()

@@ -92,9 +92,9 @@ class PrecollectedLawInterceptor(
         const val INDEX_TTL_MS = 6 * 3600_000L
         const val RETRY_MS = 10 * 60_000L
         private const val MAX_CACHED_CHARS = 12_000_000
-        const val STALE_MS = 3 * 86_400_000L
+        const val STALE_MS = 5 * 86_400_000L
 
-        /** "2026-11-13 06:05 KST" 형식. 3일 넘게 갱신되지 않았거나 읽을 수 없으면 쓰지 않는다. */
+        /** "2026-11-13 06:05 KST" 형식. 5일 넘게 갱신되지 않았거나 읽을 수 없으면 쓰지 않는다. */
         internal fun isFresh(updated: String, nowMs: Long): Boolean = runCatching {
             val m = Regex("""(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})""").find(updated) ?: return false
             val (y, mo, d, h, mi) = m.destructured
