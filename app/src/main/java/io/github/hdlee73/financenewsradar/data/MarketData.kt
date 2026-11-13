@@ -451,6 +451,7 @@ class MarketClient(private val context: Context) {
                 if (result == null || result.length() == 0) error("해당 종목 시세가 없습니다")
                 return result.getJSONObject(0)
             } catch (e: Exception) {
+                UsageStats.recordError("api:quote")
                 last = e
             }
         }
@@ -698,6 +699,7 @@ class MarketClient(private val context: Context) {
             prefs.edit().putString("etfs", out.toString()).putLong("time", System.currentTimeMillis()).apply()
             decode(out.toString())
         } catch (e: Exception) {
+            UsageStats.recordError("api:search")
             if (cached.isNotEmpty()) decode(cached) else throw e
         }
     }

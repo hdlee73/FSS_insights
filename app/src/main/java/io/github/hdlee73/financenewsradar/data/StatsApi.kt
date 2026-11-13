@@ -144,7 +144,10 @@ class StatsApi(private val context: Context) {
         c.readTimeout = 40_000
         c.setRequestProperty("X-App-Token", NewsProxy.token)
         try {
-            if (c.responseCode != 200) error("통계 서버 응답 ${c.responseCode}")
+            if (c.responseCode != 200) {
+                UsageStats.recordError("api:stats:${c.responseCode}")
+                error("통계 서버 응답 ${c.responseCode}")
+            }
             parseStatsResult(c.inputStream.use { String(it.readBytes(), Charsets.UTF_8) })
         } finally {
             c.disconnect()

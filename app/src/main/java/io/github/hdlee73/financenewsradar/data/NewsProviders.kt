@@ -105,6 +105,7 @@ class NaverFirstNewsProvider(private val credentials: NaverCredentials) : NewsPr
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
+            UsageStats.recordError("api:naver-news")
             if (start > 1) throw e
             NewsSourceInfo.fellBack("Google 뉴스 (네이버 오류로 대체: ${e.message?.take(80) ?: e.javaClass.simpleName})")
             google.search(query, timeRange, start, pageSize)

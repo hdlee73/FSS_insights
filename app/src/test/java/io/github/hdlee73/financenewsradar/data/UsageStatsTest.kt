@@ -31,6 +31,19 @@ class UsageStatsTest {
     }
 
     @Test
+    fun payloadCarriesEnvAndSpecialKeys() {
+        val p = JSONObject()
+        UsageLog.add(p, "2026-11-03", "~h:9")
+        UsageLog.add(p, "2026-11-03", "~e:api:dart")
+        val env = JSONObject().put("dev", "휴대폰").put("os", "Android 14")
+        val (body, _) = UsageLog.payload("id-1", "2.7.0", p, "2026-11-04", includeToday = false, env = env)
+        assertEquals("휴대폰", body!!.getJSONObject("env").getString("dev"))
+        val m = body.getJSONArray("days").getJSONObject(0).getJSONObject("m")
+        assertEquals(1, m.getInt("~h:9"))
+        assertEquals(1, m.getInt("~e:api:dart"))
+    }
+
+    @Test
     fun nothingToSendWhenAlreadyPingedToday() {
         val p = JSONObject()
         UsageLog.add(p, "2026-11-04", "뉴스 검색")

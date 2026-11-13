@@ -375,6 +375,7 @@ class SanctionRepository(private val context: Context) {
         val text = try {
             download(DATA_URL)
         } catch (e: Throwable) {
+            UsageStats.recordError("api:sanction")
             if (file.exists()) return@withContext SanctionJson.parse(file.readText())
             throw IllegalStateException("제재공시 세부내역 자료를 받지 못했습니다. 인터넷 연결을 확인해 주세요. (${e.message})")
         }
