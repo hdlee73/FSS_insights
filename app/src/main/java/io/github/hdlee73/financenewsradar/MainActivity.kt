@@ -14,9 +14,13 @@ import io.github.hdlee73.financenewsradar.data.UsageStats
 import io.github.hdlee73.financenewsradar.ui.FinanceNewsRadarApp
 import io.github.hdlee73.financenewsradar.ui.theme.FinanceNewsRadarTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private var heartbeat: Job? = null
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             // 허용 직후 바로 알림을 띄우기 위해 한 번 더 확인한다.
@@ -44,7 +48,26 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         // 익명 사용 통계: 하루 한 번만 실제로 전송한다(꺼져 있거나 서버가 없으면 아무 일도 하지 않는다).
         UsageStats.init(applicationContext)
+        UsageStats.onForeground(applicationContext) // 방문 1회
         lifecycleScope.launch { UsageStats.sendIfNeeded(applicationContext) }
+        // 앞에 보이는 동안 1분마다 사용 시간을 쌓고, 10분마다 서버에 올린다. 뒤로 가면 멈춘다(onStop).
+        heartbeat?.cancel()
+        heartbeat = lifecycleScope.launch {
+            var ticks = 0
+            while (isActive) {
+                delay(UsageStats.TICK_MS)
+                UsageStats.tick(applicationContext)
+                if (++ticks % 10 == 0) UsageStats.sendIfNeeded(applicationContext)
+            }
+        }
+    }
+
+    override fun onStop() {
+        heartbeat?.cancel()
+        heartbeat = null
+        UsageStats.onBackground(applicationContext, isChangingConfigurations)
+        if (!isChangingConfigurations) lifecycleScope.launch { UsageStats.sendIfNeeded(applicationContext) }
+        super.onStop()
     }
 
     /** 예약이 빠졌거나 주기가 바뀐 경우를 위해 앱을 열 때 알림 예약을 설정에 맞춰 다시 확인한다. */

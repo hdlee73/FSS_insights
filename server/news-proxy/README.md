@@ -86,6 +86,8 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 ## 익명 사용 통계(일일 핑)와 관리자 화면
 앱이 하루 한 번 `POST /usage/ping`으로 (무작위 설치 ID, 앱 버전, 날짜, 날짜별 메뉴 이용 횟수)만 보내고, Worker가 Cloudflare **D1**(`fss-usage`)에 저장합니다. 설치 ID는 `SHA-256(설치ID:APP_TOKEN)`으로 해시해 저장하고 IP·기기정보는 저장하지 않습니다. 앱 정보 화면에서 사용자가 끌 수 있습니다.
 
+**방문 횟수·사용 시간(사용자별 하루)**: 날짜 객체에 `vis`(그날 앱·웹을 연 횟수)와 `sec`(화면이 보인 시간, 초)의 *그날 누적값*을 함께 보냅니다. 서버는 `usage_activity(day, uid, visits, secs)`에 `MAX`로 저장하므로 같은 값을 여러 번 보내도 중복 집계되지 않습니다. 응답의 `live: true`는 이 기능을 지원하는 서버라는 표시이며, 클라이언트는 이 표시를 받은 뒤에만 추가 전송(10분마다·화면을 닫을 때)을 합니다. 관리자 화면에는 평균·최대 방문 횟수, 평균·최대 사용 시간, 분포가 나오며 기능 배포 뒤부터 쌓입니다(그 이전 날짜는 값이 없음). 집계 로직 테스트: `node server/news-proxy/usage-lib.test.mjs`.
+
 1. GitHub Secrets에 `ADMIN_TOKEN`(앱 토큰과 다른 임의의 긴 문자열)을 저장합니다. Cloudflare API 토큰에는 **D1 편집(Edit)** 권한이 있어야 합니다(Account → D1 → Edit).
 2. Actions → **Deploy news proxy**를 실행합니다. 배포 전에 D1 `fss-usage`가 없으면 만들고 `wrangler.toml`에 연결하며, 표/인덱스는 첫 요청 때 자동으로 만듭니다. 실행 요약에 관리자 화면 주소(`…/admin`)가 표시됩니다.
 3. 관리자 화면(`/admin`)에서 `ADMIN_TOKEN`을 입력하면 일자별 DAU·WAU(7일)·MAU(30일), 버전별 분포, 메뉴별 사용자 수·열린 횟수(최근 7일 일자별 사용자 수 포함)를 볼 수 있습니다. 날짜는 한국 시간 기준입니다. 앱 안에는 관리자 화면을 두지 않습니다(APK의 앱 토큰은 추출될 수 있기 때문).
