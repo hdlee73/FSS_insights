@@ -16,6 +16,9 @@ const SCHEMA = [
   // 시간대별 이용(메뉴를 연 시각의 '시'), 오류·실패 횟수
   "CREATE TABLE IF NOT EXISTS usage_hour (day TEXT NOT NULL, hour INTEGER NOT NULL, uid TEXT NOT NULL, hits INTEGER NOT NULL, PRIMARY KEY (day, hour, uid))",
   "CREATE TABLE IF NOT EXISTS usage_error (day TEXT NOT NULL, name TEXT NOT NULL, uid TEXT NOT NULL, hits INTEGER NOT NULL, PRIMARY KEY (day, name, uid))",
+  // 사용자별 하루 방문(앱·웹을 연 횟수)과 사용 시간(초). 기기가 쌓은 '그날 누적값'을 보내오므로 MAX 로 갱신한다(같은 값을 여러 번 보내도 중복 집계되지 않는다).
+  // 이 표는 기능 배포 뒤부터 쌓인다. 그 전 날짜는 방문 횟수·시간을 알 수 없다.
+  "CREATE TABLE IF NOT EXISTS usage_activity (day TEXT NOT NULL, uid TEXT NOT NULL, visits INTEGER NOT NULL DEFAULT 0, secs INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, uid))",
 ];
 let schemaReady = false;
 
@@ -37,10 +40,13 @@ const dayShift = (day, delta) => new Date(Date.parse(`${day}T00:00:00Z`) + delta
 
 const ENV_FIELD = /[^0-9A-Za-z .+_\-]/g;
 const envValue = (v) => String(v ?? "").replace(ENV_FIELD, "").trim().slice(0, 20);
+const MAX_VISITS = 2000;
+const MAX_SECS = 86400; // 하루 24시간
 const ERROR_NAME = /[^0-9A-Za-z:/._\-]/g;
 
 /**
  * 앱·웹이 보낸 본문을 검증해 정리한다. 잘못된 값은 버린다. 테스트하기 쉽게 따로 둔다.
+ * 날짜별 객체: d(날짜), m(메뉴 맵), vis(그날 방문 횟수 누적), sec(그날 사용 시간 누적, 초). vis·sec 는 선택이라 옛 클라이언트와 섞여도 된다.
  * 날짜별 m(맵)에는 메뉴 횟수와 함께 특수 키가 섞여 올 수 있다: "~h:14"(14시에 메뉴를 연 횟수), "~e:이름"(오류·실패 횟수).
  */
 export function sanitizePing(body, nowMs = Date.now()) {
@@ -76,7 +82,10 @@ export function sanitizePing(body, nowMs = Date.now()) {
       if (!label || ++count > 30) continue;
       menus[label] = n;
     }
-    days.push({ day, menus, hours, errors });
+    // 방문 횟수(vis)·사용 시간(sec, 초)은 그날 누적값. 없거나 잘못된 값이면 null(옛 앱·웹은 보내지 않는다).
+    const visits = d?.vis == null ? null : Math.min(MAX_VISITS, Math.max(0, Math.floor(Number(d.vis)) || 0));
+    const secs = d?.sec == null ? null : Math.min(MAX_SECS, Math.max(0, Math.floor(Number(d.sec)) || 0));
+    days.push({ day, menus, hours, errors, visits, secs });
   }
   const e = body.env && typeof body.env === "object" ? body.env : null;
   const env = e ? { dev: envValue(e.dev), br: envValue(e.br), os: envValue(e.os), sc: envValue(e.sc), inst: envValue(e.inst) } : null;
@@ -101,7 +110,13 @@ export async function usagePing(request, env) {
         .bind(uid, today, ping.env.dev, ping.env.br, ping.env.os, ping.env.sc, ping.env.inst)
     );
   }
-  for (const { day, menus, hours, errors } of ping.days) {
+  for (const { day, menus, hours, errors, visits, secs } of ping.days) {
+    if (visits != null || secs != null) {
+      statements.push(
+        env.DB.prepare("INSERT INTO usage_activity (day, uid, visits, secs) VALUES (?, ?, ?, ?) ON CONFLICT(day, uid) DO UPDATE SET visits = MAX(visits, excluded.visits), secs = MAX(secs, excluded.secs)")
+          .bind(day, uid, visits ?? 0, secs ?? 0)
+      );
+    }
     for (const [hour, hits] of Object.entries(hours)) {
       statements.push(
         env.DB.prepare("INSERT INTO usage_hour (day, hour, uid, hits) VALUES (?, ?, ?, ?) ON CONFLICT(day, hour, uid) DO UPDATE SET hits = hits + excluded.hits").bind(day, Number(hour), uid, hits)
@@ -122,7 +137,7 @@ export async function usagePing(request, env) {
     }
   }
   await env.DB.batch(statements);
-  return reply({ ok: true });
+  return reply({ ok: true, live: true }); // live: 방문·시간 수집을 지원하는 서버라는 표시(클라이언트가 이때부터 추가 전송을 한다)
 }
 
 /** 버전 이름이 'web-'으로 시작하면 웹, 아니면 앱. */
@@ -336,6 +351,66 @@ export function detail({ allRows, menuUserRows = [], prevMenuUserRows = [], hour
   };
 }
 
+const median = (arr) => {
+  if (!arr.length) return 0;
+  const a = [...arr].sort((x, y) => x - y);
+  const m = a.length >> 1;
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+};
+const VISIT_BUCKETS = [["1회", 1], ["2~3회", 3], ["4~7회", 7], ["8~15회", 15], ["16회 이상", Infinity]];
+const TIME_BUCKETS = [["1분 미만", 60], ["1~5분", 300], ["5~15분", 900], ["15~30분", 1800], ["30~60분", 3600], ["1시간 이상", Infinity]];
+const bucketize = (values, buckets) => {
+  const out = Object.fromEntries(buckets.map(([k]) => [k, 0]));
+  for (const v of values) out[buckets.find(([, max]) => v <= max)[0]]++;
+  return out;
+};
+
+/**
+ * 사용자별 일일 방문 횟수·사용 시간. summarize 와 같은 플랫폼 필터(app·web·all)를 쓴다.
+ * 방문·시간을 보낸 사용자(= 기능이 들어간 새 앱·웹)만 대상이다. 그 전 날짜와 옛 버전 사용자는 값을 알 수 없어 빠지며,
+ * 일자별 coverage(측정된 사용자 / DAU)로 얼마나 반영됐는지 보여 준다.
+ */
+export function engagement({ allRows, activityRows = [], from, to, platform = "all" }) {
+  const rows = platform === "all" ? allRows : allRows.filter((r) => platformOf(r.version) === platform);
+  const key = (day, uid) => `${day}|${uid}`;
+  const present = new Set(rows.map((r) => key(r.day, r.uid)));
+  const dau = new Map();
+  for (const r of rows) dau.set(r.day, (dau.get(r.day) ?? 0) + 1);
+  const act = activityRows.filter((a) => a.day >= from && a.day <= to && (a.visits > 0 || a.secs > 0) && present.has(key(a.day, a.uid)));
+  const byDay = new Map();
+  for (const a of act) {
+    if (!byDay.has(a.day)) byDay.set(a.day, []);
+    byDay.get(a.day).push(a);
+  }
+  const sum = (list, f) => list.reduce((t, x) => t + f(x), 0);
+  const max = (list, f) => list.reduce((m, x) => Math.max(m, f(x)), 0);
+  const series = [];
+  for (let d = from; d <= to; d = dayShift(d, 1)) {
+    const list = byDay.get(d) ?? [];
+    const n = list.length;
+    series.push({
+      day: d, dau: dau.get(d) ?? 0, users: n,
+      avgVisits: n ? sum(list, (x) => x.visits) / n : null, maxVisits: max(list, (x) => x.visits),
+      avgSecs: n ? sum(list, (x) => x.secs) / n : null, maxSecs: max(list, (x) => x.secs),
+    });
+  }
+  const n = act.length;
+  const firstDay = activityRows.reduce((m, a) => (!m || a.day < m ? a.day : m), "");
+  return {
+    firstDay,
+    userDays: n,
+    avgVisits: n ? sum(act, (x) => x.visits) / n : null,
+    maxVisits: max(act, (x) => x.visits),
+    medianVisits: n ? median(act.map((x) => x.visits)) : null,
+    avgSecs: n ? sum(act, (x) => x.secs) / n : null,
+    maxSecs: max(act, (x) => x.secs),
+    medianSecs: n ? median(act.map((x) => x.secs)) : null,
+    visitDist: bucketize(act.map((x) => x.visits), VISIT_BUCKETS),
+    timeDist: bucketize(act.map((x) => x.secs), TIME_BUCKETS),
+    series,
+  };
+}
+
 export async function adminApi(request, url, env) {
   if (!env.ADMIN_TOKEN || request.headers.get("X-Admin-Token") !== env.ADMIN_TOKEN) return new Response("Unauthorized", { status: 401 });
   if (!env.DB) return reply({ error: "통계 저장소(D1)가 연결되지 않았습니다" }, 503);
@@ -349,7 +424,7 @@ export async function adminApi(request, url, env) {
     : pf === "app" ? "SELECT COUNT(DISTINCT uid) AS n FROM usage_daily WHERE version NOT LIKE 'web-%'"
     : "SELECT COUNT(DISTINCT uid) AS n FROM usage_daily";
   const prevFrom = dayShift(from, -span);
-  const [daily, menu, menuUser, total, prevMenuUser, hourRows, errorRows, envRows] = await Promise.all([
+  const [daily, menu, menuUser, total, prevMenuUser, hourRows, errorRows, envRows, activity] = await Promise.all([
     env.DB.prepare("SELECT day, uid, version FROM usage_daily WHERE day >= ?").bind(dayShift(to, -400)).all(),
     env.DB.prepare("SELECT day, menu, hits FROM usage_menu WHERE day >= ?").bind(from).all(),
     env.DB.prepare("SELECT day, menu, uid, hits FROM usage_menu_user WHERE day >= ?").bind(from).all(),
@@ -358,11 +433,13 @@ export async function adminApi(request, url, env) {
     env.DB.prepare("SELECT day, hour, uid, hits FROM usage_hour WHERE day >= ?").bind(from).all(),
     env.DB.prepare("SELECT day, name, uid, hits FROM usage_error WHERE day >= ?").bind(from).all(),
     env.DB.prepare("SELECT uid, dev, br, os, sc, inst FROM usage_env").all(),
+    env.DB.prepare("SELECT day, uid, visits, secs FROM usage_activity WHERE day >= ?").bind(dayShift(to, -400)).all(),
   ]);
   const allRows = daily.results ?? [];
   return reply({
     from, to, totalInstalls: total?.n ?? 0,
     ...summarize(allRows, menu.results ?? [], from, to, menuUser.results ?? [], pf),
+    engagement: engagement({ allRows, activityRows: activity.results ?? [], from, to, platform: pf }),
     detail: detail({ allRows, menuUserRows: menuUser.results ?? [], prevMenuUserRows: prevMenuUser.results ?? [], hourRows: hourRows.results ?? [], errorRows: errorRows.results ?? [], envRows: envRows.results ?? [], from, to, span, platform: pf }),
   });
 }
@@ -387,6 +464,11 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 6px;b
 <div class="card"><input id="tok" type="password" placeholder="관리자 토큰" autocomplete="off"> <select id="pf"><option value="all">전체(앱+웹)</option><option value="app">앱만</option><option value="web">웹만</option></select> <select id="span"><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option></select> <button id="go">조회</button> <span id="msg" class="leg"></span></div>
 <div id="out" hidden>
 <div class="card"><div class="kpi"><div><b id="k1"></b><span>오늘 DAU</span></div><div><b id="k2"></b><span>최근 7일 WAU</span></div><div><b id="k3"></b><span>최근 30일 MAU</span></div><div><b id="k4"></b><span>누적 설치(고유)</span></div></div><div id="split" class="leg" style="margin-top:8px;text-align:center"></div></div>
+<div class="card"><h2>사용자별 일일 방문 횟수·사용 시간</h2><div id="eng" class="kpi"></div><div id="engnote" class="leg" style="margin-top:6px"></div>
+<h2 style="margin-top:10px">일자별 평균 (선: 방문 횟수 <span style="color:var(--a)">●</span> · 사용 시간(분) <span style="color:var(--b)">●</span>, 각자 최대값 기준 비율)</h2><svg id="engc" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+<h2 style="margin-top:10px">하루 방문 횟수 분포 (사용자·일 기준)</h2><div id="engv"></div><h2 style="margin-top:8px">하루 사용 시간 분포</h2><div id="engt"></div>
+<details style="margin-top:8px"><summary class="leg">일자별 표</summary><table id="engd"></table></details>
+<div class="leg" style="margin-top:6px">방문 = 앱·웹을 열 때마다 1회(앱은 다시 앞으로 가져올 때, 웹은 처음 열거나 다른 탭·창에서 돌아올 때도 포함). 사용 시간 = 화면이 보이는 동안 1분 단위로 기록(백그라운드·숨김 시간 제외). 이 기능이 들어간 새 앱·웹을 쓴 사용자만 집계되며, 그 이전 날짜는 값이 없습니다. 오늘 값은 사용 중에도 몇 분마다·화면을 닫을 때 올라옵니다.</div></div>
 <div class="card"><h2>일자별 활성사용자</h2><svg id="chart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg><div class="leg"><b style="background:var(--a)"></b>DAU<b style="background:var(--b)"></b>WAU(7일)<b style="background:var(--c)"></b>MAU(30일)</div></div>
 <div class="card"><h2>버전별 분포 (최근 7일 활성)</h2><div id="ver"></div></div>
 <div class="card"><h2>메뉴별 사용자 수·열린 횟수</h2><table id="menu"></table><div class="leg">사용자 수는 조회 기간 중 그 메뉴를 연 서로 다른 설치 수입니다. 메뉴 기록은 사용자가 다음 날 앱을 열 때 올라오므로 오늘 것은 내일부터 보입니다.</div></div>
@@ -403,7 +485,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 6px;b
 <script>
 const $=i=>document.getElementById(i);$("tok").value=sessionStorage.getItem("t")||"";
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-function bars(el,obj){const e=Object.entries(obj).sort((a,b)=>b[1]-a[1]);const m=Math.max(1,...e.map(x=>x[1]));el.innerHTML=e.length?e.map(([k,v])=>'<div class="bar"><em>'+esc(k)+'</em><i style="width:'+Math.round(v/m*55)+'%"></i>'+v+'</div>').join(""):'<span class="leg">자료 없음</span>'}
+function bars(el,obj,keep){const e=Object.entries(obj);if(!keep)e.sort((a,b)=>b[1]-a[1]);const m=Math.max(1,...e.map(x=>x[1]));el.innerHTML=e.length?e.map(([k,v])=>'<div class="bar"><em>'+esc(k)+'</em><i style="width:'+Math.round(v/m*55)+'%"></i>'+v+'</div>').join(""):'<span class="leg">자료 없음</span>'}
 function line(s,key,color,max){const n=s.length;return '<polyline fill="none" stroke="'+color+'" stroke-width="2" points="'+s.map((p,i)=>(n>1?i/(n-1)*580+10:300)+","+(185-p[key]/max*170)).join(" ")+'"/>'}
 async function load(){$("msg").textContent="불러오는 중…";sessionStorage.setItem("t",$("tok").value);
 const r=await fetch("/admin/api?days="+$("span").value+"&platform="+$("pf").value,{headers:{"X-Admin-Token":$("tok").value}});
@@ -414,6 +496,15 @@ const max=Math.max(1,...s.map(p=>p.mau));$("chart").innerHTML='<line x1="10" x2=
 bars($("ver"),d.versions);
 const ms=Object.entries(d.menus).sort((a,b)=>b[1].users-a[1].users||b[1].hits-a[1].hits);
 $("menu").innerHTML="<tr><th>메뉴</th><th>사용자</th><th>이전 기간</th><th>횟수</th>"+d.weekDays.map(x=>"<th>"+x.slice(5)+"</th>").join("")+"</tr>"+(ms.length?ms.map(([k,v])=>"<tr><td>"+esc(k)+"</td><td>"+v.users+"</td><td>"+(d.detail.prevMenuUsers[k]??0)+"</td><td>"+v.hits+"</td>"+d.weekDays.map(x=>"<td>"+(v.daily[x]||"")+"</td>").join("")+"</tr>").join(""):"<tr><td colspan=11>자료 없음</td></tr>");
+
+const E=d.engagement,fm=v=>v==null?"-":(Math.round(v*10)/10).toString(),ft=v=>{if(v==null)return"-";v=Math.round(v);return v<60?v+"초":Math.floor(v/60)+"분"+(v%60?" "+v%60+"초":"")};
+$("eng").innerHTML=[[fm(E.avgVisits)+"회","평균 방문 / 사용자·일"],[E.userDays?E.maxVisits+"회":"-","최대 방문(한 사람·하루)"],[ft(E.avgSecs),"평균 사용 시간 / 사용자·일"],[E.userDays?ft(E.maxSecs):"-","최대 사용 시간"]].map(x=>"<div><b>"+x[0]+"</b><span>"+x[1]+"</span></div>").join("");
+$("engnote").textContent=E.firstDay?("측정 시작일 "+E.firstDay+" · 기간 내 측정된 사용자·일 "+E.userDays+"건 · 중앙값 방문 "+fm(E.medianVisits)+"회, 시간 "+ft(E.medianSecs)):"아직 측정된 자료가 없습니다(새 앱·웹과 서버 배포 뒤부터 쌓입니다).";
+(function(){const s=E.series,n=s.length,mv=Math.max(1,...s.map(p=>p.avgVisits||0)),mt=Math.max(1,...s.map(p=>(p.avgSecs||0)/60));
+const ln=(key,max,color)=>{const pts=s.map((p,i)=>p[key]==null?null:[(n>1?i/(n-1)*580+10:300),185-(key==="avgSecs"?p[key]/60:p[key])/max*170]).filter(Boolean);return pts.length?'<polyline fill="none" stroke="'+color+'" stroke-width="2" points="'+pts.map(q=>q.join(",")).join(" ")+'"/>':""};
+$("engc").innerHTML='<line x1="10" x2="590" y1="185" y2="185" stroke="currentColor" opacity=".2"/>'+ln("avgVisits",mv,"var(--a)")+ln("avgSecs",mt,"var(--b)")+'<text x="2" y="12" font-size="9" fill="currentColor" opacity=".6">방문 최대 '+fm(mv)+'회 · 시간 최대 '+fm(mt)+'분</text>'})();
+bars($("engv"),E.visitDist,1);bars($("engt"),E.timeDist,1);
+$("engd").innerHTML="<tr><th>날짜</th><th>DAU</th><th>측정</th><th>평균 방문</th><th>최대 방문</th><th>평균 시간</th><th>최대 시간</th></tr>"+E.series.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.users+"</td><td>"+fm(p.avgVisits)+"</td><td>"+(p.users?p.maxVisits:"-")+"</td><td>"+ft(p.avgSecs)+"</td><td>"+(p.users?ft(p.maxSecs):"-")+"</td></tr>").join("");
 
 const D=d.detail;
 (function(){const n=D.newReturning,N=n.length,m=Math.max(1,...n.map(x=>x.total)),W=600,L=26,B=170,H=B-22,w=(W-L-6)/N,bw=Math.max(1,w-2);
