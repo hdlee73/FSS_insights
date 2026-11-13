@@ -135,6 +135,7 @@ class DartApi {
             val message = runCatching { JSONObject(text).optString("error") }.getOrNull().orEmpty()
             error(message.ifBlank { "서버 오류 ($code)" })
         } catch (e: Exception) {
+            UsageStats.recordError("api:dart")
             // 연결 오류 문구에 주소가 섞여 들어와도 인증키가 화면에 나오지 않게 가린다.
             throw IllegalStateException(redactKey(e.message ?: "서버에 연결하지 못했습니다."))
         } finally {

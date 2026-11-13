@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         // 익명 사용 통계: 하루 한 번만 실제로 전송한다(꺼져 있거나 서버가 없으면 아무 일도 하지 않는다).
+        UsageStats.init(applicationContext)
         lifecycleScope.launch { UsageStats.sendIfNeeded(applicationContext) }
     }
 

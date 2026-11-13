@@ -111,7 +111,7 @@ fun AppInfoScreen(modifier: Modifier = Modifier) {
             Switch(checked = usageOn, onCheckedChange = { usageOn = it; UsageStats.setEnabled(context, it) })
         }
         Text(
-            "앱 개선을 위해 하루 한 번, 무작위로 만든 설치 번호·앱 버전·날짜·메뉴별 이용 횟수만 서버로 보냅니다. 이름, 계정, 기기 정보, 검색어, 열람한 내용은 보내지 않으며, 꺼도 앱 기능은 그대로 쓸 수 있습니다.",
+            "앱 개선을 위해 하루 한 번, 무작위로 만든 설치 번호·앱 버전·날짜·메뉴별 이용 횟수·이용 시간대·오류 횟수·접속 환경 대분류(기기 종류·안드로이드 버전·화면 크기)만 서버로 보냅니다. 이름, 계정, 기기 모델, 검색어, 열람한 내용은 보내지 않으며, 꺼도 앱 기능은 그대로 쓸 수 있습니다.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall
         )
