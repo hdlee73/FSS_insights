@@ -259,8 +259,10 @@ export function parseTable(result, term) {
   const cols = rowsOf(desc.column ?? desc).map((c) => ({ id: String(c.column_id || ""), name: String(c.column_nm || "") })).filter((c) => c.id);
   const columns = cols.length ? cols : [{ id: "a", name: "" }];
   const accounts = {};
+  const order = []; // 계정 코드가 숫자면 객체 키 순서가 바뀌므로 표에 나온 순서를 따로 둔다
   for (const row of rows) {
     const key = String(row.account_cd ?? "");
+    if (!(key in accounts)) order.push(key);
     const a = (accounts[key] ||= { name: String(row.account_nm || ""), points: [] });
     const v = {};
     const raw = {};
@@ -284,7 +286,7 @@ export function parseTable(result, term) {
       }
     }
   }
-  return { term, unit: String(desc.unit || ""), name: String((rows[0] && rows[0].finance_nm) || ""), columns, accounts, max, monthMax };
+  return { term, unit: String(desc.unit || ""), name: String((rows[0] && rows[0].finance_nm) || ""), columns, accounts, order, max, monthMax };
 }
 
 /** 한 회사·한 통계표를 [firstTerm부터] 분기→반기→연 순으로 받는다. call(params) → statisticsInfoSearch 결과. */
@@ -414,4 +416,20 @@ export function deriveMissing(metrics) {
       }
     }
   }
+}
+
+/** 재무제표 보기: 표 하나를 계정 순서대로 행(이름·들여쓰기·시점별 억원 값)으로 바꾼다. 열이 여럿(당분기·누계)이면 값도 열 순서대로. */
+export function statementOf(t, maxMonths = 12) {
+  const months = [...new Set(Object.values(t.accounts).flatMap((a) => a.points.map((p) => p.month)))].sort().slice(-maxMonths);
+  const keep = new Set(months);
+  const conv = (v, month) => (v === null ? null : Math.round(((v * ((t.monthMax[month] ?? t.max) >= 1e7 ? 1 : (unitMult(t.unit) ?? 1e6))) / 1e8) * 100) / 100);
+  const rows = (t.order || Object.keys(t.accounts)).map((code) => {
+    const a = t.accounts[code];
+    const raw = a.name.replace(/\u00a0/g, " ");
+    const lead = raw.length - raw.trimStart().length;
+    const p = {};
+    for (const pt of a.points) if (keep.has(pt.month)) p[pt.month] = t.columns.map((c) => conv(pt.v[c.id], pt.month));
+    return { code, name: raw.trim(), indent: lead, p };
+  }).filter((r) => Object.keys(r.p).length);
+  return { term: t.term, columns: t.columns.map((c) => c.name), months, rows };
 }

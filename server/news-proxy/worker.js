@@ -13,7 +13,7 @@ import { usagePing, adminApi, adminPage, adminExclude } from "./usage-lib.js";
 import { publicNotices, adminNotices, noticesPage } from "./notices-lib.js";
 import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, webSearchCorps, withDartClass } from "./dart-lib.js";
 import { corsPreflight, proxyFetch, webAccess, withCors } from "./web-lib.js";
-import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos } from "./fisis-lib.js";
+import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos, statementOf } from "./fisis-lib.js";
 
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
@@ -525,7 +525,7 @@ async function stats(url, env, ctx) {
 // (권역별 회사 목록, 총자산 순위, 통계표·계정 찾기)은 배포할 때 build-fisis-data.mjs가 미리 해서 fisis-data.json에 넣어 둔다.
 // 서버는 그 자료로 순위·목록을 바로 돌려주고, 회사 상세만 실시간으로 받는다(통계표 몇 개).
 // 화면의 권역: 증권사(F)에는 선물사(W)를 합쳐 보여 준다. 선물사는 FISIS에서 통계표가 따로라 자료도 따로 만든다.
-const FISIS_SET = new Set(["F", "G", "A", "H", "I", "E", "C", "M", "L"]);
+const FISIS_SET = new Set(["F", "G", "A", "H", "I", "E", "C", "M", "L", "ADV"]); // ADV: 투자자문·일임사(배포 때 FISIS에서 찾았을 때만 자료가 있다)
 const subSectors = (sector) => (sector === "F" ? ["F", "W"] : [sector]);
 const bundled = (sector) => (fisisData && fisisData.sectors && fisisData.sectors[sector]) || null;
 
@@ -545,7 +545,9 @@ const fisisCall = (env, name, params) => fisisFetch(env.FISIS_API_KEY, name, par
 async function fisis(url, env) {
   const action = url.pathname.slice("/fisis/".length);
   const sector = url.searchParams.get("sector") || "";
+  if (action === "sectors") return json({ sectors: [...FISIS_SET].filter((s) => bundled(s)) }); // 자료가 만들어진 권역
   if (!FISIS_SET.has(sector)) return fail(400, "지원하지 않는 권역입니다.");
+  if (sector === "ADV" && !bundled("ADV")) return fail(404, "FISIS에서 투자자문·일임사 회사별 자료를 찾지 못했습니다.");
   const parts = subSectors(sector).map((s) => ({ sector: s, data: bundled(s) }));
   const ready = parts.filter((p) => p.data);
   if (action === "companies") {
@@ -569,7 +571,26 @@ async function fisis(url, env) {
     const owner = ready.find((p) => p.data.companies.some(([code]) => code === finance)) || ready[0];
     return json(await memo(`profile/${owner.sector}/${finance}`, 21600, () => fisisProfile(env, owner.data, finance)));
   }
+  if (action === "statement") {
+    const finance = url.searchParams.get("finance") || "";
+    const basis = url.searchParams.get("basis") || "";
+    if (!/^[0-9A-Za-z]{4,12}$/.test(finance)) return fail(400, "회사 코드가 올바르지 않습니다.");
+    if (!ready.length) return fail(503, "경영정보 설정이 아직 만들어지지 않았습니다. 관리자가 Deploy news proxy를 다시 실행해야 합니다.");
+    const owner = ready.find((p) => p.data.companies.some(([code]) => code === finance)) || ready[0];
+    return json(await memo(`statement/${owner.sector}/${finance}/${basis}`, 21600, () => fisisStatement(env, owner.data, finance, basis)));
+  }
   return new Response("Not found", { status: 404 });
+}
+
+/** 재무제표 보기: 재무 항목이 들어 있는 통계표(요약 재무상태표·손익계산서 등)의 모든 계정을 돌려준다(FISIS가 주는 범위). */
+async function fisisStatement(env, data, finance, basis) {
+  const spec = data.spec;
+  const list = spec.basis[basis] || Object.values(spec.basis)[0] || [];
+  const used = [...new Map(list.map((m) => [m.listNo, m.listNm])).entries()].slice(0, 6);
+  const tables = await Promise.all(used.map(([listNo]) => fetchTable((p) => fisisCall(env, "statisticsInfoSearch", p), finance, listNo, (spec.terms && spec.terms[listNo]) || "Q").catch(() => null)));
+  const sections = used.map(([listNo, listNm], i) => (tables[i] ? { listNo, title: listNm, ...statementOf(tables[i]) } : null)).filter(Boolean);
+  if (!sections.length) throw new Error("FISIS에서 이 회사의 재무제표 자료를 받지 못했습니다.");
+  return { name: tables.find(Boolean).name, basis: Object.keys(spec.basis).includes(basis) ? basis : Object.keys(spec.basis)[0], sections };
 }
 
 /** 한 회사의 경영정보: 미리 찾아 둔 통계표·계정에 맞춰 통계표 몇 개만 받는다. */
