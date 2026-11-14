@@ -9,7 +9,7 @@
 //  - /fetch   : 웹 버전 전용. 브라우저가 직접 못 읽는(CORS) 기관·시세 사이트를 허용 목록 안에서만 대신 읽는다(web-lib.js).
 // 웹 버전(fss-insights-web)은 앱 토큰을 숨길 수 없어서, 허용 출처(WEB_ORIGINS)에서 온 요청은 토큰 없이 받고 IP별 요청 수를 제한한다.
 import fisisData from "./fisis-data.json";
-import { usagePing, adminApi, adminPage } from "./usage-lib.js";
+import { usagePing, adminApi, adminPage, adminExclude } from "./usage-lib.js";
 import { publicNotices, adminNotices, noticesPage } from "./notices-lib.js";
 import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, webSearchCorps, withDartClass } from "./dart-lib.js";
 import { corsPreflight, proxyFetch, webAccess, withCors } from "./web-lib.js";
@@ -59,6 +59,13 @@ async function route(request, url, env, ctx, fromWeb) {
         return await adminApi(request, url, env);
       } catch (e) {
         return fail(502, `통계 조회 오류: ${e.message}`);
+      }
+    }
+    if (url.pathname === "/admin/exclude" && request.method === "POST") {
+      try {
+        return await adminExclude(request, env);
+      } catch (e) {
+        return fail(502, `제외 목록 오류: ${e.message}`);
       }
     }
     if (url.pathname === "/admin/notices" && request.method === "GET") return noticesPage();

@@ -19,6 +19,8 @@ const SCHEMA = [
   // 사용자별 하루 방문(앱·웹을 연 횟수)과 사용 시간(초). 기기가 쌓은 '그날 누적값'을 보내오므로 MAX 로 갱신한다(같은 값을 여러 번 보내도 중복 집계되지 않는다).
   // 이 표는 기능 배포 뒤부터 쌓인다. 그 전 날짜는 방문 횟수·시간을 알 수 없다.
   "CREATE TABLE IF NOT EXISTS usage_activity (day TEXT NOT NULL, uid TEXT NOT NULL, visits INTEGER NOT NULL DEFAULT 0, secs INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, uid))",
+  // 통계에서 제외할 설치(운영자 본인 기기 등). 익명 ID(설치 해시)의 앞부분(16진수 4~64자리)을 적는다. 새 신호는 저장하지 않고, 이미 쌓인 기록은 조회에서 뺀다.
+  "CREATE TABLE IF NOT EXISTS usage_exclude (prefix TEXT PRIMARY KEY, added INTEGER NOT NULL)",
 ];
 let schemaReady = false;
 
@@ -104,6 +106,8 @@ export async function usagePing(request, env) {
   if (!ping) return reply({ error: "invalid" }, 400);
   await ensureSchema(env.DB);
   const uid = await sha256(`${ping.id}:${env.APP_TOKEN}`);
+  const excluded = await excludedPrefixes(env.DB);
+  if (excluded.some((p) => uid.startsWith(p))) return reply({ ok: true, live: true, excluded: true });
   const nowMs = Date.now();
   const kstToday = new Date(nowMs + 9 * 3600000).toISOString().slice(0, 10);
   const statements = [];
@@ -420,6 +424,29 @@ export function engagement({ allRows, activityRows = [], from, to, platform = "a
   };
 }
 
+const PREFIX = /^[0-9a-f]{4,64}$/;
+async function excludedPrefixes(db) {
+  const r = await db.prepare("SELECT prefix FROM usage_exclude ORDER BY added").all();
+  return (r.results ?? []).map((x) => x.prefix);
+}
+
+/** 제외 목록 추가·삭제. 본문 {add:"abc123"} 또는 {remove:"abc123"}. */
+export async function adminExclude(request, env) {
+  if (!env.ADMIN_TOKEN || request.headers.get("X-Admin-Token") !== env.ADMIN_TOKEN) return new Response("Unauthorized", { status: 401 });
+  if (!env.DB) return reply({ error: "통계 저장소(D1)가 연결되지 않았습니다" }, 503);
+  await ensureSchema(env.DB);
+  let body;
+  try { body = await request.json(); } catch { return reply({ error: "bad json" }, 400); }
+  const add = String(body?.add ?? "").trim().toLowerCase();
+  const remove = String(body?.remove ?? "").trim().toLowerCase();
+  if (add) {
+    if (!PREFIX.test(add)) return reply({ error: "익명 ID(16진수 4자리 이상)만 넣을 수 있습니다" }, 400);
+    await env.DB.prepare("INSERT OR IGNORE INTO usage_exclude (prefix, added) VALUES (?, ?)").bind(add, Date.now()).run();
+  }
+  if (remove) await env.DB.prepare("DELETE FROM usage_exclude WHERE prefix = ?").bind(remove).run();
+  return reply({ excluded: await excludedPrefixes(env.DB) });
+}
+
 export async function adminApi(request, url, env) {
   if (!env.ADMIN_TOKEN || request.headers.get("X-Admin-Token") !== env.ADMIN_TOKEN) return new Response("Unauthorized", { status: 401 });
   if (!env.DB) return reply({ error: "통계 저장소(D1)가 연결되지 않았습니다" }, 503);
@@ -428,28 +455,33 @@ export async function adminApi(request, url, env) {
   const to = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); // 한국 날짜 기준
   const from = dayShift(to, -(span - 1));
   const pf = ["app", "web"].includes(url.searchParams.get("platform")) ? url.searchParams.get("platform") : "all";
+  const excluded = await excludedPrefixes(env.DB);
+  const isEx = (uid) => excluded.some((p) => String(uid).startsWith(p));
+  const exSql = excluded.map(() => " AND uid NOT LIKE ?").join("");
+  const exBind = excluded.map((p) => p + "%");
   const totalSql =
     pf === "web" ? "SELECT COUNT(DISTINCT uid) AS n FROM usage_daily WHERE version LIKE 'web-%'"
     : pf === "app" ? "SELECT COUNT(DISTINCT uid) AS n FROM usage_daily WHERE version NOT LIKE 'web-%'"
-    : "SELECT COUNT(DISTINCT uid) AS n FROM usage_daily";
+    : "SELECT COUNT(DISTINCT uid) AS n FROM usage_daily WHERE 1=1";
   const prevFrom = dayShift(from, -span);
   const [daily, menu, menuUser, total, prevMenuUser, hourRows, errorRows, envRows, activity] = await Promise.all([
     env.DB.prepare("SELECT day, uid, version FROM usage_daily WHERE day >= ?").bind(dayShift(to, -400)).all(),
     env.DB.prepare("SELECT day, menu, hits FROM usage_menu WHERE day >= ?").bind(from).all(),
     env.DB.prepare("SELECT day, menu, uid, hits FROM usage_menu_user WHERE day >= ?").bind(from).all(),
-    env.DB.prepare(totalSql).first(),
+    env.DB.prepare(totalSql + exSql).bind(...exBind).first(),
     env.DB.prepare("SELECT menu, uid FROM usage_menu_user WHERE day >= ? AND day < ? GROUP BY menu, uid").bind(prevFrom, from).all(),
     env.DB.prepare("SELECT day, hour, uid, hits FROM usage_hour WHERE day >= ?").bind(from).all(),
     env.DB.prepare("SELECT day, name, uid, hits FROM usage_error WHERE day >= ?").bind(from).all(),
     env.DB.prepare("SELECT uid, dev, br, os, sc, inst FROM usage_env").all(),
     env.DB.prepare("SELECT day, uid, visits, secs, last_at FROM usage_activity WHERE day >= ?").bind(dayShift(to, -400)).all(),
   ]);
-  const allRows = daily.results ?? [];
+  const keep = (rows) => (rows.results ?? []).filter((r) => !isEx(r.uid));
+  const allRows = keep(daily), menuUserRows = keep(menuUser);
   return reply({
-    from, to, totalInstalls: total?.n ?? 0,
-    ...summarize(allRows, menu.results ?? [], from, to, menuUser.results ?? [], pf),
-    engagement: engagement({ allRows, activityRows: activity.results ?? [], from, to, platform: pf }),
-    detail: detail({ allRows, menuUserRows: menuUser.results ?? [], prevMenuUserRows: prevMenuUser.results ?? [], hourRows: hourRows.results ?? [], errorRows: errorRows.results ?? [], envRows: envRows.results ?? [], from, to, span, platform: pf }),
+    from, to, totalInstalls: total?.n ?? 0, excluded,
+    ...summarize(allRows, menu.results ?? [], from, to, menuUserRows, pf),
+    engagement: engagement({ allRows, activityRows: keep(activity), from, to, platform: pf }),
+    detail: detail({ allRows, menuUserRows, prevMenuUserRows: keep(prevMenuUser), hourRows: keep(hourRows), errorRows: keep(errorRows), envRows: keep(envRows), from, to, span, platform: pf }),
   });
 }
 
@@ -479,6 +511,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 6px;b
 <details style="margin-top:8px"><summary class="leg">일자별 표</summary><table id="engd"></table></details>
 <h2 style="margin-top:10px">날짜별 접속자 상세 <select id="engday"></select></h2><div id="engusum" class="leg"></div><table id="engu"></table><div class="leg">접속자는 익명 ID(설치별 해시의 앞 6자리)로만 표시되며 이름·기기 정보와 연결되지 않습니다. 사용 시간이 긴 순입니다. 최종 접속 = 서버가 마지막으로 그 사용자의 신호(열기·사용 중 전송·닫기)를 받은 시각(한국시간)이며, 오늘 접속분부터 기록됩니다. 사용 시간 0초는 열자마자 닫는 등으로 시간 전송 전에 끝난 경우입니다(웹 v2.21.2부터 보완).</div>
 <div class="leg" style="margin-top:6px">방문 = 앱·웹을 열 때마다 1회(앱은 다시 앞으로 가져올 때, 웹은 처음 열거나 다른 탭·창에서 돌아올 때도 포함). 사용 시간 = 화면이 보이는 동안 1분 단위로 기록(백그라운드·숨김 시간 제외). 이 기능이 들어간 새 앱·웹을 쓴 사용자만 집계되며, 그 이전 날짜는 값이 없습니다. 오늘 값은 사용 중에도 몇 분마다·화면을 닫을 때 올라옵니다.</div></div>
+<div class="card"><h2>통계에서 제외할 접속자</h2><input id="exid" placeholder="익명 ID(예: 18a57f)" size="12"> <button id="exadd">제외 추가</button><div id="exlist" class="leg" style="margin-top:6px"></div><div class="leg">운영자 본인 기기 등을 제외합니다. 아래 "날짜별 접속자 상세"의 ID를 눌러도 추가됩니다. 제외하면 DAU·WAU·MAU·방문·사용 시간·메뉴·신규/재방문 등 모든 집계에서 빠지고, 이후 신호도 저장하지 않습니다. 앱·웹 정보 화면의 통계 끄기 스위치로 그 기기에서 아예 보내지 않게 할 수도 있습니다.</div></div>
 <div class="card"><h2>일자별 활성사용자</h2><svg id="chart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg><div class="leg"><b style="background:var(--a)"></b>DAU<b style="background:var(--b)"></b>WAU(7일)<b style="background:var(--c)"></b>MAU(30일)</div></div>
 <div class="card"><h2>버전별 분포 (최근 7일 활성)</h2><div id="ver"></div></div>
 <div class="card"><h2>메뉴별 사용자 수·열린 횟수</h2><table id="menu"></table><div class="leg">사용자 수는 조회 기간 중 그 메뉴를 연 서로 다른 설치 수입니다. 메뉴 기록은 사용자가 다음 날 앱을 열 때 올라오므로 오늘 것은 내일부터 보입니다.</div></div>
@@ -507,6 +540,7 @@ bars($("ver"),d.versions);
 const ms=Object.entries(d.menus).sort((a,b)=>b[1].users-a[1].users||b[1].hits-a[1].hits);
 $("menu").innerHTML="<tr><th>메뉴</th><th>사용자</th><th>이전 기간</th><th>횟수</th>"+d.weekDays.map(x=>"<th>"+x.slice(5)+"</th>").join("")+"</tr>"+(ms.length?ms.map(([k,v])=>"<tr><td>"+esc(k)+"</td><td>"+v.users+"</td><td>"+(d.detail.prevMenuUsers[k]??0)+"</td><td>"+v.hits+"</td>"+d.weekDays.map(x=>"<td>"+(v.daily[x]||"")+"</td>").join("")+"</tr>").join(""):"<tr><td colspan=11>자료 없음</td></tr>");
 
+$("exlist").innerHTML=d.excluded.length?"제외 중: "+d.excluded.map(x=>"<code>"+esc(x)+"</code> <a href='#' data-rm='"+esc(x)+"' onclick='return false'>해제</a>").join(" · "):"제외 중인 접속자 없음";
 const fk=t=>{if(!t)return"-";const k=new Date(t+9*3600000).toISOString();return k.slice(5,10).replace("-","/")+" "+k.slice(11,16)},E=d.engagement,fm=v=>v==null?"-":(Math.round(v*10)/10).toString(),ft=v=>{if(v==null)return"-";v=Math.round(v);return v<60?v+"초":Math.floor(v/60)+"분"+(v%60?" "+v%60+"초":"")};
 $("eng").innerHTML=[[fm(E.avgVisits)+"회","평균 방문 / 사용자·일"],[E.userDays?E.maxVisits+"회":"-","최대 방문(한 사람·하루)"],[ft(E.avgSecs),"평균 사용 시간 / 사용자·일"],[E.userDays?ft(E.maxSecs):"-","최대 사용 시간"]].map(x=>"<div><b>"+x[0]+"</b><span>"+x[1]+"</span></div>").join("");
 $("engnote").textContent=E.firstDay?("측정 시작일 "+E.firstDay+" · 기간 내 측정된 사용자·일 "+E.userDays+"건 · 중앙값 방문 "+fm(E.medianVisits)+"회, 시간 "+ft(E.medianSecs)):"아직 측정된 자료가 없습니다(새 앱·웹과 서버 배포 뒤부터 쌓입니다).";
@@ -518,7 +552,7 @@ const lb=s.map((p,i)=>'<text x="'+X(i)+'" y="193" font-size="9" text-anchor="mid
 $("engc").innerHTML='<line x1="10" x2="590" y1="178" y2="178" stroke="currentColor" opacity=".2"/>'+ln("avgVisits",mv,"var(--a)")+ln("avgSecs",mt,"var(--b)")+lb+'<text x="2" y="12" font-size="9" fill="currentColor" opacity=".6">방문 최대 '+fm(mv)+'회 · 시간 최대 '+fm(mt)+'분 (측정된 날짜만 표시)</text>'})();
 (function(){const days=E.series.filter(p=>p.users>0).map(p=>p.day).reverse(),sel=$("engday");const old=sel.value;
 sel.innerHTML=days.length?days.map(x=>'<option>'+x+'</option>').join(""):'<option value="">측정된 날짜 없음</option>';if(days.includes(old))sel.value=old;
-const show=()=>{const p=E.series.find(x=>x.day===sel.value);$("engu").innerHTML=p?"<tr><th>사용자(익명 ID)</th><th>구분</th><th>방문</th><th>사용 시간</th><th>최종 접속</th></tr>"+p.list.map(u=>"<tr><td><code>"+esc(u.id)+"</code></td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+u.visits+"회</td><td>"+ft(u.secs)+"</td><td>"+fk(u.at)+"</td></tr>").join("")+(p.users>p.list.length?"<tr><td colspan=5>외 "+(p.users-p.list.length)+"명</td></tr>":""):"";
+const show=()=>{const p=E.series.find(x=>x.day===sel.value);$("engu").innerHTML=p?"<tr><th>사용자(익명 ID)</th><th>구분</th><th>방문</th><th>사용 시간</th><th>최종 접속</th></tr>"+p.list.map(u=>"<tr><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code></td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+u.visits+"회</td><td>"+ft(u.secs)+"</td><td>"+fk(u.at)+"</td></tr>").join("")+(p.users>p.list.length?"<tr><td colspan=5>외 "+(p.users-p.list.length)+"명</td></tr>":""):"";
 $("engusum").textContent=p?"측정 "+p.users+"명 / 그날 DAU "+p.dau+"명 · 평균 방문 "+fm(p.avgVisits)+"회 · 평균 시간 "+ft(p.avgSecs):""};sel.onchange=show;show()})();
 bars($("engv"),E.visitDist,1);bars($("engt"),E.timeDist,1);
 $("engd").innerHTML="<tr><th>날짜</th><th>DAU</th><th>측정</th><th>평균 방문</th><th>최대 방문</th><th>평균 시간</th><th>최대 시간</th></tr>"+E.series.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.users+"</td><td>"+fm(p.avgVisits)+"</td><td>"+(p.users?p.maxVisits:"-")+"</td><td>"+ft(p.avgSecs)+"</td><td>"+(p.users?ft(p.maxSecs):"-")+"</td></tr>").join("");
@@ -546,5 +580,8 @@ const wm=Math.max(1,...D.weekday.map(x=>x.avg));$("wdy").innerHTML=D.weekday.map
 const er=Object.entries(D.errors).sort((a,b)=>b[1].hits-a[1].hits);
 $("errs").innerHTML="<tr><th>이름</th><th>횟수</th><th>영향 사용자</th><th>마지막</th></tr>"+(er.length?er.map(([k,v])=>"<tr><td>"+esc(k)+"</td><td>"+v.hits+"</td><td>"+v.users+"</td><td>"+v.last.slice(5)+"</td></tr>").join(""):"<tr><td colspan=4>기록 없음</td></tr>");
 $("tbl").innerHTML="<tr><th>날짜</th><th>DAU</th><th>WAU</th><th>MAU</th></tr>"+s.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.wau+"</td><td>"+p.mau+"</td></tr>").join("")}
+async function exApi(body){const r=await fetch("/admin/exclude",{method:"POST",headers:{"X-Admin-Token":$("tok").value,"Content-Type":"application/json"},body:JSON.stringify(body)});if(!r.ok){alert(r.status==400?(await r.json()).error:"오류 "+r.status);return}load()}
+$("exadd").onclick=()=>{const v=$("exid").value.trim();if(v){$("exid").value="";exApi({add:v})}};
+document.addEventListener("click",e=>{const t=e.target;if(t.classList&&t.classList.contains("exb")&&confirm(t.dataset.id+" 접속자를 통계에서 제외할까요?"))exApi({add:t.dataset.id});if(t.dataset&&t.dataset.rm)exApi({remove:t.dataset.rm})});
 $("go").onclick=load;if($("tok").value)load();
 </script></body></html>`;
