@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.hdlee73.everylaw.core.data.remote.LawApiService
+import com.hdlee73.everylaw.core.data.remote.PrecollectedLawInterceptor
 import com.hdlee73.everylaw.core.data.repository.RemoteLawRepository
 import com.hdlee73.everylaw.core.data.repository.SwitchingLawRepository
 import com.hdlee73.everylaw.core.domain.BuildPdfExtrasUseCase
@@ -32,6 +33,7 @@ class LawContainer private constructor(context: Context) {
         ocProvider = null,
         baseUrl = NewsProxy.url.trimEnd('/').ifBlank { "https://invalid.example" } + "/law/",
     ) {
+        addInterceptor(PrecollectedLawInterceptor()) // 사전수집한 금융 법령 응답이 있으면 서버 왕복 없이 바로 쓴다
         addInterceptor { chain ->
             chain.proceed(chain.request().newBuilder().header("X-App-Token", NewsProxy.token).build())
         }

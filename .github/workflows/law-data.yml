@@ -1,0 +1,45 @@
+name: Law data
+
+# 금융 관련 법령(법·시행령·시행규칙·3단비교·체계도·감독규정·세칙)의 국가법령정보 응답 원문을 매일 모아 law-data 브랜치에 올린다.
+# 웹·앱은 같은 요청이면 이 파일을 먼저 읽고(서버 왕복 없음), 목록에 없는 법령만 실시간 조회한다. 인증값(OC)은 저장 전에 지운다.
+# 브랜치는 매번 새로 만들어 강제로 덮으므로(이력 없음) 레포 용량이 늘지 않는다.
+on:
+  schedule:
+    - cron: "0 21 * * *"   # 매일 06:00 KST
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "server/law-data/**"
+      - ".github/workflows/law-data.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: law-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Collect
+        run: node server/law-data/build_law.mjs out
+      - name: Publish to law-data branch
+        if: github.event_name != 'pull_request'
+        run: |
+          set -e
+          git config user.name "law-data-bot"
+          git config user.email "noreply@github.com"
+          rm -rf /tmp/pub && mkdir /tmp/pub && cp out/* /tmp/pub/
+          git checkout --orphan law-data
+          git rm -rf . >/dev/null 2>&1 || true
+          cp /tmp/pub/* .
+          git add index.json *.xml
+          git commit -m "data: $(date -u +%F)"
+          git push -f origin law-data
