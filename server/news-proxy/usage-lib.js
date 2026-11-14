@@ -98,6 +98,8 @@ export function sanitizePing(body, nowMs = Date.now()) {
 
 export async function usagePing(request, env) {
   if (!env.DB) return reply({ error: "통계 저장소(D1)가 연결되지 않았습니다" }, 503);
+  // 자동화 브라우저(테스트·점검)의 신호는 저장하지 않는다. 웹 쪽에서도 막지만 옛 캐시 버전을 대비한 방어다.
+  if (/HeadlessChrome|Playwright|Puppeteer|PhantomJS/i.test(request.headers.get("User-Agent") ?? "")) return reply({ ok: true, live: true, ignored: true });
   const text = await request.text();
   if (text.length > 16384) return reply({ error: "too large" }, 413);
   let body;
