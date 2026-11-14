@@ -49,7 +49,7 @@ assert.equal(e.timeDist["15~30분"], 1);
 assert.equal(e.timeDist["1~5분"], 1);
 
 e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", ufrom: "2000-01-01", uto: "2026-11-13" });
-assert.deepEqual(e.period.users.map((x) => [x.id, x.days, x.visits, x.secs]), [["u2", 1, 6, 1800], ["u1", 2, 6, 720]]);
+assert.deepEqual(e.period.users.filter((x) => !x.un).map((x) => [x.id, x.days, x.visits, x.secs]), [["u2", 1, 6, 1800], ["u1", 2, 6, 720]]);
 assert.equal(e.period.from, "2026-11-12");
 e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", ufrom: "2026-11-13", uto: "2026-11-13" });
 assert.deepEqual(e.period.users.map((x) => [x.id, x.days, x.visits, x.secs]), [["u1", 1, 4, 120]]);
@@ -72,6 +72,20 @@ assert.equal(e.period.users.find((u) => u.id === "u2".slice(0, 6)).ver, "2.20.0"
 assert.equal(e.period.users.find((u) => u.id === "u1".slice(0, 6)).ver, "2.7.0");
 assert.equal(e.series.find((x) => x.day === "2026-11-12").list.find((u) => u.id === "u2").ver, "2.20.0");
 assert.equal("verDay" in e.period.users[0], false);
+
+// 6) 미측정(신호만 보낸) 사용자: u3 는 11/12 DAU 에는 있으나 방문·시간 기록 없음
+e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", ufrom: "2000-01-01", uto: "2026-11-13" });
+const d12u = e.series.find((x) => x.day === "2026-11-12");
+assert.equal(d12u.unmeasured, 1);
+assert.equal(d12u.users + d12u.unmeasured, d12u.dau); // 측정 + 미측정 = DAU
+assert.deepEqual(d12u.unList, [{ id: "u3", p: "web", ver: "2.19.0", at: null }]);
+assert.equal(e.series.find((x) => x.day === "2026-11-13").unmeasured, 0);
+assert.equal(e.period.unmeasured, 1);
+assert.deepEqual(e.period.users.map((x) => [x.id, !!x.un]), [["u2", false], ["u1", false], ["u3", true]]);
+assert.equal(e.period.users[2].visits, null);
+assert.equal(e.period.total, 2); // 측정 접속자 수는 그대로
+e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", platform: "app" });
+assert.equal(e.series.find((x) => x.day === "2026-11-12").unmeasured, 0); // 플랫폼 필터 반영
 
 console.log("usage-lib engagement tests passed");
 
