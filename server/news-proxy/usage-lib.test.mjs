@@ -48,6 +48,12 @@ assert.equal(e.visitDist["2~3회"], 1);
 assert.equal(e.timeDist["15~30분"], 1);
 assert.equal(e.timeDist["1~5분"], 1);
 
+e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", ufrom: "2000-01-01", uto: "2026-11-13" });
+assert.deepEqual(e.period.users.map((x) => [x.id, x.days, x.visits, x.secs]), [["u2", 1, 6, 1800], ["u1", 2, 6, 720]]);
+assert.equal(e.period.from, "2026-11-12");
+e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", ufrom: "2026-11-13", uto: "2026-11-13" });
+assert.deepEqual(e.period.users.map((x) => [x.id, x.days, x.visits, x.secs]), [["u1", 1, 4, 120]]);
+
 // 4) 플랫폼 필터
 e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", platform: "web" });
 assert.equal(e.userDays, 1);
