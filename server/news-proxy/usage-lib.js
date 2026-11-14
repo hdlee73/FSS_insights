@@ -487,6 +487,66 @@ export async function adminExclude(request, env) {
   return reply({ excluded: await excludedPrefixes(env.DB) });
 }
 
+/**
+ * 접속자 한 명(익명 ID 앞부분)의 메뉴 이용 현황. 저장된 전체 기록 기준이다(조회 기간과 무관).
+ * 메뉴별: 연 횟수(hits)·사용한 날 수(days)·마지막 사용일(last)·일자별 횟수(최근 14일 daily). 시간대·일자별 방문/사용 시간·사용 버전 포함.
+ * 메뉴별 '사용 시간'은 수집하지 않으므로(하루 총 사용 시간만 있음) 제공하지 않는다.
+ */
+export function userSummary({ menuRows = [], hourRows = [], dailyRows = [], activityRows = [], to }) {
+  const menus = {};
+  for (const m of menuRows) {
+    const e = (menus[m.menu] ??= { hits: 0, days: 0, last: m.day, first: m.day });
+    e.hits += m.hits;
+    e.days++;
+    if (m.day > e.last) e.last = m.day;
+    if (m.day < e.first) e.first = m.day;
+  }
+  const total = Object.values(menus).reduce((t, x) => t + x.hits, 0);
+  const list = Object.entries(menus).map(([menu, x]) => ({ menu, ...x, share: total ? x.hits / total : 0 })).sort((a, b) => b.hits - a.hits || b.days - a.days);
+  const hours = Array.from({ length: 24 }, () => 0);
+  for (const h of hourRows) if (h.hour >= 0 && h.hour <= 23) hours[h.hour] += h.hits;
+  const start = dayShift(to, -13);
+  const days = Array.from({ length: 14 }, (_, i) => dayShift(start, i)).map((day) => {
+    const a = activityRows.find((x) => x.day === day);
+    const hits = menuRows.filter((m) => m.day === day).reduce((t, m) => t + m.hits, 0);
+    return { day, active: dailyRows.some((r) => r.day === day), menuHits: hits, visits: a?.visits ?? null, secs: a?.secs ?? null };
+  });
+  const activeDays = [...new Set(dailyRows.map((r) => r.day))].sort();
+  const lastVer = dailyRows.slice().sort((a, b) => (a.day < b.day ? -1 : 1)).at(-1)?.version ?? null;
+  return {
+    platform: lastVer ? platformOf(lastVer) : null,
+    version: lastVer && lastVer !== "?" ? String(lastVer).replace(/^web-/, "") : null,
+    firstDay: activeDays[0] ?? null,
+    lastDay: activeDays.at(-1) ?? null,
+    activeDays: activeDays.length,
+    totalHits: total,
+    menus: list,
+    hours,
+    days,
+  };
+}
+
+/** GET /admin/user?id=익명ID(16진수 4~64자리, 앞부분) — 접속자별 메뉴 이용 현황. */
+export async function adminUser(request, url, env) {
+  if (!env.ADMIN_TOKEN || request.headers.get("X-Admin-Token") !== env.ADMIN_TOKEN) return new Response("Unauthorized", { status: 401 });
+  if (!env.DB) return reply({ error: "통계 저장소(D1)가 연결되지 않았습니다" }, 503);
+  await ensureSchema(env.DB);
+  const id = String(url.searchParams.get("id") ?? "").trim().toLowerCase();
+  if (!PREFIX.test(id)) return reply({ error: "익명 ID(16진수 4자리 이상)가 필요합니다" }, 400);
+  const like = id + "%";
+  const [menu, hour, daily, activity, ids] = await Promise.all([
+    env.DB.prepare("SELECT day, menu, hits FROM usage_menu_user WHERE uid LIKE ?").bind(like).all(),
+    env.DB.prepare("SELECT day, hour, hits FROM usage_hour WHERE uid LIKE ?").bind(like).all(),
+    env.DB.prepare("SELECT day, version FROM usage_daily WHERE uid LIKE ?").bind(like).all(),
+    env.DB.prepare("SELECT day, visits, secs FROM usage_activity WHERE uid LIKE ?").bind(like).all(),
+    env.DB.prepare("SELECT DISTINCT uid FROM usage_daily WHERE uid LIKE ? LIMIT 2").bind(like).all(),
+  ]);
+  const to = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const matches = (ids.results ?? []).length;
+  if (!matches) return reply({ error: "해당 접속자의 기록이 없습니다" }, 404);
+  return reply({ id, ambiguous: matches > 1, ...userSummary({ menuRows: menu.results ?? [], hourRows: hour.results ?? [], dailyRows: daily.results ?? [], activityRows: activity.results ?? [], to }) });
+}
+
 export async function adminApi(request, url, env) {
   if (!env.ADMIN_TOKEN || request.headers.get("X-Admin-Token") !== env.ADMIN_TOKEN) return new Response("Unauthorized", { status: 401 });
   if (!env.DB) return reply({ error: "통계 저장소(D1)가 연결되지 않았습니다" }, 503);
@@ -542,7 +602,8 @@ h1{font-size:20px;margin:8px 0 12px}h2{font-size:15px;margin:0 0 8px}.card{backg
 input,select,button{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--ln);background:var(--card);color:var(--fg)}button{background:var(--a);color:#fff;border:0}
 .bar{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:13px}.bar i{display:block;height:10px;background:var(--a);border-radius:5px}.bar em{min-width:130px;font-style:normal}
 svg{width:100%;height:200px}.leg{font-size:12px;color:var(--mut)}.leg b{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 4px 0 10px}
-table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 6px;border-bottom:1px solid var(--ln);text-align:right}td:first-child,th:first-child{text-align:left}
+table{width:100%;border-collapse:collapse;font-size:13px}
+dialog{border:1px solid var(--ln);border-radius:14px;background:var(--card);color:var(--fg);max-width:620px;width:calc(100% - 24px);padding:14px}dialog::backdrop{background:rgba(0,0,0,.45)}.exb{cursor:pointer;text-decoration:underline dotted}td,th{padding:4px 6px;border-bottom:1px solid var(--ln);text-align:right}td:first-child,th:first-child{text-align:left}
 </style></head><body><main>
 <h1>FSS Insights 사용 통계 <a class="leg" href="/admin/notices">· 공지사항 관리</a></h1>
 <div class="card"><input id="tok" type="password" placeholder="관리자 토큰" autocomplete="off"> <select id="pf"><option value="all">전체(앱+웹)</option><option value="app">앱만</option><option value="web">웹만</option></select> <select id="span"><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option></select> <button id="go">조회</button> <span id="msg" class="leg"></span></div>
@@ -572,6 +633,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 6px;b
 <div class="card"><h2>오류·실패 현황</h2><table id="errs"></table><div class="leg">api:/경로 = 서버 자료 불러오기 실패, fetch:이름 = 외부 사이트 직접 읽기 실패. 영향 사용자 수와 마지막 발생일을 함께 봅니다. 이 기능 배포 전 기록은 없습니다.</div></div>
 <div class="card"><h2>일자별 표</h2><table id="tbl"></table></div>
 </div></main>
+<dialog id="ud"><div style="display:flex;justify-content:space-between;align-items:center"><h2 id="udt" style="margin:0"></h2><span><button id="udex" style="background:var(--b)">통계에서 제외</button> <button id="udx" style="background:var(--mut)">닫기</button></span></div><div id="udb"></div></dialog>
 <script>
 const $=i=>document.getElementById(i);$("tok").value=sessionStorage.getItem("t")||"";
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -636,6 +698,18 @@ $("errs").innerHTML="<tr><th>이름</th><th>횟수</th><th>영향 사용자</th>
 $("tbl").innerHTML="<tr><th>날짜</th><th>DAU</th><th>WAU</th><th>MAU</th></tr>"+s.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.wau+"</td><td>"+p.mau+"</td></tr>").join("")}
 async function exApi(body){const r=await fetch("/admin/exclude",{method:"POST",headers:{"X-Admin-Token":$("tok").value,"Content-Type":"application/json"},body:JSON.stringify(body)});if(!r.ok){alert(r.status==400?(await r.json()).error:"오류 "+r.status);return}load()}
 $("exadd").onclick=()=>{const v=$("exid").value.trim();if(v){$("exid").value="";exApi({add:v})}};
-document.addEventListener("click",e=>{const t=e.target;if(t.classList&&t.classList.contains("exb")&&confirm(t.dataset.id+" 접속자를 통계에서 제외할까요?"))exApi({add:t.dataset.id});if(t.dataset&&t.dataset.rm)exApi({remove:t.dataset.rm})});
+let udId="";
+async function openUser(id){udId=id;$("udt").textContent="접속자 "+id;$("udb").innerHTML='<p class="leg">불러오는 중…</p>';const dg=$("ud");if(!dg.open)dg.showModal();
+const r=await fetch("/admin/user?id="+encodeURIComponent(id),{headers:{"X-Admin-Token":$("tok").value}});
+if(!r.ok){$("udb").innerHTML='<p class="leg">'+(r.status==404?"이 접속자의 기록이 없습니다":"오류 "+r.status)+'</p>';return}
+const u=await r.json(),ft=v=>{if(v==null)return"-";v=Math.round(v);return v<60?v+"초":Math.floor(v/60)+"분"},mx=Math.max(1,...u.menus.map(m=>m.hits)),hm=Math.max(1,...u.hours);
+$("udb").innerHTML=(u.ambiguous?'<p class="leg">⚠ 같은 앞부분을 가진 접속자가 둘 이상이라 합쳐서 보여 줍니다.</p>':"")+
+'<p class="leg">'+(u.platform==="web"?"웹":u.platform==="app"?"앱":"-")+(u.version?" "+esc(u.version):"")+' · 접속 '+u.activeDays+'일 ('+(u.firstDay||"-")+' ~ '+(u.lastDay||"-")+') · 메뉴 열린 횟수 합계 '+u.totalHits+'회</p>'+
+'<h2 style="margin-top:8px">메뉴별 이용</h2>'+(u.menus.length?'<table><tr><th>메뉴</th><th></th><th>횟수</th><th>비율</th><th>사용일</th><th>마지막</th></tr>'+u.menus.map(m=>'<tr><td>'+esc(m.menu)+'</td><td style="width:30%"><i style="display:block;height:8px;background:var(--a);border-radius:4px;width:'+Math.round(m.hits/mx*100)+'%"></i></td><td>'+m.hits+'</td><td>'+Math.round(m.share*100)+'%</td><td>'+m.days+'일</td><td>'+m.last.slice(5)+'</td></tr>').join("")+'</table>':'<p class="leg">기록된 메뉴 이용이 없습니다(메뉴 기록은 사용자가 다음 날 앱·웹을 열 때 올라옵니다).</p>')+
+'<h2 style="margin-top:10px">최근 14일</h2><table><tr><th>날짜</th><th>접속</th><th>방문</th><th>사용 시간</th><th>메뉴 열람</th></tr>'+u.days.slice().reverse().map(x=>'<tr><td>'+x.day.slice(5)+'</td><td>'+(x.active?"●":"")+'</td><td>'+(x.visits==null?"-":x.visits)+'</td><td>'+ft(x.secs)+'</td><td>'+(x.menuHits||"")+'</td></tr>').join("")+'</table>'+
+'<h2 style="margin-top:10px">시간대별 (메뉴를 연 시각)</h2>'+(u.hours.some(Boolean)?u.hours.map((h,i)=>h?'<div class="bar"><em style="min-width:40px">'+i+'시</em><i style="width:'+Math.round(h/hm*55)+'%"></i>'+h+'</div>':"").join(""):'<p class="leg">기록 없음</p>')+
+'<p class="leg">메뉴별 사용 시간은 수집하지 않으며(하루 총 사용 시간만 기록), 열린 횟수로 비교합니다. 이 접속자 한 명을 식별하는 정보는 저장하지 않습니다.</p>'}
+$("udx").onclick=()=>$("ud").close();$("udex").onclick=()=>{if(udId&&confirm(udId+" 접속자를 통계에서 제외할까요?")){$("ud").close();exApi({add:udId})}};
+document.addEventListener("click",e=>{const t=e.target;if(t.classList&&t.classList.contains("exb"))openUser(t.dataset.id);if(t.dataset&&t.dataset.rm)exApi({remove:t.dataset.rm})});
 $("go").onclick=load;$("ugo").onclick=load;$("uq").onchange=()=>{if($("uq").value!=="custom")load()};if($("tok").value)load();
 </script></body></html>`;

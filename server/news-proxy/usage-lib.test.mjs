@@ -74,3 +74,29 @@ assert.equal(e.series.find((x) => x.day === "2026-11-12").list.find((u) => u.id 
 assert.equal("verDay" in e.period.users[0], false);
 
 console.log("usage-lib engagement tests passed");
+
+// 4) 접속자별 메뉴 이용 현황
+{
+  const { userSummary } = await import("./usage-lib.js");
+  const u = userSummary({
+    menuRows: [
+      { day: "2026-11-12", menu: "뉴스 검색", hits: 3 },
+      { day: "2026-11-13", menu: "뉴스 검색", hits: 2 },
+      { day: "2026-11-13", menu: "법령 검색", hits: 5 },
+    ],
+    hourRows: [{ day: "2026-11-13", hour: 9, hits: 4 }, { day: "2026-11-13", hour: 99, hits: 1 }],
+    dailyRows: [{ day: "2026-11-12", version: "web-2.23.4" }, { day: "2026-11-13", version: "web-2.23.4" }],
+    activityRows: [{ day: "2026-11-13", visits: 2, secs: 300 }],
+    to: "2026-11-14",
+  });
+  assert.equal(u.totalHits, 10);
+  assert.deepEqual(u.menus.map((m) => [m.menu, m.hits, m.days, m.last]), [["뉴스 검색", 5, 2, "2026-11-13"], ["법령 검색", 5, 1, "2026-11-13"]]);
+  assert.equal(u.platform, "web");
+  assert.equal(u.version, "2.23.4");
+  assert.equal(u.activeDays, 2);
+  assert.equal(u.hours[9], 4);
+  assert.equal(u.days.length, 14);
+  assert.equal(u.days.find((d) => d.day === "2026-11-13").secs, 300);
+  assert.equal(userSummary({ to: "2026-11-14" }).menus.length, 0);
+}
+console.log("userSummary OK");
