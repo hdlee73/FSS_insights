@@ -66,4 +66,11 @@ assert.equal(e.avgVisits, 3);
 e = engagement({ allRows, activityRows: [], from: "2026-11-11", to: "2026-11-13" });
 assert.equal(e.avgVisits, null);
 assert.equal(e.firstDay, "");
+// 버전 표시: 앱은 앱 버전, 웹은 'web-' 제거, 기간 표는 가장 최근 날짜의 버전
+e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", ufrom: "2000-01-01", uto: "2026-11-13" });
+assert.equal(e.period.users.find((u) => u.id === "u2".slice(0, 6)).ver, "2.20.0");
+assert.equal(e.period.users.find((u) => u.id === "u1".slice(0, 6)).ver, "2.7.0");
+assert.equal(e.series.find((x) => x.day === "2026-11-12").list.find((u) => u.id === "u2").ver, "2.20.0");
+assert.equal("verDay" in e.period.users[0], false);
+
 console.log("usage-lib engagement tests passed");
