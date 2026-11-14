@@ -51,6 +51,7 @@ const ERROR_NAME = /[^0-9A-Za-z:/._\-]/g;
 /**
  * 앱·웹이 보낸 본문을 검증해 정리한다. 잘못된 값은 버린다. 테스트하기 쉽게 따로 둔다.
  * 날짜별 객체: d(날짜), m(메뉴 맵), vis(그날 방문 횟수 누적), sec(그날 사용 시간 누적, 초). vis·sec 는 선택이라 옛 클라이언트와 섞여도 된다.
+ * m 의 횟수는 '그날 누적값'이다(같은 날을 여러 번 보내도 서버는 최댓값으로 받으므로 중복 집계되지 않고, 당일 기록도 바로 반영된다).
  * 날짜별 m(맵)에는 메뉴 횟수와 함께 특수 키가 섞여 올 수 있다: "~h:14"(14시에 메뉴를 연 횟수), "~e:이름"(오류·실패 횟수).
  */
 export function sanitizePing(body, nowMs = Date.now()) {
@@ -134,12 +135,12 @@ export async function usagePing(request, env) {
     }
     for (const [hour, hits] of Object.entries(hours)) {
       statements.push(
-        env.DB.prepare("INSERT INTO usage_hour (day, hour, uid, hits) VALUES (?, ?, ?, ?) ON CONFLICT(day, hour, uid) DO UPDATE SET hits = hits + excluded.hits").bind(day, Number(hour), uid, hits)
+        env.DB.prepare("INSERT INTO usage_hour (day, hour, uid, hits) VALUES (?, ?, ?, ?) ON CONFLICT(day, hour, uid) DO UPDATE SET hits = MAX(hits, excluded.hits)").bind(day, Number(hour), uid, hits)
       );
     }
     for (const [name, hits] of Object.entries(errors)) {
       statements.push(
-        env.DB.prepare("INSERT INTO usage_error (day, name, uid, hits) VALUES (?, ?, ?, ?) ON CONFLICT(day, name, uid) DO UPDATE SET hits = hits + excluded.hits").bind(day, name, uid, hits)
+        env.DB.prepare("INSERT INTO usage_error (day, name, uid, hits) VALUES (?, ?, ?, ?) ON CONFLICT(day, name, uid) DO UPDATE SET hits = MAX(hits, excluded.hits)").bind(day, name, uid, hits)
       );
     }
     statements.push(
@@ -147,7 +148,7 @@ export async function usagePing(request, env) {
     );
     for (const [menu, hits] of Object.entries(menus)) {
       statements.push(
-        env.DB.prepare("INSERT INTO usage_menu_user (day, menu, uid, hits) VALUES (?, ?, ?, ?) ON CONFLICT(day, menu, uid) DO UPDATE SET hits = hits + excluded.hits").bind(day, menu, uid, hits)
+        env.DB.prepare("INSERT INTO usage_menu_user (day, menu, uid, hits) VALUES (?, ?, ?, ?) ON CONFLICT(day, menu, uid) DO UPDATE SET hits = MAX(hits, excluded.hits)").bind(day, menu, uid, hits)
       );
     }
   }
