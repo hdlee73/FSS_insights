@@ -42,10 +42,17 @@ assert.deepEqual([d12.dau, d12.users, d12.avgVisits, d12.maxVisits], [3, 2, 4, 6
 assert.equal(e.series.find((x) => x.day === "2026-11-11").avgVisits, null);
 assert.deepEqual(d12.list.map((x) => [x.id, x.p, x.visits, x.secs]), [["u2", "web", 6, 1800], ["u1", "app", 2, 600]]); // 사용 시간 긴 순
 assert.deepEqual(d12.list.map((x) => x.at), [null, 1763000000000]);
+assert.deepEqual(d12.list.map((x) => [x.cd, x.cv, x.cs]), [[1, 6, 1800], [2, 6, 720]]); // u1: 11/12(2회·600초)+11/13(4회·120초), u2: 11/12 하루
 assert.equal(e.series.find((x) => x.day === "2026-11-11").list.length, 0);
 assert.equal(e.visitDist["2~3회"], 1);
 assert.equal(e.timeDist["15~30분"], 1);
 assert.equal(e.timeDist["1~5분"], 1);
+
+e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", ufrom: "2000-01-01", uto: "2026-11-13" });
+assert.deepEqual(e.period.users.map((x) => [x.id, x.days, x.visits, x.secs]), [["u2", 1, 6, 1800], ["u1", 2, 6, 720]]);
+assert.equal(e.period.from, "2026-11-12");
+e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", ufrom: "2026-11-13", uto: "2026-11-13" });
+assert.deepEqual(e.period.users.map((x) => [x.id, x.days, x.visits, x.secs]), [["u1", 1, 4, 120]]);
 
 // 4) 플랫폼 필터
 e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", platform: "web" });
