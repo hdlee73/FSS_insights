@@ -42,6 +42,7 @@ assert.deepEqual([d12.dau, d12.users, d12.avgVisits, d12.maxVisits], [3, 2, 4, 6
 assert.equal(e.series.find((x) => x.day === "2026-11-11").avgVisits, null);
 assert.deepEqual(d12.list.map((x) => [x.id, x.p, x.visits, x.secs]), [["u2", "web", 6, 1800], ["u1", "app", 2, 600]]); // 사용 시간 긴 순
 assert.deepEqual(d12.list.map((x) => x.at), [null, 1763000000000]);
+assert.deepEqual(d12.list.map((x) => [x.cd, x.cv, x.cs]), [[1, 6, 1800], [2, 6, 720]]); // u1: 11/12(2회·600초)+11/13(4회·120초), u2: 11/12 하루
 assert.equal(e.series.find((x) => x.day === "2026-11-11").list.length, 0);
 assert.equal(e.visitDist["2~3회"], 1);
 assert.equal(e.timeDist["15~30분"], 1);

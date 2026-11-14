@@ -387,6 +387,16 @@ export function engagement({ allRows, activityRows = [], from, to, platform = "a
   const dau = new Map();
   for (const r of rows) dau.set(r.day, (dau.get(r.day) ?? 0) + 1);
   const act = activityRows.filter((a) => a.day >= from && a.day <= to && (a.visits > 0 || a.secs > 0) && present.has(key(a.day, a.uid)));
+  // 사용자별 누적(측정이 시작된 뒤 전체 기간, 조회 기간과 무관): 접속일수·방문 합계·사용 시간 합계
+  const cum = new Map();
+  for (const a of activityRows) {
+    if (!(a.visits > 0 || a.secs > 0) || !present.has(key(a.day, a.uid))) continue;
+    const c = cum.get(a.uid) ?? { days: 0, visits: 0, secs: 0 };
+    c.days++;
+    c.visits += a.visits;
+    c.secs += a.secs;
+    cum.set(a.uid, c);
+  }
   const byDay = new Map();
   for (const a of act) {
     if (!byDay.has(a.day)) byDay.set(a.day, []);
@@ -404,7 +414,7 @@ export function engagement({ allRows, activityRows = [], from, to, platform = "a
       avgSecs: n ? sum(list, (x) => x.secs) / n : null, maxSecs: max(list, (x) => x.secs),
       // 익명 사용자 목록(해시 앞 6자리만, 사용 시간 긴 순). 날짜당 최대 300명.
       list: list.slice().sort((a, b) => b.secs - a.secs || b.visits - a.visits).slice(0, 300)
-        .map((x) => ({ id: String(x.uid).slice(0, 6), p: platOf.get(key(d, x.uid)), visits: x.visits, secs: x.secs, at: x.last_at ?? null })),
+        .map((x) => ({ id: String(x.uid).slice(0, 6), p: platOf.get(key(d, x.uid)), visits: x.visits, secs: x.secs, at: x.last_at ?? null, cd: cum.get(x.uid)?.days ?? 0, cv: cum.get(x.uid)?.visits ?? 0, cs: cum.get(x.uid)?.secs ?? 0 })),
     });
   }
   const n = act.length;
@@ -509,7 +519,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 6px;b
 <h2 style="margin-top:10px">일자별 평균 (선: 방문 횟수 <span style="color:var(--a)">●</span> · 사용 시간(분) <span style="color:var(--b)">●</span>, 각자 최대값 기준 비율)</h2><svg id="engc" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
 <h2 style="margin-top:10px">하루 방문 횟수 분포 (사용자·일 기준)</h2><div id="engv"></div><h2 style="margin-top:8px">하루 사용 시간 분포</h2><div id="engt"></div>
 <details style="margin-top:8px"><summary class="leg">일자별 표</summary><table id="engd"></table></details>
-<h2 style="margin-top:10px">날짜별 접속자 상세 <select id="engday"></select></h2><div id="engusum" class="leg"></div><table id="engu"></table><div class="leg">접속자는 익명 ID(설치별 해시의 앞 6자리)로만 표시되며 이름·기기 정보와 연결되지 않습니다. 사용 시간이 긴 순입니다. 최종 접속 = 서버가 마지막으로 그 사용자의 신호(열기·사용 중 전송·닫기)를 받은 시각(한국시간)이며, 오늘 접속분부터 기록됩니다. 사용 시간 0초는 열자마자 닫는 등으로 시간 전송 전에 끝난 경우입니다(웹 v2.21.2부터 보완).</div>
+<h2 style="margin-top:10px">날짜별 접속자 상세 <select id="engday"></select></h2><div id="engusum" class="leg"></div><div style="overflow-x:auto"><table id="engu" style="white-space:nowrap;min-width:640px"></table></div><div class="leg">접속자는 익명 ID(설치별 해시의 앞 6자리)로만 표시되며 이름·기기 정보와 연결되지 않습니다. 사용 시간이 긴 순입니다. 누적 접속일·방문·시간은 측정이 시작된 날(웹·앱 방문·시간 기록 시작일) 이후 전체 기간을 더한 값이며, 그 이전 기록은 없어 실제 사용 이력보다 적을 수 있습니다(제외한 접속자는 빠집니다). 표가 넓으면 옆으로 밀어 보세요. 최종 접속 = 서버가 마지막으로 그 사용자의 신호(열기·사용 중 전송·닫기)를 받은 시각(한국시간)이며, 오늘 접속분부터 기록됩니다. 사용 시간 0초는 열자마자 닫는 등으로 시간 전송 전에 끝난 경우입니다(웹 v2.21.2부터 보완).</div>
 <div class="leg" style="margin-top:6px">방문 = 앱·웹을 열 때마다 1회(앱은 다시 앞으로 가져올 때, 웹은 처음 열거나 다른 탭·창에서 돌아올 때도 포함). 사용 시간 = 화면이 보이는 동안 1분 단위로 기록(백그라운드·숨김 시간 제외). 이 기능이 들어간 새 앱·웹을 쓴 사용자만 집계되며, 그 이전 날짜는 값이 없습니다. 오늘 값은 사용 중에도 몇 분마다·화면을 닫을 때 올라옵니다.</div></div>
 <div class="card"><h2>통계에서 제외할 접속자</h2><input id="exid" placeholder="익명 ID(예: 18a57f)" size="12"> <button id="exadd">제외 추가</button><div id="exlist" class="leg" style="margin-top:6px"></div><div class="leg">운영자 본인 기기 등을 제외합니다. 아래 "날짜별 접속자 상세"의 ID를 눌러도 추가됩니다. 제외하면 DAU·WAU·MAU·방문·사용 시간·메뉴·신규/재방문 등 모든 집계에서 빠지고, 이후 신호도 저장하지 않습니다. 앱·웹 정보 화면의 통계 끄기 스위치로 그 기기에서 아예 보내지 않게 할 수도 있습니다.</div></div>
 <div class="card"><h2>일자별 활성사용자</h2><svg id="chart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg><div class="leg"><b style="background:var(--a)"></b>DAU<b style="background:var(--b)"></b>WAU(7일)<b style="background:var(--c)"></b>MAU(30일)</div></div>
@@ -552,7 +562,7 @@ const lb=s.map((p,i)=>'<text x="'+X(i)+'" y="193" font-size="9" text-anchor="mid
 $("engc").innerHTML='<line x1="10" x2="590" y1="178" y2="178" stroke="currentColor" opacity=".2"/>'+ln("avgVisits",mv,"var(--a)")+ln("avgSecs",mt,"var(--b)")+lb+'<text x="2" y="12" font-size="9" fill="currentColor" opacity=".6">방문 최대 '+fm(mv)+'회 · 시간 최대 '+fm(mt)+'분 (측정된 날짜만 표시)</text>'})();
 (function(){const days=E.series.filter(p=>p.users>0).map(p=>p.day).reverse(),sel=$("engday");const old=sel.value;
 sel.innerHTML=days.length?days.map(x=>'<option>'+x+'</option>').join(""):'<option value="">측정된 날짜 없음</option>';if(days.includes(old))sel.value=old;
-const show=()=>{const p=E.series.find(x=>x.day===sel.value);$("engu").innerHTML=p?"<tr><th>사용자(익명 ID)</th><th>구분</th><th>방문</th><th>사용 시간</th><th>최종 접속</th></tr>"+p.list.map(u=>"<tr><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code></td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+u.visits+"회</td><td>"+ft(u.secs)+"</td><td>"+fk(u.at)+"</td></tr>").join("")+(p.users>p.list.length?"<tr><td colspan=5>외 "+(p.users-p.list.length)+"명</td></tr>":""):"";
+const show=()=>{const p=E.series.find(x=>x.day===sel.value);$("engu").innerHTML=p?"<tr><th>사용자(익명 ID)</th><th>구분</th><th>방문</th><th>사용 시간</th><th>최종 접속</th><th>누적 접속일</th><th>누적 방문</th><th>누적 시간</th></tr>"+p.list.map(u=>"<tr><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code></td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+u.visits+"회</td><td>"+ft(u.secs)+"</td><td>"+fk(u.at)+"</td><td>"+u.cd+"일</td><td>"+u.cv+"회</td><td>"+ft(u.cs)+"</td></tr>").join("")+(p.users>p.list.length?"<tr><td colspan=8>외 "+(p.users-p.list.length)+"명</td></tr>":""):"";
 $("engusum").textContent=p?"측정 "+p.users+"명 / 그날 DAU "+p.dau+"명 · 평균 방문 "+fm(p.avgVisits)+"회 · 평균 시간 "+ft(p.avgSecs):""};sel.onchange=show;show()})();
 bars($("engv"),E.visitDist,1);bars($("engt"),E.timeDist,1);
 $("engd").innerHTML="<tr><th>날짜</th><th>DAU</th><th>측정</th><th>평균 방문</th><th>최대 방문</th><th>평균 시간</th><th>최대 시간</th></tr>"+E.series.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.users+"</td><td>"+fm(p.avgVisits)+"</td><td>"+(p.users?p.maxVisits:"-")+"</td><td>"+ft(p.avgSecs)+"</td><td>"+(p.users?ft(p.maxSecs):"-")+"</td></tr>").join("");
