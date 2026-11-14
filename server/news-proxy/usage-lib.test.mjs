@@ -26,7 +26,7 @@ const allRows = [
   { day: "2026-11-13", uid: "u1", version: "2.7.0" },
 ];
 const activityRows = [
-  { day: "2026-11-12", uid: "u1", visits: 2, secs: 600 },
+  { day: "2026-11-12", uid: "u1", visits: 2, secs: 600, last_at: 1763000000000 },
   { day: "2026-11-12", uid: "u2", visits: 6, secs: 1800 },
   { day: "2026-11-13", uid: "u1", visits: 4, secs: 120 },
 ];
@@ -41,6 +41,7 @@ const d12 = e.series.find((x) => x.day === "2026-11-12");
 assert.deepEqual([d12.dau, d12.users, d12.avgVisits, d12.maxVisits], [3, 2, 4, 6]);
 assert.equal(e.series.find((x) => x.day === "2026-11-11").avgVisits, null);
 assert.deepEqual(d12.list.map((x) => [x.id, x.p, x.visits, x.secs]), [["u2", "web", 6, 1800], ["u1", "app", 2, 600]]); // 사용 시간 긴 순
+assert.deepEqual(d12.list.map((x) => x.at), [null, 1763000000000]);
 assert.equal(e.series.find((x) => x.day === "2026-11-11").list.length, 0);
 assert.equal(e.visitDist["2~3회"], 1);
 assert.equal(e.timeDist["15~30분"], 1);
