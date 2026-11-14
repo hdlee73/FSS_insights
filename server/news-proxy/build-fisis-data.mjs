@@ -30,14 +30,14 @@ async function call(name, params) {
   }
 }
 
-async function buildSector(sector) {
-  const cs = await call("companySearch", { partDiv: sector });
+async function buildSector(sector, div = sector) {
+  const cs = await call("companySearch", { partDiv: div });
   const companies = rowsOf(cs.list)
     .map((c) => [String(c.finance_cd || ""), String(c.finance_nm || "").trim()])
     .filter(([code, name]) => code && name && !CLOSED.test(name));
   const spec = await resolveSpec(
     {
-      lists: async (s) => rowsOf((await call("statisticsListSearch", { lrgDiv: s })).list).map((x) => ({ sml: String(x.sml_div_nm || ""), listNo: String(x.list_no || ""), listNm: String(x.list_nm || "") })).filter((x) => x.listNo),
+      lists: async (s) => rowsOf((await call("statisticsListSearch", { lrgDiv: div })).list).map((x) => ({ sml: String(x.sml_div_nm || ""), listNo: String(x.list_no || ""), listNm: String(x.list_nm || "") })).filter((x) => x.listNo),
       accounts: async (listNo) => rowsOf((await call("accountListSearch", { listNo })).list).map((a) => ({ code: String(a.account_cd || ""), name: String(a.account_nm || "").trim() })).filter((a) => a.code),
     },
     sector
@@ -94,6 +94,24 @@ async function buildSector(sector) {
   return { companies, assets, spec };
 }
 
+// 투자자문·일임사: 알려진 권역 코드 밖에서 이름에 자문·일임이 든 금융회사 권역을 찾아 "ADV"로 저장한다(Deploy 로그에 스캔 결과를 남긴다).
+async function findAdvisorDiv() {
+  const known = new Set(FISIS_SECTORS);
+  for (const letter of "BDJKNOPQRSTUVXYZ") {
+    if (known.has(letter) || quotaHit) continue;
+    try {
+      const cs = await call("companySearch", { partDiv: letter });
+      const names = rowsOf(cs.list).map((c) => String(c.finance_nm || "").trim()).filter(Boolean);
+      const hit = names.filter((n) => /자문|일임/.test(n)).length;
+      console.log(`권역 탐색 ${letter}: ${names.length}곳, 자문·일임 ${hit}곳 예) ${names.slice(0, 3).join(", ")}`);
+      if (names.length && hit >= Math.max(1, names.length * 0.3)) return letter;
+    } catch (e) {
+      console.log(`권역 탐색 ${letter}: ${e.message}`);
+    }
+  }
+  return null;
+}
+
 const data = { builtAt: new Date().toISOString(), sectors: {} };
 try {
   const previous = JSON.parse(readFileSync(OUT, "utf8"));
@@ -110,6 +128,17 @@ for (const sector of FISIS_SECTORS) {
     console.log(`${sector}: 실패 - ${e.message}`);
   }
   if (quotaHit) break;
+}
+if (!quotaHit) {
+  const div = await findAdvisorDiv();
+  if (div) {
+    try {
+      data.sectors.ADV = await buildSector("ADV", div);
+      built++;
+    } catch (e) {
+      console.log(`ADV: 실패 - ${e.message}`);
+    }
+  } else console.log("투자자문·일임사 권역을 FISIS에서 찾지 못했습니다.");
 }
 if (!built) {
   console.log("만든 권역이 없어 기존 파일을 그대로 둡니다.");
