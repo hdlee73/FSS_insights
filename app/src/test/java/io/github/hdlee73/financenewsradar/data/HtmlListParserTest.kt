@@ -1,5 +1,6 @@
 package io.github.hdlee73.financenewsradar.data
 
+import io.github.hdlee73.financenewsradar.model.AgencyId
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -253,6 +254,22 @@ class HtmlListParserTest {
         assertEquals(1, fsb.size)
         assertEquals(LocalDate.of(2026, 10, 12), fsb[0].date)
         assertEquals("Global stablecoin arrangements", fsb[0].title)
+    }
+
+    @Test
+    fun fsbUsesEachPostsOwnDateNotThePreviousPostsDate() {
+        fun box(path: String, title: String, date: String) = """
+            <div class="post-excerpt post-excerpt-compact" id="p">
+              <div class="post-heading"><div class="post-title"><a href="https://www.fsb.org/$path/">$title</a></div>
+              <div class="post-date"><span>$date</span></div></div>
+            </div>
+        """.trimIndent()
+        val html = box("2026/11/peer-review-turkiye", "Peer Review of Türkiye", "11 November 2026") +
+            box("2026/10/sound-practices-final-report", "Sound Practices for Responsible Adoption of AI: Final report", "15 October 2026")
+        val items = AgencySources.of(AgencyId.FSB).customParser!!.invoke(html, "https://www.fsb.org/publications/")
+        assertEquals(2, items.size)
+        assertEquals(LocalDate.of(2026, 11, 11), items[0].date)
+        assertEquals(LocalDate.of(2026, 10, 15), items[1].date)
     }
 
     @Test

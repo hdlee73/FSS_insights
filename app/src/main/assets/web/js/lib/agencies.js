@@ -126,7 +126,13 @@ export const AGENCIES = [
     id: "FSB", label: "FSB", short: "FSB", group: "RESEARCH", noun: "보고서",
     home: "https://www.fsb.org/publications/",
     listUrl: (p) => "https://www.fsb.org/publications/" + (p > 1 ? `?mt_page=${p}` : ""),
-    customParser: (body, url) => P.extract(P.abbreviateMonths(body), url, /\/20\d{2}\/\d{2}\/[^/?#]+/).filter((x) => x.date),
+    // 글 상자(post-excerpt)마다 따로 읽는다. 통째로 읽으면 제목 앞쪽(이전 글)의 날짜를 가져와 날짜가 어긋난다.
+    customParser: (body, url) => {
+      const seen = new Set();
+      return String(body).split(/<div[^>]*class="post-excerpt\b/i).slice(1)
+        .flatMap((chunk) => P.extract(P.abbreviateMonths(chunk), url, /\/20\d{2}\/\d{2}\/[^/?#]+/))
+        .filter((x) => x.date && !seen.has(x.url) && seen.add(x.url));
+    },
     deepSearch: false,
   },
   {

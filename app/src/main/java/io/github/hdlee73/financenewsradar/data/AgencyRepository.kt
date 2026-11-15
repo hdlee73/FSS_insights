@@ -124,9 +124,13 @@ internal object AgencySources {
         AgencyId.FSB -> Source(
             listUrl = { page, _ -> "https://www.fsb.org/publications/" + if (page > 1) "?mt_page=$page" else "" },
             // 날짜가 "12 October 2026"처럼 월 이름 전체라서 약어로 바꿔 읽는다.
+            // 글 상자(post-excerpt)마다 따로 읽는다. 통째로 읽으면 이전 글의 날짜를 가져와 날짜가 어긋난다.
             customParser = { body, url ->
-                HtmlListParser.extract(HtmlListParser.abbreviateMonths(body), url, Regex("""/20\d{2}/\d{2}/[^/?#]+"""))
-                    .filter { it.date != null }
+                val pattern = Regex("""/20\d{2}/\d{2}/[^/?#]+""")
+                val seen = HashSet<String>()
+                body.split(Regex("""<div[^>]*class="post-excerpt\b""", RegexOption.IGNORE_CASE)).drop(1)
+                    .flatMap { chunk -> HtmlListParser.extract(HtmlListParser.abbreviateMonths(chunk), url, pattern) }
+                    .filter { it.date != null && seen.add(it.url) }
             },
             deepSearch = false
         )

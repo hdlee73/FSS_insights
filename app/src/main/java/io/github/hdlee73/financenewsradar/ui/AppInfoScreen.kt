@@ -29,6 +29,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.hdlee73.financenewsradar.data.CheckState
 import io.github.hdlee73.financenewsradar.data.UpdateInfo
+import io.github.hdlee73.financenewsradar.data.SettingsBackup
 import io.github.hdlee73.financenewsradar.data.UsageStats
 import java.io.File
 import kotlinx.coroutines.launch
@@ -60,7 +61,7 @@ private const val USAGE_GUIDE =
         "• 금융사 리스크 대시보드: 회사 한 곳의 건전성 추이(업권 중앙값 대비)·DART 개황과 최대주주·제재 이력을 한 화면에서 보고, 업권별 Peer 사분면과 규모 순위·경영지표 분포를 봅니다. 이름으로 자료를 맞춘 참고용입니다.\n" +
         "• 가상자산 시장 동향: 국내 원화거래소 5곳(업비트·빗썸·코인원·코빗·고팍스)을 매일 12:00·24:00에 집계한 시장 요약, 업비트 주요코인 시세(당일·1년), 거래소별 현황, 해외 시장 비교(글로벌 시총·BTC 도미넌스·김치 프리미엄), 시장 일보(PDF·HWPX)를 봅니다. 정보 제공용이며 투자 권유가 아닙니다.\n" +
         "• [금융관련 자료] 금융당국 등 보도자료·유권해석·비조치의견서·행정지도·금융관련 리포트(금융감독연구, 자본시장연구원, 한국금융연구원 등)·기타 참고자료: 새 자료를 모아 보고 검색합니다.\n" +
-        "• [더보기] 주요사이트·알림: 키워드·자료별 알림을 켜고 끕니다. 앱정보: 버전·업데이트 확인과 익명 사용 통계 전송을 켜고 끌 수 있고, 새 버전은 여기서 바로 업데이트합니다."
+        "• [더보기] 주요사이트·알림: 키워드·자료별 알림을 켜고 끕니다. 앱정보: 버전·업데이트 확인과 ‘내 설정 백업·복원’(관심기업·즐겨찾기·키워드 등을 파일로 저장·가져오기), 익명 사용 통계 전송을 켜고 끌 수 있고, 새 버전은 여기서 바로 업데이트합니다."
 
 /** 앱 이름·버전·만든이와 업데이트 확인(릴리스 노트 표시, 새 버전 자동 내려받기·설치). */
 @Composable
@@ -112,6 +113,45 @@ fun AppInfoScreen(modifier: Modifier = Modifier) {
         }
         Text(
             "앱 개선을 위해 하루 한 번, 무작위로 만든 설치 번호·앱 버전·날짜·메뉴별 이용 횟수·이용 시간대·하루 방문 횟수와 화면 이용 시간·오류 횟수·접속 환경 대분류(기기 종류·안드로이드 버전·화면 크기)만 서버로 보냅니다. 이름, 계정, 기기 모델, 검색어, 열람한 내용은 보내지 않으며, 꺼도 앱 기능은 그대로 쓸 수 있습니다.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Text("내 설정 백업·복원", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+        val saver = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")
+        ) { uri ->
+            if (uri != null) scope.launch {
+                val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        val text = SettingsBackup.export(context)
+                        context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) } ?: error("열 수 없음")
+                    }.onFailure { io.github.hdlee73.financenewsradar.CrashLogger.log(context, "설정 내보내기", it) }.isSuccess
+                }
+                android.widget.Toast.makeText(context, if (ok) "백업 파일을 저장했습니다." else "저장하지 못했습니다.", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+        val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri != null) scope.launch {
+                val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("열 수 없음")
+                        if (bytes.size > 6_000_000) SettingsBackup.Result(false, "파일이 너무 큽니다.")
+                        else SettingsBackup.import(context, String(bytes, Charsets.UTF_8))
+                    }.onFailure { io.github.hdlee73.financenewsradar.CrashLogger.log(context, "설정 가져오기", it) }
+                        .getOrElse { SettingsBackup.Result(false, "파일을 읽지 못했습니다.") }
+                }
+                android.widget.Toast.makeText(context, r.message, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { runCatching { saver.launch(SettingsBackup.suggestedName()) } }, modifier = Modifier.weight(1f)) { Text("설정 내보내기") }
+            OutlinedButton(onClick = { runCatching { picker.launch(arrayOf("application/json", "text/plain", "*/*")) } }, modifier = Modifier.weight(1f)) { Text("백업 가져오기") }
+        }
+        Text(
+            "관심기업·즐겨찾기 메뉴·뉴스 키워드·보관함·알림 설정·시장 지표 선택·법령검색 즐겨찾기를 파일로 저장했다가 새 기기나 재설치 후 가져옵니다. 목록은 현재 내용과 합쳐지고, 네이버 키·사용 통계 식별값은 담지 않습니다.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall
         )
