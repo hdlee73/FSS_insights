@@ -1,0 +1,45 @@
+name: Risk data
+
+# 회사 대시보드용 자료(권역별 건전성 지표 + 상위 15개사 DART 개황·지배구조)를 매일 모아 risk-data 브랜치에 올린다.
+# 웹·앱은 이 파일을 먼저 읽고(빠름), 여기 없는 회사만 실시간 조회한다. 상위 15개사 목록: server/risk-data/top15.json
+# 브랜치는 매번 새로 만들어 강제로 덮으므로(이력 없음) 레포 용량이 늘지 않는다.
+on:
+  schedule:
+    - cron: "0 21 * * *"   # 매일 06:00 KST
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "server/risk-data/**"
+      - ".github/workflows/risk-data.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: risk-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Collect
+        run: node server/risk-data/build_risk.mjs out
+      - name: Publish to risk-data branch
+        if: github.event_name != 'pull_request'
+        run: |
+          set -e
+          git config user.name "risk-data-bot"
+          git config user.email "noreply@github.com"
+          rm -rf /tmp/pub && mkdir /tmp/pub && cp out/*.json /tmp/pub/
+          git checkout --orphan risk-data
+          git rm -rf . >/dev/null 2>&1 || true
+          cp /tmp/pub/*.json .
+          git add *.json
+          git commit -m "data: $(date -u +%F)"
+          git push -f origin risk-data
