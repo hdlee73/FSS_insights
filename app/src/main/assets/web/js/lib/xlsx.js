@@ -23,7 +23,7 @@ export function zip(files, type = "application/vnd.openxmlformats-officedocument
   const central = [];
   let offset = 0;
   for (const [name, text] of files) {
-    const data = enc.encode(text);
+    const data = typeof text === "string" ? enc.encode(text) : text; // 글 또는 바이트(그림 등)
     const nameBytes = enc.encode(name);
     const crc = crc32(data);
     const local = new DataView(new ArrayBuffer(30));

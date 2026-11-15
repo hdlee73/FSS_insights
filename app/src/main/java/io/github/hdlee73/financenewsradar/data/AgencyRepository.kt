@@ -309,6 +309,7 @@ class AgencyRepository(private val context: android.content.Context) {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
+                UsageStats.recordError("api:agency")
                 failure = failure ?: e
                 continue
             }

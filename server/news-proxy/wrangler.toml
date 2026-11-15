@@ -4,7 +4,7 @@ compatibility_date = "2025-01-01"
 
 # 웹 버전(fss-insights-web)에서 앱 토큰 없이 받아 줄 출처. 쉼표로 여러 개.
 [vars]
-WEB_ORIGINS = "https://hdlee73.github.io"
+WEB_ORIGINS = "https://hdlee73.github.io,https://www.fssinsights.com,https://fssinsights.com"
 
 # 웹 요청 IP별 한도(1분 600건). 사무실처럼 여러 사람이 같은 IP를 쓰는 경우를 생각해 넉넉히 잡았다.
 [[unsafe.bindings]]

@@ -7,6 +7,7 @@ const ROUTES = {
   consumer: { label: "금융소비자 지킴이", load: () => import("./screens/consumer.js") },
   finsim: { label: "(베타)제재 양정 시뮬레이터", load: () => import("./screens/finsim.js") },
   crypto: { label: "가상자산 시장 동향", load: () => import("./screens/crypto.js") },
+  fisis: { label: "금융회사 주요 현황", load: () => import("./screens/fisis.js") },
 };
 const HOME = "consumer";
 

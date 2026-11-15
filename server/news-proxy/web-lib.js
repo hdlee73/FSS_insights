@@ -3,7 +3,7 @@
 // 토큰 없이 받고, 남용을 막으려고 IP별 요청 수를 제한한다(WEB_LIMIT 바인딩, wrangler.toml).
 // 네이버 뉴스(/news)도 웹 뉴스검색에서 쓴다(네이버 키는 서버 비밀값에만 있다).
 
-const WEB_PATHS = /^\/(news|law|dart|fisis|stats|library|fetch|usage\/ping)(\/|$)/;
+const WEB_PATHS = /^\/(news|law|dart|fisis|stats|library|fetch|notices|usage\/ping)(\/|$)/;
 
 // /fetch 가 대신 읽어 줄 수 있는 사이트(앱이 기기에서 직접 읽던 곳). 이 밖의 주소는 거절한다.
 const FETCH_HOSTS = [
@@ -11,6 +11,7 @@ const FETCH_HOSTS = [
   "sec.gov", "mas.gov.sg", "bok.or.kr", "mofe.go.kr", "moef.go.kr", "stock.naver.com", "finance.naver.com",
   "finance.yahoo.com", "kofia.or.kr", "kofiabond.or.kr", "krx.co.kr",
   "news.google.com", // 뉴스검색: 네이버가 안 될 때 대신 쓰는 Google 뉴스 RSS
+  "api.open-meteo.com", // 브리핑 날씨: 직장 망 등에서 브라우저가 직접 못 읽을 때 대신 읽는다
 ];
 const MAX_BYTES = 4 * 1024 * 1024;
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
@@ -83,6 +84,7 @@ export async function proxyFetch(request, url, ctx) {
     /* 잘못된 ref는 무시 */
   }
   const cache = caches.default;
+  const ttl = cacheSeconds(target);
   const cacheKey = new Request(`https://fetch-cache.invalid/?u=${encodeURIComponent(target.href)}&r=${encodeURIComponent(referer || "")}`);
   if (!isPost) {
     const hit = await cache.match(cacheKey);
@@ -113,11 +115,21 @@ export async function proxyFetch(request, url, ctx) {
     status: upstream.status,
     headers: {
       "Content-Type": upstream.headers.get("Content-Type") || "application/octet-stream",
-      // 시세는 1분, 그 밖의 목록은 10분 동안 캐시한다.
-      "Cache-Control": `public, max-age=${/(^|\.)(stock\.naver\.com|finance\.yahoo\.com)$/.test(target.hostname) ? 60 : 600}`,
+      // 실시간 시세(현재가·분봉)는 3초, 그 밖의 시세는 1분, 목록은 10분 동안 캐시한다.
+      "Cache-Control": `public, max-age=${cacheSeconds(target)}`,
       "X-Final-Url": finalUrl,
     },
   });
-  if (!isPost && upstream.ok) ctx.waitUntil(cache.put(cacheKey, out.clone()));
+  if (!isPost && upstream.ok && ttl > 0) ctx.waitUntil(cache.put(cacheKey, out.clone()));
   return out;
+}
+
+/** 실시간 시세(NAVER 현재가·분봉, Yahoo 차트)는 짧게, 그 밖의 시세는 1분, 나머지는 10분 캐시한다. */
+export function cacheSeconds(target) {
+  const host = target.hostname, path = target.pathname;
+  const quoteSite = /(^|\.)(stock\.naver\.com|finance\.yahoo\.com)$/.test(host);
+  if (!quoteSite) return 600;
+  if (/(^|\.)finance\.yahoo\.com$/.test(host) && path.startsWith("/v8/finance/chart/")) return 3;
+  if (/(^|\.)stock\.naver\.com$/.test(host) && (/\/basic$/.test(path) || /\/chart\/domestic\/.+\/minute$/.test(path))) return 3;
+  return 60;
 }

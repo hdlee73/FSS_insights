@@ -36,7 +36,7 @@ object WeatherClient {
             } finally {
                 connection.disconnect()
             }
-        }.getOrNull()
+        }.onFailure { UsageStats.recordError("fetch:open-meteo") }.getOrNull()
     }
 
     /** WMO 날씨 코드를 그림 문자와 짧은 설명으로. */

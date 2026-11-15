@@ -86,6 +86,8 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 ## 익명 사용 통계(일일 핑)와 관리자 화면
 앱이 하루 한 번 `POST /usage/ping`으로 (무작위 설치 ID, 앱 버전, 날짜, 날짜별 메뉴 이용 횟수)만 보내고, Worker가 Cloudflare **D1**(`fss-usage`)에 저장합니다. 설치 ID는 `SHA-256(설치ID:APP_TOKEN)`으로 해시해 저장하고 IP·기기정보는 저장하지 않습니다. 앱 정보 화면에서 사용자가 끌 수 있습니다.
 
+**방문 횟수·사용 시간(사용자별 하루)**: 날짜 객체에 `vis`(그날 앱·웹을 연 횟수)와 `sec`(화면이 보인 시간, 초)의 *그날 누적값*을 함께 보냅니다. 서버는 `usage_activity(day, uid, visits, secs)`에 `MAX`로 저장하므로 같은 값을 여러 번 보내도 중복 집계되지 않습니다. 응답의 `live: true`는 이 기능을 지원하는 서버라는 표시이며, 클라이언트는 이 표시를 받은 뒤에만 추가 전송(10분마다·화면을 닫을 때)을 합니다. 관리자 화면에는 평균·최대 방문 횟수, 평균·최대 사용 시간, 분포가 나오며 기능 배포 뒤부터 쌓입니다(그 이전 날짜는 값이 없음). 집계 로직 테스트: `node server/news-proxy/usage-lib.test.mjs`.
+
 1. GitHub Secrets에 `ADMIN_TOKEN`(앱 토큰과 다른 임의의 긴 문자열)을 저장합니다. Cloudflare API 토큰에는 **D1 편집(Edit)** 권한이 있어야 합니다(Account → D1 → Edit).
 2. Actions → **Deploy news proxy**를 실행합니다. 배포 전에 D1 `fss-usage`가 없으면 만들고 `wrangler.toml`에 연결하며, 표/인덱스는 첫 요청 때 자동으로 만듭니다. 실행 요약에 관리자 화면 주소(`…/admin`)가 표시됩니다.
 3. 관리자 화면(`/admin`)에서 `ADMIN_TOKEN`을 입력하면 일자별 DAU·WAU(7일)·MAU(30일), 버전별 분포, 메뉴별 사용자 수·열린 횟수(최근 7일 일자별 사용자 수 포함)를 볼 수 있습니다. 날짜는 한국 시간 기준입니다. 앱 안에는 관리자 화면을 두지 않습니다(APK의 앱 토큰은 추출될 수 있기 때문).
@@ -94,7 +96,7 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 ## 웹 버전(fss-insights-web) 접속
 웹 버전(PWA, https://hdlee73.github.io/fss-insights-web/)은 브라우저에서 이 서버를 직접 부릅니다. 웹 소스는 공개라 앱 토큰을 넣을 수 없어서, 다음처럼 받습니다(`web-lib.js`).
 
-- `wrangler.toml`의 `WEB_ORIGINS`(기본 `https://hdlee73.github.io`)에서 온 요청만 토큰 없이 받고 CORS 머리글을 붙입니다. 열리는 경로는 `/news`(네이버 뉴스 검색)·`/law`·`/dart`·`/fisis`·`/stats`·`/library`·`/usage/ping`·`/fetch`입니다. 네이버 키는 서버 비밀값에만 있고, 네이버가 안 될 때 웹은 `/fetch`로 Google 뉴스 RSS(`news.google.com`)를 읽습니다.
+- `wrangler.toml`의 `WEB_ORIGINS`(기본 `https://hdlee73.github.io,https://www.fssinsights.com,https://fssinsights.com`)에서 온 요청만 토큰 없이 받고 CORS 머리글을 붙입니다. 열리는 경로는 `/news`(네이버 뉴스 검색)·`/law`·`/dart`·`/fisis`·`/stats`·`/library`·`/usage/ping`·`/fetch`입니다. 네이버 키는 서버 비밀값에만 있고, 네이버가 안 될 때 웹은 `/fetch`로 Google 뉴스 RSS(`news.google.com`)를 읽습니다.
 - IP별로 1분에 600건까지만 받습니다(`WEB_LIMIT` 바인딩). 넘으면 429를 돌려줍니다.
 - `/fetch?url=`은 앱이 기기에서 직접 읽던 기관·시세 사이트(금감원·금융위·연구원·BIS·네이버 증권 등, `FETCH_HOSTS`)만 대신 읽고 10분간 캐시합니다. 목록 밖 주소는 403입니다.
 - Origin 머리글은 브라우저 밖에서 꾸며 보낼 수 있으므로 완전한 차단은 아닙니다. 남용의 상한은 위 요청 수 제한과 각 Open API의 일일 한도입니다.

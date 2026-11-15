@@ -9,10 +9,11 @@
 //  - /fetch   : 웹 버전 전용. 브라우저가 직접 못 읽는(CORS) 기관·시세 사이트를 허용 목록 안에서만 대신 읽는다(web-lib.js).
 // 웹 버전(fss-insights-web)은 앱 토큰을 숨길 수 없어서, 허용 출처(WEB_ORIGINS)에서 온 요청은 토큰 없이 받고 IP별 요청 수를 제한한다.
 import fisisData from "./fisis-data.json";
-import { usagePing, adminApi, adminPage } from "./usage-lib.js";
+import { usagePing, adminApi, adminPage, adminExclude, adminUser } from "./usage-lib.js";
+import { publicNotices, adminNotices, noticesPage } from "./notices-lib.js";
 import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, webSearchCorps, withDartClass } from "./dart-lib.js";
 import { corsPreflight, proxyFetch, webAccess, withCors } from "./web-lib.js";
-import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos } from "./fisis-lib.js";
+import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos, statementOf } from "./fisis-lib.js";
 
 const NAVER = "https://openapi.naver.com/v1/search/news.json";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
@@ -60,6 +61,28 @@ async function route(request, url, env, ctx, fromWeb) {
         return fail(502, `통계 조회 오류: ${e.message}`);
       }
     }
+    if (url.pathname === "/admin/user" && request.method === "GET") {
+      try {
+        return await adminUser(request, url, env);
+      } catch (e) {
+        return fail(502, `접속자 조회 오류: ${e.message}`);
+      }
+    }
+    if (url.pathname === "/admin/exclude" && request.method === "POST") {
+      try {
+        return await adminExclude(request, env);
+      } catch (e) {
+        return fail(502, `제외 목록 오류: ${e.message}`);
+      }
+    }
+    if (url.pathname === "/admin/notices" && request.method === "GET") return noticesPage();
+    if (url.pathname === "/admin/notices/api") {
+      try {
+        return await adminNotices(request, env);
+      } catch (e) {
+        return fail(502, `공지 처리 오류: ${e.message}`);
+      }
+    }
     if (!fromWeb && (!env.APP_TOKEN || request.headers.get("X-App-Token") !== env.APP_TOKEN)) {
       return new Response("Unauthorized", { status: 401 });
     }
@@ -68,6 +91,13 @@ async function route(request, url, env, ctx, fromWeb) {
         return await proxyFetch(request, url, ctx);
       } catch (e) {
         return fail(502, `사이트 읽기 오류: ${e.message}`);
+      }
+    }
+    if (url.pathname === "/notices" && request.method === "GET") {
+      try {
+        return await publicNotices(env);
+      } catch (e) {
+        return json({ notices: [] });
       }
     }
     if (url.pathname === "/usage/ping" && request.method === "POST") {
@@ -337,6 +367,32 @@ export const STAT_SPECS = [
   { id: "bank-delinquency-corp", name: "은행 기업대출 연체율", unit: "%", cycle: "M", tableCode: "901Y054", want: ["기업대출", "은행전체"] },
   { id: "loan-rate", name: "예금은행 대출금리", unit: "%", cycle: "M", tableCode: "121Y006", itemCode: "BECBLA01" },
   { id: "mortgage-rate", name: "예금은행 주택담보대출금리", unit: "%", cycle: "M", tableCode: "121Y006", itemCode: "BECBLA0302" },
+  // 거시경제 지표(금융시장 동향 및 거시경제 지표 메뉴). yoy: 지수를 전년 같은 달 대비 상승률(%)로 바꾼다. digits: 화면에 보일 소수 자릿수.
+  { id: "gdp-growth", name: "실질GDP 성장률(전기 대비)", unit: "%", digits: 1, cycle: "Q", tableCode: "200Y102", itemCode: "10111" },
+  { id: "cpi-yoy", name: "소비자물가 상승률(전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y009", itemCode: "0", yoy: true },
+  { id: "ppi-yoy", name: "생산자물가 상승률(전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "404Y014", itemCode: "*AA", yoy: true },
+  { id: "unemployment", name: "실업률", unit: "%", digits: 1, cycle: "M", tableCode: "901Y027", itemCode: "I61BC/I28A" },
+  { id: "employment-rate", name: "고용률", unit: "%", digits: 1, cycle: "M", tableCode: "901Y027", itemCode: "I61E/I28A" },
+  { id: "employed", name: "취업자 수", unit: "만명", digits: 0, scale: 0.1, cycle: "M", tableCode: "901Y027", itemCode: "I61BA/I28A" },
+  { id: "current-account", name: "경상수지", unit: "억달러", digits: 1, scale: 0.01, cycle: "M", tableCode: "301Y013", itemCode: "000000" },
+  { id: "exports-sa", name: "상품수출(계절조정)", unit: "억달러", digits: 0, scale: 0.01, cycle: "M", tableCode: "301Y017", itemCode: "SA110" },
+  { id: "usdkrw", name: "원/달러 환율(매매기준율)", unit: "원", digits: 1, cycle: "D", tableCode: "731Y001", itemCode: "0000001" },
+  // 분야별 추가 지표(성장·소득, 물가, 고용·인구, 생산·투자·소비, 경기·심리, 대외)
+  { id: "consumption-growth", name: "민간소비 증감률(전기 대비)", unit: "%", digits: 1, cycle: "Q", tableCode: "200Y102", itemCode: "10122" },
+  { id: "facility-growth", name: "설비투자 증감률(전기 대비)", unit: "%", digits: 1, cycle: "Q", tableCode: "200Y102", itemCode: "10123" },
+  { id: "gni-growth", name: "실질 GNI 증감률(전기 대비)", unit: "%", digits: 1, cycle: "Q", tableCode: "200Y102", itemCode: "20112" },
+  { id: "core-cpi-yoy", name: "근원물가 상승률(농산물·석유류 제외)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y010", itemCode: "QB", yoy: true },
+  { id: "living-cpi-yoy", name: "생활물가 상승률(전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y010", itemCode: "110", yoy: true },
+  { id: "labor-participation", name: "경제활동참가율", unit: "%", digits: 1, cycle: "M", tableCode: "901Y027", itemCode: "I61D/I28A" },
+  { id: "production-yoy", name: "전산업생산 증감률(전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y033", itemCode: "A00/1", yoy: true },
+  { id: "retail-yoy", name: "소매판매 증감률(불변, 전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y100", itemCode: "G0/T2", yoy: true },
+  { id: "facility-index-yoy", name: "설비투자지수 증감률(전년동월비)", unit: "%", digits: 1, cycle: "M", tableCode: "901Y066", itemCode: "I15A", yoy: true },
+  { id: "utilization", name: "제조업 평균가동률", unit: "%", digits: 1, cycle: "M", tableCode: "901Y025", itemCode: "I31A" },
+  { id: "ccsi", name: "소비자심리지수", unit: "", digits: 1, cycle: "M", tableCode: "511Y002", itemCode: "FME/99988" },
+  { id: "esi", name: "경제심리지수", unit: "", digits: 1, cycle: "M", tableCode: "513Y001", itemCode: "E1000" },
+  { id: "bsi", name: "기업경기실사지수(전산업 업황실적)", unit: "", digits: 0, cycle: "M", tableCode: "512Y013", itemCode: "99988/AA" },
+  { id: "leading-index", name: "선행지수 순환변동치", unit: "", digits: 1, cycle: "M", tableCode: "901Y067", itemCode: "I16E" },
+  { id: "imports-sa", name: "상품수입(FOB)", unit: "억달러", digits: 0, scale: 0.01, cycle: "M", tableCode: "301Y017", itemCode: "SA120" },
   { id: "fx-reserves", name: "외환보유액", unit: "", cycle: "M", table: ["외환보유액"], item: [] },
 ];
 export const DEFAULT_STAT_IDS = ["base-rate", "ktb-3y", "ktb-10y", "cd-91", "corp-aa", "household-credit", "bank-household-loan", "bank-delinquency", "loan-rate", "fx-reserves"];
@@ -377,6 +433,19 @@ export const filterRows = (rows, want) =>
     return want.every((w) => names.includes(w));
   });
 
+// 지수 행을 전년 같은 달(분기는 같은 분기) 대비 상승률(%) 행으로 바꾼다. 비교할 전년 값이 없는 행은 뺀다.
+export const toYoy = (rows) => {
+  const byTime = new Map(rows.map((r) => [String(r.TIME), parseFloat(String(r.DATA_VALUE).replace(/,/g, ""))]));
+  const prevYear = (t) => (/^\d{6}$/.test(t) ? `${Number(t.slice(0, 4)) - 1}${t.slice(4)}` : /^\d{4}Q\d$/.test(t) ? `${Number(t.slice(0, 4)) - 1}${t.slice(4)}` : "");
+  return rows
+    .map((r) => {
+      const now = byTime.get(String(r.TIME));
+      const before = byTime.get(prevYear(String(r.TIME)));
+      return Number.isFinite(now) && Number.isFinite(before) && before !== 0 ? { ...r, DATA_VALUE: String(Math.round(((now / before - 1) * 100) * 100) / 100), UNIT_NAME: "%" } : null;
+    })
+    .filter(Boolean);
+};
+
 // ECOS 행(시간순)에서 최근값과 비교값을 뽑는다. lastChange면 마지막으로 값이 바뀌기 전 값을 비교값으로 쓴다.
 export const latestPair = (rows, lastChange) => {
   const points = rows
@@ -407,11 +476,12 @@ async function statOne(spec, env, tables) {
     itemCode = item.ITEM_CODE;
     source += ` / ${item.ITEM_NAME}`;
   }
-  const [from, to] = range(spec.cycle, new Date(), spec.want ? 18 : 36);
+  const [from, to] = range(spec.cycle, new Date(), spec.want ? 18 : spec.yoy ? 30 : 36);
   const path = `StatisticSearch/{key}/json/kr/1/500/${tableCode}/${spec.cycle}/${from}/${to}` + (itemCode ? `/${itemCode}` : "");
   let rows = (await ecos(env, path)).StatisticSearch.row;
   const fetched = rows.length;
   if (spec.want) rows = filterRows(rows, spec.want);
+  if (spec.yoy) rows = toYoy(rows);
   const pair = latestPair(rows, spec.lastChange);
   if (!pair) throw new Error(`값 없음(${tableCode} 조회 ${fetched}행, 조건 일치 ${rows.length}행${fetched >= 500 ? ", 500행 한도 도달" : ""})`);
   const scale = spec.scale || 1;
@@ -423,13 +493,14 @@ async function statOne(spec, env, tables) {
     previous: pair.previous == null ? null : pair.previous * scale,
     period: pair.period,
     unit: spec.unit || pair.unit,
+    ...(spec.digits != null ? { digits: spec.digits } : {}),
     source,
   };
 }
 
 // ids를 알려진 통계로 좁힌다. 비었거나 모르는 id뿐이면 기본 묶음.
 export const selectSpecs = (idsParam) => {
-  const ids = String(idsParam || "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 24);
+  const ids = String(idsParam || "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 40);
   const chosen = STAT_SPECS.filter((s) => ids.includes(s.id));
   return chosen.length ? chosen : STAT_SPECS.filter((s) => DEFAULT_STAT_IDS.includes(s.id));
 };
@@ -437,7 +508,7 @@ export const selectSpecs = (idsParam) => {
 async function stats(url, env, ctx) {
   if (!env.ECOS_API_KEY) return fail(503, "ECOS_API_KEY가 설정되지 않았습니다");
   const specs = selectSpecs(url.searchParams.get("ids"));
-  const cacheKey = new Request(`https://stats.cache/ecos-v4/${specs.map((s) => s.id).sort().join(",")}`);
+  const cacheKey = new Request(`https://stats.cache/ecos-v5/${specs.map((s) => s.id).sort().join(",")}`);
   const cache = caches.default;
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
@@ -461,7 +532,7 @@ async function stats(url, env, ctx) {
 // (권역별 회사 목록, 총자산 순위, 통계표·계정 찾기)은 배포할 때 build-fisis-data.mjs가 미리 해서 fisis-data.json에 넣어 둔다.
 // 서버는 그 자료로 순위·목록을 바로 돌려주고, 회사 상세만 실시간으로 받는다(통계표 몇 개).
 // 화면의 권역: 증권사(F)에는 선물사(W)를 합쳐 보여 준다. 선물사는 FISIS에서 통계표가 따로라 자료도 따로 만든다.
-const FISIS_SET = new Set(["F", "G", "A", "H", "I", "E", "C", "M", "L"]);
+const FISIS_SET = new Set(["F", "G", "A", "H", "I", "E", "C", "M", "L", "ADV"]); // ADV: 투자자문·일임사(배포 때 FISIS에서 찾았을 때만 자료가 있다)
 const subSectors = (sector) => (sector === "F" ? ["F", "W"] : [sector]);
 const bundled = (sector) => (fisisData && fisisData.sectors && fisisData.sectors[sector]) || null;
 
@@ -481,7 +552,9 @@ const fisisCall = (env, name, params) => fisisFetch(env.FISIS_API_KEY, name, par
 async function fisis(url, env) {
   const action = url.pathname.slice("/fisis/".length);
   const sector = url.searchParams.get("sector") || "";
+  if (action === "sectors") return json({ sectors: [...FISIS_SET].filter((s) => bundled(s)) }); // 자료가 만들어진 권역
   if (!FISIS_SET.has(sector)) return fail(400, "지원하지 않는 권역입니다.");
+  if (sector === "ADV" && !bundled("ADV")) return fail(404, "FISIS에서 투자자문·일임사 회사별 자료를 찾지 못했습니다.");
   const parts = subSectors(sector).map((s) => ({ sector: s, data: bundled(s) }));
   const ready = parts.filter((p) => p.data);
   if (action === "companies") {
@@ -505,7 +578,26 @@ async function fisis(url, env) {
     const owner = ready.find((p) => p.data.companies.some(([code]) => code === finance)) || ready[0];
     return json(await memo(`profile/${owner.sector}/${finance}`, 21600, () => fisisProfile(env, owner.data, finance)));
   }
+  if (action === "statement") {
+    const finance = url.searchParams.get("finance") || "";
+    const basis = url.searchParams.get("basis") || "";
+    if (!/^[0-9A-Za-z]{4,12}$/.test(finance)) return fail(400, "회사 코드가 올바르지 않습니다.");
+    if (!ready.length) return fail(503, "경영정보 설정이 아직 만들어지지 않았습니다. 관리자가 Deploy news proxy를 다시 실행해야 합니다.");
+    const owner = ready.find((p) => p.data.companies.some(([code]) => code === finance)) || ready[0];
+    return json(await memo(`statement/${owner.sector}/${finance}/${basis}`, 21600, () => fisisStatement(env, owner.data, finance, basis)));
+  }
   return new Response("Not found", { status: 404 });
+}
+
+/** 재무제표 보기: 재무 항목이 들어 있는 통계표(요약 재무상태표·손익계산서 등)의 모든 계정을 돌려준다(FISIS가 주는 범위). */
+async function fisisStatement(env, data, finance, basis) {
+  const spec = data.spec;
+  const list = spec.basis[basis] || Object.values(spec.basis)[0] || [];
+  const used = [...new Map(list.map((m) => [m.listNo, m.listNm])).entries()].slice(0, 6);
+  const tables = await Promise.all(used.map(([listNo]) => fetchTable((p) => fisisCall(env, "statisticsInfoSearch", p), finance, listNo, (spec.terms && spec.terms[listNo]) || "Q").catch(() => null)));
+  const sections = used.map(([listNo, listNm], i) => (tables[i] ? { listNo, title: listNm, ...statementOf(tables[i]) } : null)).filter(Boolean);
+  if (!sections.length) throw new Error("FISIS에서 이 회사의 재무제표 자료를 받지 못했습니다.");
+  return { name: tables.find(Boolean).name, basis: Object.keys(spec.basis).includes(basis) ? basis : Object.keys(spec.basis)[0], sections };
 }
 
 /** 한 회사의 경영정보: 미리 찾아 둔 통계표·계정에 맞춰 통계표 몇 개만 받는다. */

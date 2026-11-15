@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Description
@@ -43,6 +44,8 @@ import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.BusinessCenter
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.CurrencyBitcoin
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import io.github.hdlee73.financenewsradar.accounting.AccountingViewModel
 import io.github.hdlee73.financenewsradar.accounting.ui.screens.AuditScreen
 import io.github.hdlee73.financenewsradar.accounting.ui.screens.DisclosureScreen
@@ -135,13 +138,14 @@ private const val SCREEN_SIMULATOR = 17
 private const val SCREEN_CONSUMER = 18
 private const val SCREEN_FINSIM = 19
 private const val SCREEN_CRYPTO = 20
+private const val SCREEN_RISK = 21
 
 // 서랍 메뉴에 나오는 모든 화면(순서 = 화면 번호). 오늘의 브리핑·뉴스·시장동향의 번호는 브리핑 화면의 바로가기와 같다.
 // 라벨은 익명 사용 통계의 메뉴 이름으로도 쓰인다.
 private val appScreens = listOf(
     AppScreen("오늘의 브리핑", Icons.Filled.WbSunny),
     AppScreen("뉴스검색", Icons.Filled.Newspaper),
-    AppScreen("금융시장 동향", Icons.Filled.ShowChart),
+    AppScreen("금융시장 동향 및 거시경제 지표", Icons.Filled.ShowChart),
     AppScreen("금융당국 등 보도자료", Icons.Filled.Description),
     AppScreen("금융관련 리포트", Icons.Filled.Science),
     AppScreen("기타 참고자료", Icons.Filled.FolderOpen),
@@ -159,7 +163,8 @@ private val appScreens = listOf(
     AppScreen("(베타) 회계 양정 및 과징금 시뮬레이터", Icons.Filled.Calculate),
     AppScreen("금융소비자 지킴이", Icons.Filled.VerifiedUser),
     AppScreen("(베타)제재 양정 시뮬레이터", Icons.Filled.Calculate),
-    AppScreen("가상자산 시장 동향", Icons.Filled.CurrencyBitcoin)
+    AppScreen("가상자산 시장 동향", Icons.Filled.CurrencyBitcoin),
+    AppScreen("금융사 리스크 대시보드", Icons.Filled.Analytics)
 )
 
 /** 서랍 메뉴의 묶음. [title]이 없으면 맨 위의 낱개 메뉴, 있으면 접고 펼 수 있는 묶음이다. */
@@ -167,8 +172,11 @@ private fun sectionIcon(title: String) = when (title) {
     "금융회사 현황 및 검사" -> Icons.Filled.AccountBalance
     "기업공시 및 회계" -> Icons.Filled.BusinessCenter
     "금융관련 자료" -> Icons.Filled.LibraryBooks
+    FAV_TITLE -> Icons.Filled.Star
     else -> Icons.Filled.MoreHoriz
 }
+
+private const val FAV_TITLE = "즐겨찾기"
 
 private class DrawerSection(val title: String?, val ids: List<Int>)
 
@@ -190,6 +198,20 @@ private object MenuFolds {
 
     fun save(context: android.content.Context, collapsed: Set<String>) {
         runCatching { context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putStringSet(KEY, collapsed).apply() }
+    }
+}
+
+/** 즐겨찾기한 메뉴 번호들(등록 순서)을 기기에 기억한다. */
+private object MenuFavs {
+    private const val PREFS = "menu_folds"
+    private const val KEY = "favorites"
+    fun load(context: android.content.Context): List<Int> = runCatching {
+        context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).getString(KEY, "").orEmpty()
+            .split(',').mapNotNull { it.toIntOrNull() }.filter { it in appScreens.indices }.distinct()
+    }.getOrDefault(emptyList())
+
+    fun save(context: android.content.Context, ids: List<Int>) {
+        runCatching { context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putString(KEY, ids.joinToString(",")).apply() }
     }
 }
 
@@ -231,6 +253,11 @@ fun FinanceNewsRadarApp(
     fun setCollapsed(title: String, value: Boolean) {
         collapsed = if (value) collapsed + title else collapsed - title
         MenuFolds.save(menuContext, collapsed)
+    }
+    var favorites by remember { mutableStateOf(MenuFavs.load(menuContext)) }
+    fun toggleFavorite(id: Int) {
+        favorites = if (id in favorites) favorites - id else favorites + id
+        MenuFavs.save(menuContext, favorites)
     }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -290,8 +317,12 @@ fun FinanceNewsRadarApp(
         }
     }
 
+    // 웹 내장 화면(WebView)은 세로 스크롤·차트 터치 중 가로로 조금만 밀려도 메뉴가 튀어나오므로,
+    // 이 화면들에서는 스와이프로 여는 것을 끈다(좌상단 메뉴 버튼·열린 메뉴 닫기 제스처는 유지).
+    val drawerSwipeEnabled = drawerState.isOpen || screen !in setOf(SCREEN_CONSUMER, SCREEN_FINSIM, SCREEN_CRYPTO, SCREEN_FISIS, SCREEN_RISK)
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = drawerSwipeEnabled,
         drawerContent = {
             ModalDrawerSheet {
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
@@ -299,7 +330,8 @@ fun FinanceNewsRadarApp(
                         Text("FSS Insights", style = MaterialTheme.typography.headlineSmall)
                         Text("v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    drawerSections.forEach { section ->
+                    val shownSections = if (favorites.isEmpty()) drawerSections else listOf(DrawerSection(FAV_TITLE, favorites)) + drawerSections
+                    shownSections.forEach { section ->
                         val title = section.title
                         val folded = title != null && title in collapsed
                         if (title != null) {
@@ -331,9 +363,23 @@ fun FinanceNewsRadarApp(
                                 NavigationDrawerItem(
                                     icon = { Icon(item.icon, contentDescription = null, modifier = if (sub) Modifier.size(20.dp) else Modifier) },
                                     label = { Text(item.label, style = if (sub) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    badge = if (id == SCREEN_INFO && updateAvailable != null) {
-                                        { Text("NEW", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }
-                                    } else null,
+                                    badge = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (id == SCREEN_INFO && updateAvailable != null) {
+                                                Text("NEW", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                                            }
+                                            val fav = id in favorites
+                                            // 별을 누르면 즐겨찾기에 넣거나 뺀다. 즐겨찾기는 메뉴 맨 위 묶음에도 나타난다.
+                                            IconButton(onClick = { toggleFavorite(id) }, modifier = Modifier.size(36.dp)) {
+                                                Icon(
+                                                    if (fav) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                                    contentDescription = if (fav) "${item.label} 즐겨찾기 해제" else "${item.label} 즐겨찾기에 추가",
+                                                    tint = if (fav) androidx.compose.ui.graphics.Color(0xFFF5B83D) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                    },
                                     selected = screen == id,
                                     onClick = { go(id) },
                                     // 하위 메뉴: 오른쪽으로 들여 쓰고 왼쪽에 세로선을 그어 묶음 제목의 하위임을 분명히 한다.
@@ -387,6 +433,7 @@ fun FinanceNewsRadarApp(
             }
             Text("FSS Insights", color = AppColors.onHero, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
         }
+        NoticeBanner()
         Box(Modifier.weight(1f).fillMaxWidth()) {
             // 화면을 오가도 각 화면의 검색어·스크롤 위치가 유지되도록 화면별로 상태를 보관한다.
             stateHolder.SaveableStateProvider(screen) {
@@ -394,7 +441,7 @@ fun FinanceNewsRadarApp(
                     SCREEN_BRIEFING -> BriefingScreen(newsViewModel, releasesViewModel, marketViewModel, onOpenTab = ::go)
                     SCREEN_NEWS -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     SCREEN_MARKET -> MarketScreen(marketViewModel)
-                    SCREEN_FISIS -> FisisScreen(fisisViewModel, sanctionViewModel, onOpenLaw = ::openLaw)
+                    SCREEN_FISIS -> WebEmbedScreen("fisis", backEnabled = !drawerState.isOpen)
                     SCREEN_DART -> DartScreen(dartViewModel, searchRequest = dartRequest, onSearchRequestConsumed = { dartRequest = null })
                     SCREEN_DISCLOSURE -> DisclosureScreen(
                         accountingState, disclosureSelected, onSelect = { disclosureSelected = it },
@@ -409,6 +456,7 @@ fun FinanceNewsRadarApp(
                     SCREEN_CONSUMER -> WebEmbedScreen("consumer", backEnabled = !drawerState.isOpen)
                     SCREEN_FINSIM -> WebEmbedScreen("finsim", backEnabled = !drawerState.isOpen)
                     SCREEN_CRYPTO -> WebEmbedScreen("crypto", backEnabled = !drawerState.isOpen)
+                    SCREEN_RISK -> WebEmbedScreen("fisis?tool=risk&view=overview", backEnabled = !drawerState.isOpen)
                     SCREEN_REGULATORY -> RegulatoryScreen(regulatoryViewModel)
                     SCREEN_SANCTION -> SanctionScreen(sanctionViewModel, onOpenLaw = ::openLaw)
                     SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen(

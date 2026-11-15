@@ -8,7 +8,7 @@ export const DISCLAIMER_DETAIL =
   "FSS Insights는 개인이 만든 비공식 서비스이며 금융감독원 등 어떤 기관과도 제휴·위탁 관계가 없습니다. " +
   "화면에 표시되는 보도자료, 통계, 법령 등은 외부 출처의 공개 자료를 모아 보여주는 것으로, 정확성과 최신성을 보장하지 않습니다. " +
   "중요한 판단에는 반드시 원문과 공식 자료를 확인하시기 바랍니다.";
-export const APP_VERSION = "2.11.0";
+export const APP_VERSION = "2.25.0";
 
 // 서버(Cloudflare Worker). 앱과 같은 서버를 쓰고, 웹 주소(Origin)로 들어온 요청만 토큰 없이 받는다.
 const DEFAULT_SERVER = "https://news-proxy.hdlee73.workers.dev";
@@ -73,14 +73,22 @@ export function markStale(at) {
   emitFresh();
 }
 
+/** 사용 통계에 오류 이름만 남긴다(주소·내용 없음). 통계 모듈은 필요할 때만 불러온다. */
+export function reportError(name) {
+  import("./usage.js").then((u) => u.recordError(name)).catch(() => {});
+}
+const errName = (path, status) => "api:/" + (path.split("?")[0].split("/")[1] || "") + ":" + (status || "net");
+
 async function request(path, init = {}) {
   let res;
   try {
     res = await fetch(SERVER + path, init);
   } catch {
+    if (!path.startsWith("/usage/")) reportError(errName(path, 0));
     throw new ApiError("서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.", 0);
   }
   if (res.ok) markFresh();
+  if (!res.ok && !path.startsWith("/usage/")) reportError(errName(path, res.status));
   if (res.status === 429) throw new ApiError("요청이 많아 잠시 쉬고 있습니다. 1분 뒤 다시 시도해 주세요.", 429);
   if (!res.ok) {
     let message = `서버 응답 오류 (${res.status})`;
@@ -275,8 +283,54 @@ export async function share(title, url) {
   }
 }
 
-/** 파일 내려받기(엑셀·HWPX·PDF 등). */
-export function download(blob, name) {
+const MIME = { pdf: ["application/pdf"], xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"], json: ["application/json"], ics: ["text/calendar"], txt: ["text/plain"], html: ["text/html"], hwpx: ["application/hwp+zip", "application/zip", "application/octet-stream"] };
+
+/** 공유 창에 넘길 File을 만든다. 브라우저가 받아 주는 형식(MIME)을 골라, 공유할 수 없으면 null. */
+function shareableFile(blob, name) {
+  if (typeof navigator === "undefined" || !navigator.canShare || !navigator.share || typeof File === "undefined") return null;
+  const ext = String(name).split(".").pop().toLowerCase();
+  for (const type of [blob.type, ...(MIME[ext] || [])].filter(Boolean)) {
+    try {
+      const f = new File([blob], name, { type });
+      if (navigator.canShare({ files: [f] })) return f;
+    } catch { /* 다음 형식 시도 */ }
+  }
+  return null;
+}
+
+/** 이 브라우저가 파일 공유(휴대폰·Windows의 Edge/Chrome 등)를 지원하는지 */
+export const canShareFile = (blob, name) => !!shareableFile(blob, name);
+
+/** 파일을 공유 창(카카오톡·메일·AirDrop 등)으로 보낸다. 공유를 지원하지 않으면 내려받기로 대신한다. */
+export async function shareFile(blob, name, title) {
+  const f = shareableFile(blob, name);
+  if (!f) return download(blob, name, { quiet: true }), toast("이 브라우저는 파일 공유를 지원하지 않아 파일로 저장했어요.");
+  try {
+    await navigator.share({ files: [f], title: title || name });
+  } catch (e) {
+    if (e?.name === "AbortError") return;
+    download(blob, name, { quiet: true });
+    toast("공유하지 못해 파일로 저장했어요.");
+  }
+}
+
+let shareBarTimer;
+/** 저장한 직후 화면 아래에 ‘공유’ 단추를 잠시 띄운다(공유를 지원하는 브라우저에서만). */
+function offerShare(blob, name) {
+  if (!shareableFile(blob, name)) return;
+  document.getElementById("share-bar")?.remove();
+  clearTimeout(shareBarTimer);
+  const close = () => bar.remove();
+  const bar = h("div", { id: "share-bar", role: "status" },
+    h("span", { class: "sb-t" }, "저장했어요 · ", h("b", null, name)),
+    h("button", { type: "button", class: "sb-go", onclick: () => (close(), shareFile(blob, name)) }, icon("share-2"), "공유"),
+    h("button", { type: "button", class: "sb-x", "aria-label": "닫기", onclick: close }, "×"));
+  document.body.append(bar);
+  shareBarTimer = setTimeout(close, 12000);
+}
+
+/** 파일 내려받기(엑셀·HWPX·PDF 등). 공유할 수 있는 환경이면 저장 뒤 ‘공유’ 단추를 함께 보여 준다. */
+export function download(blob, name, opt = {}) {
   if (window.FssNative) {
     // 앱: 파일 저장 창(SAF)으로 넘긴다.
     const fr = new FileReader();
@@ -291,6 +345,7 @@ export function download(blob, name) {
     URL.revokeObjectURL(a.href);
     a.remove();
   }, 1000);
+  if (!opt.quiet) offerShare(blob, name);
 }
 
 /** 간단한 확인·입력 창. fields가 있으면 입력값 객체를, 없으면 true를 돌려준다(취소는 null). */
