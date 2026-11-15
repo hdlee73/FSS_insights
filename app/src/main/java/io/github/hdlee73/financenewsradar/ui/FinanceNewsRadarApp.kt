@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Description
@@ -135,6 +136,7 @@ private const val SCREEN_SIMULATOR = 17
 private const val SCREEN_CONSUMER = 18
 private const val SCREEN_FINSIM = 19
 private const val SCREEN_CRYPTO = 20
+private const val SCREEN_RISK = 21
 
 // 서랍 메뉴에 나오는 모든 화면(순서 = 화면 번호). 오늘의 브리핑·뉴스·시장동향의 번호는 브리핑 화면의 바로가기와 같다.
 // 라벨은 익명 사용 통계의 메뉴 이름으로도 쓰인다.
@@ -159,7 +161,8 @@ private val appScreens = listOf(
     AppScreen("(베타) 회계 양정 및 과징금 시뮬레이터", Icons.Filled.Calculate),
     AppScreen("금융소비자 지킴이", Icons.Filled.VerifiedUser),
     AppScreen("(베타)제재 양정 시뮬레이터", Icons.Filled.Calculate),
-    AppScreen("가상자산 시장 동향", Icons.Filled.CurrencyBitcoin)
+    AppScreen("가상자산 시장 동향", Icons.Filled.CurrencyBitcoin),
+    AppScreen("금융사 리스크 대시보드", Icons.Filled.Analytics)
 )
 
 /** 서랍 메뉴의 묶음. [title]이 없으면 맨 위의 낱개 메뉴, 있으면 접고 펼 수 있는 묶음이다. */
@@ -174,7 +177,7 @@ private class DrawerSection(val title: String?, val ids: List<Int>)
 
 private val drawerSections = listOf(
     DrawerSection(null, listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_LAW, SCREEN_CONSUMER)),
-    DrawerSection("금융회사 현황 및 검사", listOf(SCREEN_FISIS, SCREEN_SANCTION, SCREEN_FINSIM)),
+    DrawerSection("금융회사 현황 및 검사", listOf(SCREEN_FISIS, SCREEN_SANCTION, SCREEN_RISK, SCREEN_FINSIM)),
     DrawerSection("기업공시 및 회계", listOf(SCREEN_DART, SCREEN_DISCLOSURE, SCREEN_AUDIT, SCREEN_ACC_SEARCH, SCREEN_SIMULATOR)),
     DrawerSection(null, listOf(SCREEN_CRYPTO)),
     DrawerSection("금융관련 자료", listOf(SCREEN_PRESS, SCREEN_REGULATORY, SCREEN_RESEARCH, SCREEN_LIBRARY)),
@@ -410,6 +413,7 @@ fun FinanceNewsRadarApp(
                     SCREEN_CONSUMER -> WebEmbedScreen("consumer", backEnabled = !drawerState.isOpen)
                     SCREEN_FINSIM -> WebEmbedScreen("finsim", backEnabled = !drawerState.isOpen)
                     SCREEN_CRYPTO -> WebEmbedScreen("crypto", backEnabled = !drawerState.isOpen)
+                    SCREEN_RISK -> WebEmbedScreen("risk", backEnabled = !drawerState.isOpen)
                     SCREEN_REGULATORY -> RegulatoryScreen(regulatoryViewModel)
                     SCREEN_SANCTION -> SanctionScreen(sanctionViewModel, onOpenLaw = ::openLaw)
                     SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen(

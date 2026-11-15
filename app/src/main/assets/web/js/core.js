@@ -8,7 +8,7 @@ export const DISCLAIMER_DETAIL =
   "FSS Insights는 개인이 만든 비공식 서비스이며 금융감독원 등 어떤 기관과도 제휴·위탁 관계가 없습니다. " +
   "화면에 표시되는 보도자료, 통계, 법령 등은 외부 출처의 공개 자료를 모아 보여주는 것으로, 정확성과 최신성을 보장하지 않습니다. " +
   "중요한 판단에는 반드시 원문과 공식 자료를 확인하시기 바랍니다.";
-export const APP_VERSION = "2.15.0";
+export const APP_VERSION = "2.17.0";
 
 // 서버(Cloudflare Worker). 앱과 같은 서버를 쓰고, 웹 주소(Origin)로 들어온 요청만 토큰 없이 받는다.
 const DEFAULT_SERVER = "https://news-proxy.hdlee73.workers.dev";
@@ -73,14 +73,22 @@ export function markStale(at) {
   emitFresh();
 }
 
+/** 사용 통계에 오류 이름만 남긴다(주소·내용 없음). 통계 모듈은 필요할 때만 불러온다. */
+export function reportError(name) {
+  import("./usage.js").then((u) => u.recordError(name)).catch(() => {});
+}
+const errName = (path, status) => "api:/" + (path.split("?")[0].split("/")[1] || "") + ":" + (status || "net");
+
 async function request(path, init = {}) {
   let res;
   try {
     res = await fetch(SERVER + path, init);
   } catch {
+    if (!path.startsWith("/usage/")) reportError(errName(path, 0));
     throw new ApiError("서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.", 0);
   }
   if (res.ok) markFresh();
+  if (!res.ok && !path.startsWith("/usage/")) reportError(errName(path, res.status));
   if (res.status === 429) throw new ApiError("요청이 많아 잠시 쉬고 있습니다. 1분 뒤 다시 시도해 주세요.", 429);
   if (!res.ok) {
     let message = `서버 응답 오류 (${res.status})`;
