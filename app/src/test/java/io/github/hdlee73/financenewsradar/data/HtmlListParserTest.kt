@@ -256,6 +256,22 @@ class HtmlListParserTest {
     }
 
     @Test
+    fun fsbUsesEachPostsOwnDateNotThePreviousPostsDate() {
+        fun box(path: String, title: String, date: String) = """
+            <div class="post-excerpt post-excerpt-compact" id="p">
+              <div class="post-heading"><div class="post-title"><a href="https://www.fsb.org/$path/">$title</a></div>
+              <div class="post-date"><span>$date</span></div></div>
+            </div>
+        """.trimIndent()
+        val html = box("2026/11/peer-review-turkiye", "Peer Review of Türkiye", "11 November 2026") +
+            box("2026/10/sound-practices-final-report", "Sound Practices for Responsible Adoption of AI: Final report", "15 October 2026")
+        val items = AgencySources.of(AgencyId.FSB).customParser!!.invoke(html, "https://www.fsb.org/publications/")
+        assertEquals(2, items.size)
+        assertEquals(LocalDate.of(2026, 11, 11), items[0].date)
+        assertEquals(LocalDate.of(2026, 10, 15), items[1].date)
+    }
+
+    @Test
     fun kcmiReportsByLinkReadManyItemsWithoutTextLayoutAssumptions() {
         val rows = (1..12).joinToString("\n") { n ->
             """<li><div class="tit">보고서 제목 번호 $n 자본시장 이슈</div><span>연구위원 홍길동 · 2026.09.${(n % 28) + 1}</span>
