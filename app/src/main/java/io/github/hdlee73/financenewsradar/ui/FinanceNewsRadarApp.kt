@@ -290,8 +290,12 @@ fun FinanceNewsRadarApp(
         }
     }
 
+    // 웹 내장 화면(WebView)은 세로 스크롤·차트 터치 중 가로로 조금만 밀려도 메뉴가 튀어나오므로,
+    // 이 화면들에서는 스와이프로 여는 것을 끈다(좌상단 메뉴 버튼·열린 메뉴 닫기 제스처는 유지).
+    val drawerSwipeEnabled = drawerState.isOpen || screen !in setOf(SCREEN_CONSUMER, SCREEN_FINSIM, SCREEN_CRYPTO)
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = drawerSwipeEnabled,
         drawerContent = {
             ModalDrawerSheet {
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
