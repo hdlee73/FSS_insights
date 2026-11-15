@@ -29,7 +29,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.hdlee73.financenewsradar.data.CheckState
 import io.github.hdlee73.financenewsradar.data.UpdateInfo
-import io.github.hdlee73.financenewsradar.data.UpdateInstaller
 import io.github.hdlee73.financenewsradar.data.UsageStats
 import java.io.File
 import kotlinx.coroutines.launch
@@ -151,18 +150,19 @@ fun AppInfoScreen(modifier: Modifier = Modifier) {
                     onClick = { flow.start(info) },
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("자동 업데이트: 내려받아 설치$sizeText") }
+                ) { Text("새 버전 내려받기$sizeText") }
                 flow.progress?.let { p ->
                     if (p >= 0f) LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
                     else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
                 Text(
-                    "안드로이드 보안 정책상 설치 확인 창이 한 번 나타나며, 처음에는 '출처를 알 수 없는 앱 설치' 허용이 필요합니다.",
+                    "브라우저가 APK를 내려받습니다. 다 받으면 알림의 APK를 눌러 설치하세요. 처음에는 브라우저에 '출처를 알 수 없는 앱 설치' 허용이 필요할 수 있습니다.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
         }
+        flow.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
         flow.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         OutlinedButton(
             onClick = {

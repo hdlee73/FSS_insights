@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.hdlee73.financenewsradar"
         minSdk = 26
         targetSdk = 36
-        versionCode = 68
-        versionName = "2.7.0"
+        versionCode = 69
+        versionName = "2.7.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -42,6 +42,10 @@ android {
                 keyAlias = System.getenv("ANDROID_KEY_ALIAS")
                 keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
             }
+            // minSdk 26이라 v1(JAR) 서명은 필요 없다. v2 + v3(키 교체 대비) 서명.
+            enableV1Signing = false
+            enableV2Signing = true
+            enableV3Signing = true
         }
     }
 
