@@ -1,5 +1,6 @@
 package io.github.hdlee73.financenewsradar.data
 
+import io.github.hdlee73.financenewsradar.model.AgencyId
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
