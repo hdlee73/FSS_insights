@@ -104,7 +104,9 @@ export function actions(raw) {
 export const actionLine = (raw) => actions(raw).join(" / ");
 
 // ---- 회사 이름 맞추기 ----
-const nameKey = (n) => String(n || "").replace(/주식회사|유한회사|\(주\)|㈜|\(유\)|\s|[.,·]/g, "").toLowerCase();
+const RENAMED = [["에스비아이저축은행", "교보에스비아이저축은행"]]; // 사명 변경(옛 이름 → 새 이름). 옛 자료와 새 자료가 같은 회사로 맞춰지도록 한다.
+const canonName = (k) => { const x = k.replace(/주식회사|유한회사|\(주\)|㈜|\(유\)|\s|[.,·]/g, "").toLowerCase(); for (const [o, n] of RENAMED) if (x.startsWith(o)) return n + x.slice(o.length); return k; };
+const nameKey = (n) => canonName(String(n || "").replace(/주식회사|유한회사|\(주\)|㈜|\(유\)|\s|[.,·]/g, "").toLowerCase());
 export function casesOf(data, company) {
   const k = nameKey(company);
   if (!k) return [];

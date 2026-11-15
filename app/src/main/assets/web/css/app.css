@@ -252,6 +252,12 @@ select.sel { padding: 6px 8px; font-size: 13px; }
   padding: 10px 16px; border-radius: 10px; opacity: 0; pointer-events: none; transition: .2s; z-index: 200; max-width: 90vw;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+#share-bar { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 201; display: flex; align-items: center; gap: 10px; max-width: 92vw; padding: 8px 8px 8px 16px; border-radius: 12px; background: #14213d; color: #fff; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+#share-bar .sb-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#share-bar button { white-space: nowrap; border: 0; font: inherit; cursor: pointer; border-radius: 8px; }
+#share-bar .sb-go { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; font-weight: 700; background: #2a6bd6; color: #fff; }
+#share-bar .sb-go .i { width: 15px; height: 15px; }
+#share-bar .sb-x { padding: 4px 9px; background: transparent; color: #fff; font-size: 18px; opacity: .7; }
 #update-bar {
   position: fixed; right: 20px; bottom: 20px; display: flex; align-items: center; gap: 10px; z-index: 150;
   background: #14213d; color: #fff; padding: 10px 12px 10px 16px; border-radius: 12px; box-shadow: 0 10px 30px #0004;
@@ -545,6 +551,8 @@ mark { background: #ffe58a; color: inherit; border-radius: 2px; padding: 0 1px; 
 .lw-cmp th { position: sticky; top: 0; color: #fff; background: var(--l0); padding: 7px 10px; text-align: left; min-width: 280px; z-index: 1; }
 .lw-cmp th.l1 { background: var(--l1); } .lw-cmp th.l2 { background: var(--l2); } .lw-cmp th.l3 { background: var(--l3); } .lw-cmp th.l4 { background: var(--l4); }
 .lw-cmp td { border: 1px solid var(--line); vertical-align: top; padding: 8px 10px; white-space: pre-wrap; width: 320px; min-width: 280px; }
+.lw-cmp tr.pre td { border-bottom: 0; padding-bottom: 0; }
+.lw-cmp tr.post td { border-top: 0; padding-top: 0; }
 .lw-cmp td small { display: block; color: var(--muted); }
 .lw-cmp td b { display: block; }
 .lw-hl { border-color: var(--acc); background: linear-gradient(var(--acc-soft), var(--card) 60px); }
@@ -581,14 +589,100 @@ mark { background: #ffe58a; color: inherit; border-radius: 2px; padding: 0 1px; 
   .print-doc .lw-cmp thead { display: table-header-group; }
   .print-doc .rp-kv, .print-doc .rp-tbl { width: 100%; border-collapse: collapse; margin: 4pt 0 8pt; font-size: 9pt; }
   .print-doc .rp-kv th, .print-doc .rp-kv td, .print-doc .rp-tbl th, .print-doc .rp-tbl td { border: 1px solid #999; padding: 3pt 5pt; vertical-align: top; text-align: left; }
+  .print-doc .rp-img { display: block; width: 100%; max-width: 100%; height: auto; margin: 4pt 0 6pt; break-inside: avoid; }
+  /* 회사 정보 등 저장 문서(PDF)의 편집 디자인 */
+  .print-doc.rp { font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; font-size: 9.5pt; line-height: 1.6; color: #1a2233; }
+  .print-doc.rp .rp-kicker { color: #2a6bd6; font-weight: 700; font-size: 9.5pt; letter-spacing: .04em; margin-bottom: 2pt; }
+  .print-doc.rp h1 { font-size: 22pt; color: #1f3a68; margin: 0 0 4pt; padding-bottom: 8pt; border-bottom: 2.5pt solid #1f3a68; }
+  .print-doc.rp .meta { color: #5a6577; font-size: 9pt; }
+  .print-doc.rp h3 { font-size: 13pt; color: #1f3a68; margin: 20pt 0 6pt; padding: 4pt 8pt; background: #eef3fb; border-left: 4pt solid #1f3a68; border-bottom: 0; break-after: avoid; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print-doc.rp h3 + .meta { margin-top: -2pt; margin-bottom: 4pt; break-after: avoid; }
+  .print-doc.rp .rp-tbl, .print-doc.rp .rp-kv { break-before: avoid; }
+  .print-doc.rp .ph { color: #1f3a68; font-size: 10.5pt; margin: 10pt 0 3pt; break-after: avoid; }
+  .print-doc.rp .pb { margin: 1pt 0; }
+  .print-doc.rp .gray { color: #6b7587; }
+  .print-doc.rp .rp-kv, .print-doc.rp .rp-tbl { margin: 3pt 0 8pt; font-size: 9pt; border: 0; }
+  .print-doc.rp .rp-kv th, .print-doc.rp .rp-kv td, .print-doc.rp .rp-tbl th, .print-doc.rp .rp-tbl td { border: 0; border-bottom: .6pt solid #cfd6e2; padding: 4pt 6pt; }
+  .print-doc.rp .rp-kv th { background: #f3f6fb; color: #33405a; }
+  .print-doc.rp .rp-tbl th { background: #1f3a68; border-bottom: 0; font-weight: 600; }
+  .print-doc.rp .rp-tbl tbody tr:nth-child(even) td { background: #f6f8fc; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print-doc.rp .rp-tbl tr.b td { background: #e8eef9 !important; }
+  .print-doc.rp .rp-img { margin: 6pt 0 8pt; border: .6pt solid #dfe4ee; border-radius: 3pt; }
+  .print-doc.rp .rp-img.half { display: inline-block; width: 49%; margin-right: 1%; vertical-align: top; }
+  .print-doc.rp .rp-tbl, .print-doc.rp .rp-kv { break-inside: avoid; }
+  .print-doc.rp .foot { color: #7a8497; font-size: 8pt; margin-top: 4pt; }
+  .print-doc.rp .foot:first-of-type { margin-top: 18pt; padding-top: 6pt; border-top: .6pt solid #cfd6e2; }
   .print-doc .rp-kv th { width: 24%; background: #eef2f8; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .print-doc .rp-tbl th { background: #1f3a68; color: #fff; text-align: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .print-doc .rp-tbl .num { text-align: right; white-space: nowrap; }
   .print-doc .rp-tbl th.num { text-align: center; }
+  .print-doc .rp-tbl td:first-child { white-space: nowrap; }
   .print-doc .rp-tbl tr.b td { font-weight: 700; }
   .print-doc .rp-tbl thead { display: table-header-group; }
   .print-doc .rp-tbl tr { break-inside: avoid; }
 }
+
+body.rp-view .print-doc h1 { font-size: 17pt; margin-bottom: 4pt; }
+body.rp-view .print-doc h2 { font-size: 13pt; margin-bottom: 6pt; }
+body.rp-view .print-doc h3 { font-size: 12pt; margin: 14pt 0 4pt; border-bottom: 1px solid #999; }
+body.rp-view .print-doc p { margin: 2pt 0; }
+body.rp-view .print-doc .meta { color: #444; font-size: 8.5pt; }
+body.rp-view .print-doc .gray { color: #777; font-size: 8.5pt; }
+body.rp-view .print-doc .foot { color: #666; font-size: 8pt; margin-top: 8pt; }
+body.rp-view .print-doc .pl { font-weight: 700; font-size: 9pt; margin-top: 8pt; color: var(--l0); }
+body.rp-view .print-doc .pl.l1 { color: var(--l1); } body.rp-view .print-doc .pl.l2 { color: var(--l2); } body.rp-view .print-doc .pl.l3 { color: var(--l3); } body.rp-view .print-doc .pl.l4 { color: var(--l4); }
+body.rp-view .print-doc .ph { font-weight: 700; font-size: 10.5pt; margin: 2pt 0; }
+body.rp-view .print-doc .pb { white-space: pre-wrap; }
+body.rp-view .print-doc .pg { font-weight: 700; font-size: 8.5pt; color: #444; margin-top: 6pt; }
+body.rp-view .print-doc .pk { font-weight: 700; margin-top: 4pt; }
+body.rp-view .print-doc .pn { break-inside: avoid-page; }
+body.rp-view .print-doc .lw-cmp { width: 100%; table-layout: fixed; font-size: 8.5pt; }
+body.rp-view .print-doc .lw-cmp th { position: static; min-width: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body.rp-view .print-doc .lw-cmp td { min-width: 0; width: auto; }
+body.rp-view .print-doc .lw-cmp thead { display: table-header-group; }
+body.rp-view .print-doc .rp-kv, body.rp-view .print-doc .rp-tbl { width: 100%; border-collapse: collapse; margin: 4pt 0 8pt; font-size: 9pt; }
+body.rp-view .print-doc .rp-kv th, body.rp-view .print-doc .rp-kv td, body.rp-view .print-doc .rp-tbl th, body.rp-view .print-doc .rp-tbl td { border: 1px solid #999; padding: 3pt 5pt; vertical-align: top; text-align: left; }
+body.rp-view .print-doc .rp-img { display: block; width: 100%; max-width: 100%; height: auto; margin: 4pt 0 6pt; break-inside: avoid; }
+body.rp-view .print-doc.rp { font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; font-size: 9.5pt; line-height: 1.6; color: #1a2233; }
+body.rp-view .print-doc.rp .rp-kicker { color: #2a6bd6; font-weight: 700; font-size: 9.5pt; letter-spacing: .04em; margin-bottom: 2pt; }
+body.rp-view .print-doc.rp h1 { font-size: 22pt; color: #1f3a68; margin: 0 0 4pt; padding-bottom: 8pt; border-bottom: 2.5pt solid #1f3a68; }
+body.rp-view .print-doc.rp .meta { color: #5a6577; font-size: 9pt; }
+body.rp-view .print-doc.rp h3 { font-size: 13pt; color: #1f3a68; margin: 20pt 0 6pt; padding: 4pt 8pt; background: #eef3fb; border-left: 4pt solid #1f3a68; border-bottom: 0; break-after: avoid; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body.rp-view .print-doc.rp h3 + .meta { margin-top: -2pt; margin-bottom: 4pt; break-after: avoid; }
+body.rp-view .print-doc.rp .rp-tbl, body.rp-view .print-doc.rp .rp-kv { break-before: avoid; }
+body.rp-view .print-doc.rp .ph { color: #1f3a68; font-size: 10.5pt; margin: 10pt 0 3pt; break-after: avoid; }
+body.rp-view .print-doc.rp .pb { margin: 1pt 0; }
+body.rp-view .print-doc.rp .gray { color: #6b7587; }
+body.rp-view .print-doc.rp .rp-kv, body.rp-view .print-doc.rp .rp-tbl { margin: 3pt 0 8pt; font-size: 9pt; border: 0; }
+body.rp-view .print-doc.rp .rp-kv th, body.rp-view .print-doc.rp .rp-kv td, body.rp-view .print-doc.rp .rp-tbl th, body.rp-view .print-doc.rp .rp-tbl td { border: 0; border-bottom: .6pt solid #cfd6e2; padding: 4pt 6pt; }
+body.rp-view .print-doc.rp .rp-kv th { background: #f3f6fb; color: #33405a; }
+body.rp-view .print-doc.rp .rp-tbl th { background: #1f3a68; border-bottom: 0; font-weight: 600; }
+body.rp-view .print-doc.rp .rp-tbl tbody tr:nth-child(even) td { background: #f6f8fc; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body.rp-view .print-doc.rp .rp-tbl tr.b td { background: #e8eef9 !important; }
+body.rp-view .print-doc.rp .rp-img { margin: 6pt 0 8pt; border: .6pt solid #dfe4ee; border-radius: 3pt; }
+body.rp-view .print-doc.rp .rp-img.half { display: inline-block; width: 49%; margin-right: 1%; vertical-align: top; }
+body.rp-view .print-doc.rp .rp-tbl, body.rp-view .print-doc.rp .rp-kv { break-inside: avoid; }
+body.rp-view .print-doc.rp .foot { color: #7a8497; font-size: 8pt; margin-top: 4pt; }
+body.rp-view .print-doc.rp .foot:first-of-type { margin-top: 18pt; padding-top: 6pt; border-top: .6pt solid #cfd6e2; }
+body.rp-view .print-doc .rp-kv th { width: 24%; background: #eef2f8; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body.rp-view .print-doc .rp-tbl th { background: #1f3a68; color: #fff; text-align: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body.rp-view .print-doc .rp-tbl .num { text-align: right; white-space: nowrap; }
+body.rp-view .print-doc .rp-tbl th.num { text-align: center; }
+body.rp-view .print-doc .rp-tbl td:first-child { white-space: nowrap; }
+body.rp-view .print-doc .rp-tbl tr.b td { font-weight: 700; }
+body.rp-view .print-doc .rp-tbl thead { display: table-header-group; }
+body.rp-view .print-doc .rp-tbl tr { break-inside: avoid; }
+/* 휴대폰 브라우저는 인쇄할 때 print 미디어 CSS를 따르지 않고 화면 그대로 찍는 경우가 있어,
+   저장용 문서를 화면에서도 보이는 미리보기(rp-view)로 띄운 뒤 인쇄한다. 화면에는 이 문서만 보인다. */
+body.rp-view { display: block !important; overflow: auto !important; height: auto !important; background: #e4e9f1 !important; }
+body.rp-view > *:not(.print-doc):not(.rp-bar) { display: none !important; }
+body.rp-view.rp-view > iframe.html2canvas-container { display: block !important; } /* PDF 공유용 그림 만들기(html2canvas)가 쓰는 보이지 않는 틀 */
+body.rp-view .print-doc.rp { display: block; box-sizing: border-box; max-width: 210mm; margin: 64px auto 28px; padding: 14mm 12mm; background: #fff; box-shadow: 0 2px 14px rgba(20, 40, 80, .18); }
+.rp-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 99999; display: flex; gap: 8px; align-items: center; justify-content: flex-end; padding: 8px 12px; background: #1f3a68; color: #fff; font-size: 13px; }
+.rp-bar span { margin-right: auto; opacity: .85; }
+.rp-bar button { border: 0; border-radius: 10px; padding: 9px 14px; font: inherit; font-weight: 700; background: #fff; color: #1f3a68; cursor: pointer; }
+.rp-bar button.primary { background: #2a6bd6; color: #fff; }
+@media print { .rp-bar { display: none !important; } body.rp-view { background: #fff !important; } body.rp-view .print-doc.rp { margin: 0; padding: 0; max-width: none; box-shadow: none; } }
 
 /* ---- 참고 자료실 ---- */
 .lib-contact { display: block; font-size: 10.5px; margin: 6px 4px 0; }
@@ -1127,3 +1221,18 @@ textarea.facts { width: 100%; padding: 10px; border: 1px solid var(--line); bord
 .rk-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-top: 4px; }
 .rk-stats b { color: var(--fg); }
 @media (max-width: 720px) { .rk-rank { grid-template-columns: 24px 1fr 110px; } .rk-rank .rb { grid-column: 2 / -1; grid-row: 2; } }
+.rk-save { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.tbl .stmt-link { cursor: pointer; }
+.tbl td.stmt-link:hover { background: #f6f9ff; text-decoration: underline dotted; }
+.modal.wide .modal-body { max-height: 70vh; overflow: auto; }
+
+/* 표 복사·CSV·엑셀 단추 줄 */
+.tt-bar { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin: 4px 0 6px; }
+.tt-bar .btn { padding: 4px 10px; font-size: 12px; }
+@media print { .tt-bar { display: none !important; } }
+
+/* 법령 문서(위임 트리·비교표)도 저장 미리보기(rp-view)에서 종이처럼 보이게 한다 */
+body.rp-view .print-doc.rp-law { display: block; box-sizing: border-box; max-width: 210mm; margin: 64px auto 28px; padding: 14mm 12mm; background: #fff; color: #000; font-size: 9.5pt; line-height: 1.55; box-shadow: 0 2px 14px rgba(20, 40, 80, .18); }
+body.rp-view .print-doc.rp-law.land { max-width: 297mm; }
+@media print { body.rp-view .print-doc.rp-law { margin: 0; padding: 0; max-width: none; box-shadow: none; } }
+a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; text-underline-offset: 2px; }

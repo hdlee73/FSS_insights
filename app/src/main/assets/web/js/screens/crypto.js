@@ -1,7 +1,7 @@
 // 가상자산 시장 동향: 국내 원화거래소 5곳 합산 시장 일보(VirtualAssets에서 옮겨 온 화면).
 // 자료는 FSS_insights 레포 crypto-data 브랜치(매일 24:00 KST 하루 한 번 집계한 JSON·PDF·HWPX와 거래소 재무, 워크플로 crypto-data.yml). 주요 코인 시세는 업비트·빗썸 웹소켓(끊기면 폴링)과 Coinbase를 브라우저에서 직접 읽는다. 별도 서버 없음.
 import { setHeader } from "../app.js";
-import { card, download as coreDownload, errorText, h, icon, loading, message, reportError, tabs } from "../core.js";
+import { card, download as coreDownload, errorText, h, icon, loading, message, reportError, shareFile, tabs } from "../core.js";
 import { liveCrypto } from "../lib/livefeed.js";
 
 const BASE = "https://raw.githubusercontent.com/hdlee73/FSS_insights/crypto-data";
@@ -96,11 +96,15 @@ function lineChart(series, labels, { height = 200, format = num, dots, width } =
   const vals = series.flatMap((s) => s.data).filter((v) => v != null && Number.isFinite(v));
   const n = Math.max(0, ...series.map((s) => s.data.length));
   if (vals.length < 2) return h("div", { class: "note" }, "그래프를 그리기에 데이터가 아직 부족합니다.");
-  const W = width || narrowW(), H = width && width < 500 ? 190 : height, L = W < 500 ? 54 : 64, R = W < 500 ? 46 : 56, T = 14, B = 24;
+  const W = width || narrowW(), H = width && width < 500 ? 190 : height, T = 14, B = 24;
   let lo = Math.min(...vals), hi = Math.max(...vals);
   const flat = hi === lo;
   if (flat) { lo -= Math.abs(lo) * 0.01 || 1; hi += Math.abs(hi) * 0.01 || 1; }
   const pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
+  // 눈금·마지막 값 글자 수에 맞춰 좌우 여백을 정한다(글자 하나 약 6.6px, 굵은 마지막 값은 7.2px).
+  const tickMax = Math.max(...[0, 1, 2, 3].map((g) => String(format(hi - ((hi - lo) * g) / 3)).length));
+  const lastLen = String(format(vals.at(-1))).length;
+  const L = Math.max(W < 500 ? 54 : 64, Math.ceil(tickMax * 6.6) + 12), R = Math.max(W < 500 ? 46 : 56, Math.ceil(lastLen * 7.2) + 14);
   const x = (i) => L + (n <= 1 ? 0 : (i * (W - L - R)) / (n - 1));
   const y = (v) => T + ((hi - v) / (hi - lo)) * (H - T - B);
   const showDots = dots ?? n <= 40;
@@ -541,7 +545,7 @@ function coinChartCard(ctx, cs, coin, year, params) {
     const noteTxt = year
       ? `주봉 종가 기준 최근 1년(업비트)은 ${shortDate(cs.date)} 24시 집계본이고, 마지막 점·고저가·변동률만 실시간 현재가로 이어집니다. 변동률은 1년 전 첫 주 시가 대비 현재가입니다.`
       : v.candles
-        ? "업비트 1분봉을 직접 불러온 최근 ${span()}(1분마다 갱신)이며 마지막 점은 실시간 현재가입니다. 당일은 달력상 하루가 아니라 최근 ${span()}이고, 변동률·고저가도 이 구간 기준(첫 봉 시가 대비 현재가)입니다."
+        ? `업비트 1분봉을 직접 불러온 최근 ${span()}(1분마다 갱신)이며 마지막 점은 실시간 현재가입니다. 당일은 달력상 하루가 아니라 최근 ${span()}이고, 변동률·고저가도 이 구간 기준(첫 봉 시가 대비 현재가)입니다.`
         : `1분봉을 불러오지 못해 ${shortDate(cs.date)} 24시 집계본(수집 ${cs.collected_at || "-"} 직전 24시간)을 보여 줍니다. 마지막 점·고저가·변동률만 실시간 현재가로 이어집니다.`;
     stats.replaceChildren(
       h("div", null, h("small", { class: "note" }, year ? "1년 변동" : `${v.candles ? span() : "24시간"} 변동`), h("div", null, chg(v.rate))),
@@ -770,6 +774,10 @@ function saveCard(data) {
     coreDownload(blob, `가상자산시장일보_${data.snapshot.date}.html`);
     status.textContent = "HTML 파일로 저장했습니다. 한글·워드에서 열거나 브라우저에서 인쇄해 PDF로 만들 수 있습니다.";
   };
+  const sh = async () => {
+    if (!picked().size) { status.textContent = "공유할 항목을 하나 이상 선택해 주세요."; return; }
+    await shareFile(new Blob([make()], { type: "text/html;charset=utf-8" }), `가상자산시장일보_${data.snapshot.date}.html`, "가상자산 시장일보");
+  };
   const pr = () => {
     if (!picked().size) { status.textContent = "저장할 항목을 하나 이상 선택해 주세요."; return; }
     const w = window.open("", "_blank");
@@ -778,7 +786,7 @@ function saveCard(data) {
   };
   return card("일보 저장 — 포함할 항목 선택", "download", h("div", { class: "stack" },
     h("div", { class: "cr-picks" }, boxes.map((b) => b.el)),
-    h("div", { class: "cr-links" }, h("button", { type: "button", class: "btn sm", onclick: dl }, "HTML로 저장"), window.FssNative ? null : h("button", { type: "button", class: "btn ghost sm", onclick: pr }, "PDF로 저장(인쇄)")),
+    h("div", { class: "cr-links" }, h("button", { type: "button", class: "btn sm", onclick: dl }, "HTML로 저장"), window.FssNative ? null : h("button", { type: "button", class: "btn ghost sm", onclick: pr }, "PDF로 저장(인쇄)"), h("button", { type: "button", class: "btn ghost sm", onclick: sh }, "공유")),
     status, note("선택한 항목만 담은 문서를 최신 집계로 만듭니다. 제목은 크게 표시됩니다. 아래 PDF·HWPX는 전체 항목 고정본입니다.")));
 }
 function reportView(root, data) {

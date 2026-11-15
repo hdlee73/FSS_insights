@@ -135,15 +135,10 @@ export function signals({ row, rows, sector, month, cases, nowYear }) {
 }
 
 // ---- 이름 맞추기(FISIS ↔ DART ↔ 제재공시) ----
-export const nameKey = (n) => String(n || "").replace(/주식회사|유한회사|\(주\)|㈜|\(유\)|\s|[.,·]/g, "").toLowerCase();
-/** DART 검색 후보 중 FISIS 회사와 가장 가까운 것. 이름이 같으면 exact, 포함 관계면 guess, 없으면 none. */
-export function pickDart(fisisName, items) {
-  const k = nameKey(fisisName);
-  const ex = items.find((i) => nameKey(i.name) === k);
-  if (ex) return { match: "exact", item: ex };
-  const g = items.find((i) => { const o = nameKey(i.name); return o && (o.includes(k) || k.includes(o)); });
-  return g ? { match: "guess", item: g } : { match: "none", item: null };
-}
+const RENAMED = [["에스비아이저축은행", "교보에스비아이저축은행"]]; // 사명 변경(옛 이름 → 새 이름). 옛 자료와 새 자료가 같은 회사로 맞춰지도록 한다.
+const canonName = (k) => { const x = k.replace(/주식회사|유한회사|\(주\)|㈜|\(유\)|\s|[.,·]/g, "").toLowerCase(); for (const [o, n] of RENAMED) if (x.startsWith(o)) return n + x.slice(o.length); return k; };
+export const nameKey = (n) => canonName(String(n || "").replace(/주식회사|유한회사|\(주\)|㈜|\(유\)|\s|[.,·]/g, "").toLowerCase());
+// DART 회사 맞추기는 dartmatch.js(pickDart·findDart)로 옮겼다.
 
 // ---- 업권 현황: 규모 순위·비율 분포 ----
 export const OVERVIEW_ORDER = [...SECTOR_ORDER, "G"];
