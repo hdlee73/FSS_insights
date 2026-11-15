@@ -56,7 +56,7 @@ import kotlinx.coroutines.withContext
  *
  * - 화면 이동은 WebView 기록에 남아, 뒤로가기는 앱을 닫지 않고 직전 화면·탭으로 돌아간다.
  * - 외부 링크·전화(tel:)·메일은 기기 앱으로 넘기고, 파일 저장·불러오기는 시스템 파일 창을 쓴다.
- * - [route]는 웹 화면 이름(consumer, finsim, crypto). [backEnabled]는 서랍 메뉴가 열려 있을 때 뒤로가기를 서랍에 양보하기 위한 값이다.
+ * - [route]는 웹 화면 이름(consumer, finsim, crypto, risk). [backEnabled]는 서랍 메뉴가 열려 있을 때 뒤로가기를 서랍에 양보하기 위한 값이다.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
