@@ -3,6 +3,7 @@ package io.github.hdlee73.financenewsradar.ui
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
+import io.github.hdlee73.financenewsradar.data.NewsProxy
 import android.content.Intent
 import android.net.Uri
 import android.os.Handler
@@ -167,7 +168,7 @@ fun WebEmbedScreen(route: String, modifier: Modifier = Modifier, backEnabled: Bo
                         addJavascriptInterface(bridge, "FssNative")
                         webViewClient = object : WebViewClient() {
                             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
-                                serveAsset(ctx, request.url)
+                                serveAsset(ctx, request.url) ?: proxyApi(request)
 
                             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                                 if (request.url.host == ASSET_HOST) return false
@@ -221,6 +222,45 @@ fun WebEmbedScreen(route: String, modifier: Modifier = Modifier, backEnabled: Bo
 }
 
 private const val ASSET_HOST = "appassets.androidplatform.net"
+private const val WEB_ORIGIN = "https://www.fssinsights.com"
+private val CORS_HEADERS = mapOf(
+    "Access-Control-Allow-Origin" to "*",
+    "Access-Control-Expose-Headers" to "Content-Disposition, X-Final-Url",
+    "Access-Control-Allow-Headers" to "Content-Type",
+    "Access-Control-Allow-Methods" to "GET, POST, OPTIONS",
+)
+
+/**
+ * 내장 웹 화면이 부르는 서버(Worker) 요청을 앱이 대신 보낸다.
+ * 웹은 허용 출처(웹 주소)만 토큰 없이 받는데 내장 화면의 출처는 appassets 라 CORS 로 막혀 "서버에 연결하지 못했습니다"가 났다.
+ * 앱 토큰을 붙여 보내고 응답에 CORS 허용 머리말을 달아 준다(서버 변경 없음). 본문을 읽을 수 없는 POST 는 빈 응답(통계 전송 등)으로 넘긴다.
+ */
+private fun proxyApi(request: WebResourceRequest): WebResourceResponse? {
+    val base = NewsProxy.url.trimEnd('/')
+    val uri = request.url
+    val host = runCatching { Uri.parse(base).host }.getOrNull() ?: return null
+    if (host.isBlank() || uri.host != host) return null
+    if (request.method == "OPTIONS" || (request.method != "GET" && request.method != "HEAD")) {
+        return WebResourceResponse("text/plain", "utf-8", 204, "No Content", CORS_HEADERS, java.io.ByteArrayInputStream(ByteArray(0)))
+    }
+    return try {
+        val c = java.net.URI(uri.toString()).toURL().openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 12_000
+        c.readTimeout = 60_000
+        c.setRequestProperty("X-App-Token", NewsProxy.token)
+        if (uri.path.orEmpty().startsWith("/fetch")) c.setRequestProperty("Origin", WEB_ORIGIN) // /fetch 는 웹 출처 요청만 받는다
+        val code = c.responseCode
+        val stream = if (code in 200..399) c.inputStream else (c.errorStream ?: java.io.ByteArrayInputStream(ByteArray(0)))
+        val type = (c.contentType ?: "application/octet-stream").substringBefore(";").trim()
+        val charset = c.contentType?.substringAfter("charset=", "")?.trim()?.ifBlank { null }
+        val headers = CORS_HEADERS.toMutableMap()
+        c.getHeaderField("Content-Disposition")?.let { headers["Content-Disposition"] = it }
+        c.getHeaderField("X-Final-Url")?.let { headers["X-Final-Url"] = it }
+        WebResourceResponse(type, charset, code, c.responseMessage?.ifBlank { null } ?: "OK", headers, stream)
+    } catch (_: java.io.IOException) {
+        WebResourceResponse("application/json", "utf-8", 502, "Bad Gateway", CORS_HEADERS, java.io.ByteArrayInputStream("""{"error":"서버에 연결하지 못했습니다."}""".toByteArray()))
+    }
+}
 
 /** https://appassets.androidplatform.net/web/… 요청을 앱 assets/web/… 파일로 답한다(그 밖의 주소는 막지 않고 통과시킨다). */
 private fun serveAsset(context: Context, uri: Uri): WebResourceResponse? {

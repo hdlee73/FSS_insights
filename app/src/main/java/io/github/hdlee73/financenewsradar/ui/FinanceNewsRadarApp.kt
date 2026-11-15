@@ -182,7 +182,7 @@ private class DrawerSection(val title: String?, val ids: List<Int>)
 
 private val drawerSections = listOf(
     DrawerSection(null, listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_LAW, SCREEN_CONSUMER)),
-    DrawerSection("금융회사 현황 및 검사", listOf(SCREEN_FISIS, SCREEN_SANCTION, SCREEN_RISK, SCREEN_FINSIM)),
+    DrawerSection("금융회사 현황 및 검사", listOf(SCREEN_FISIS, SCREEN_SANCTION, SCREEN_FINSIM)),
     DrawerSection("기업공시 및 회계", listOf(SCREEN_DART, SCREEN_DISCLOSURE, SCREEN_AUDIT, SCREEN_ACC_SEARCH, SCREEN_SIMULATOR)),
     DrawerSection(null, listOf(SCREEN_CRYPTO)),
     DrawerSection("금융관련 자료", listOf(SCREEN_PRESS, SCREEN_REGULATORY, SCREEN_RESEARCH, SCREEN_LIBRARY)),

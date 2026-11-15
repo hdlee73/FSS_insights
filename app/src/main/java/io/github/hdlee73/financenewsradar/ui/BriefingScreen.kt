@@ -67,6 +67,10 @@ import io.github.hdlee73.financenewsradar.data.Weather
 import io.github.hdlee73.financenewsradar.data.WeatherClient
 import io.github.hdlee73.financenewsradar.ui.theme.AppColors
 import java.time.LocalDate
+import io.github.hdlee73.financenewsradar.accounting.data.AccountingRepository
+import io.github.hdlee73.financenewsradar.data.SanctionRepository
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import java.time.ZonedDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -76,6 +80,10 @@ private const val TAB_NEWS = 1
 private const val TAB_MARKET = 2
 private const val TAB_RESEARCH = 4
 private const val TAB_PRESS = 3   // 자료 탭(보도자료 구분 탭)
+private const val SCREEN_SANCTION_ID = 11
+private const val SCREEN_DISCLOSURE_ID = 14
+private const val SCREEN_AUDIT_ID = 15
+private const val RECENT_ACTION_DAYS = 7L
 private val BRIEFING_PRESS = listOf(AgencyId.FSS, AgencyId.FSC)
 /** 연구자료 탭에 기본으로 들어 있는 기관 전부. */
 private val BRIEFING_RESEARCH = AgencyId.entries.filter { it.group == AgencyGroup.RESEARCH && it != AgencyId.CUSTOM }
@@ -107,6 +115,9 @@ fun BriefingScreen(
         marketViewModel.refresh()
         newsViewModel.loadLeaderNews()
     }
+    // 최근 검사·공시조사·회계감리 결과: 세 자료 중 최근 7일 이내 건을 합친다. 한 곳이 실패해도 나머지는 보여 준다.
+    var actions by remember { mutableStateOf<RecentActions?>(null) }
+    LaunchedEffect(weatherTick) { actions = loadRecentActions(context.applicationContext) }
     LaunchedEffect(releases.institutes) { releases.institutes.forEach(releasesViewModel::ensureCustom) }
     LaunchedEffect(weatherTick) { WeatherClient.fetch()?.let { weather = it } }
 
@@ -229,6 +240,20 @@ fun BriefingScreen(
                 pressLoading -> Hint("불러오는 중…")
                 else -> Hint("보도자료를 불러오지 못했습니다. 새로고침을 눌러 주세요.")
             }
+
+            SectionTitle("최근 검사·공시조사·회계감리 결과", "제재공시 · 공시조사결과제재 · 회계감리결과제재 · 최근 ${RECENT_ACTION_DAYS}일") { onOpenTab(SCREEN_SANCTION_ID) }
+            val acts = actions
+            when {
+                acts == null -> Hint("불러오는 중…")
+                acts.items.isNotEmpty() -> BriefingCard {
+                    acts.items.forEachIndexed { i, a ->
+                        if (i > 0) RowDivider(inset = 14.dp)
+                        ActionLine(a) { onOpenTab(a.screen) }
+                    }
+                }
+                else -> Hint("최근 ${RECENT_ACTION_DAYS}일 이내 새로 공시된 검사·공시조사·회계감리 결과가 없습니다.")
+            }
+            if (acts != null && acts.failed.isNotEmpty()) Hint("${acts.failed.joinToString("·")} 자료는 불러오지 못했습니다.")
 
             if (researchItems.isNotEmpty()) {
                 SectionTitle("이번 주 금융리포트", "기본 연구기관 · 최근 7일 내 업데이트") { onOpenTab(TAB_RESEARCH) }
@@ -419,3 +444,49 @@ private fun List<ReleaseItem>.recentWeek(weekAgo: LocalDate): List<ReleaseItem> 
     filter { item -> item.date?.let { !it.isBefore(weekAgo) } == true }
         .sortedByDescending { it.date }
         .take(BRIEFING_RESEARCH_PER_AGENCY)
+
+/** 브리핑의 '최근 검사·공시조사·회계감리 결과' 한 줄. [screen]은 눌렀을 때 열 화면. */
+private data class ActionEntry(val kind: String, val company: String, val date: LocalDate, val summary: String, val screen: Int)
+private data class RecentActions(val items: List<ActionEntry>, val failed: List<String>)
+
+private suspend fun loadRecentActions(context: android.content.Context): RecentActions = coroutineScope {
+    val from = LocalDate.now(SEOUL).minusDays(RECENT_ACTION_DAYS)
+    val san = async { runCatching { SanctionRepository(context).load() }.getOrNull() }
+    val acc = AccountingRepository(context)
+    val dis = async { runCatching { acc.loadDisclosure().data.items }.getOrNull() }
+    val aud = async { runCatching { acc.loadAudit().data.items }.getOrNull() }
+    val s = san.await()
+    val d = dis.await()
+    val a = aud.await()
+    val out = mutableListOf<ActionEntry>()
+    s?.cases?.filter { !it.date.isBefore(from) }?.forEach { c ->
+        val act = listOf(c.inst, c.exec, c.staff).firstOrNull { it.isNotBlank() }.orEmpty().lineSequence().firstOrNull().orEmpty().trim()
+        out += ActionEntry("검사", c.company, c.date, listOf(c.sector, act).filter { it.isNotBlank() }.joinToString(" · "), SCREEN_SANCTION_ID)
+    }
+    d?.distinctBy { it.id }?.forEach { c ->
+        val date = runCatching { LocalDate.parse(c.date.ifBlank { c.postDate }) }.getOrNull() ?: return@forEach
+        if (date.isBefore(from)) return@forEach
+        out += ActionEntry("공시조사", c.company, date, listOfNotNull(c.actions.firstOrNull(), c.violations.firstOrNull { it.title.isNotBlank() }?.title).joinToString(" · "), SCREEN_DISCLOSURE_ID)
+    }
+    a?.distinctBy { it.key }?.forEach { x ->
+        val date = runCatching { LocalDate.parse(x.actionDate, DateTimeFormatter.BASIC_ISO_DATE) }.getOrNull() ?: return@forEach
+        if (date.isBefore(from)) return@forEach
+        out += ActionEntry("회계감리", x.company, date, listOf(x.market, x.actions.take(2).joinToString(", ")).filter { it.isNotBlank() }.joinToString(" · "), SCREEN_AUDIT_ID)
+    }
+    val failed = buildList { if (s == null) add("제재공시"); if (d == null) add("공시조사결과제재"); if (a == null) add("회계감리결과제재") }
+    RecentActions(out.sortedWith(compareByDescending<ActionEntry> { it.date }.thenBy { it.kind }), failed)
+}
+
+private val actionDateFormat = DateTimeFormatter.ofPattern("yyyy.MM.dd")
+
+@Composable
+private fun ActionLine(a: ActionEntry, onOpen: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            TagLabel(a.kind, accent = a.kind != "검사")
+            Text(a.date.format(actionDateFormat), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text(a.company, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (a.summary.isNotBlank()) Text(a.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
