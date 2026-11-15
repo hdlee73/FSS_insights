@@ -58,7 +58,12 @@ async function collectSector(sector) {
   return { all, rows };
 }
 
-async function dartOf(name, parent) {
+async function dartOf(name, parent, own = {}) {
+  const ownCorp = own[nameKey(name)] || own[name];
+  if (ownCorp) {
+    const [company, holders] = await Promise.all([api("/dart/company", { corp: ownCorp }).catch(() => null), api("/dart/holders", { corp: ownCorp }).catch(() => null)]);
+    return { rel: "본인", match: "exact", corp: ownCorp, name: company?.name || clean(name), company, holders };
+  }
   const [q, rel] = parent[nameKey(name)] || parent[name] || [canonQuery(clean(name)), "본인"];
   const found = await api("/dart/search", { q }).catch(() => ({ items: [] }));
   const { match, item } = pickDart(q, found.items || []);
@@ -83,7 +88,7 @@ const top = {};
 for (const t of cfg.companies) {
   const f = (fisisList[t.sector] || []).find((c) => c.name.includes(t.name));
   if (!f) { console.error("경고: FISIS에서 못 찾음(top15.json 확인):", t.name); continue; }
-  const dart = await dartOf(f.name, cfg.parentDart || {}).catch((e) => { console.error("DART 실패:", f.name, e.message); return null; });
+  const dart = await dartOf(f.name, cfg.parentDart || {}, cfg.ownDart || {}).catch((e) => { console.error("DART 실패:", f.name, e.message); return null; });
   if (!dart) continue; // 상위 15개사 일부 실패는 경고만(화면이 실시간 조회로 대신한다)
   top[`${t.sector}:${f.code}`] = { name: f.name, dart };
   console.log("DART", f.name, dart.match, dart.name || "");
