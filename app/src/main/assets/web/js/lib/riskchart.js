@@ -84,7 +84,7 @@ export function stackedBarsSvg({ bars, width = 560, height = 120 }) {
  * 사분면 산점도.
  * points: [{ id, name, x, y, self?, big? }]; 기준선 xMean·yMean(중앙값).
  * xHigherBetter=true(자본비율 등), yHigherBetter(부실비율은 false, 수익성은 true).
- * "취약 사분면"(자본 낮고 위험 높은 쪽)을 옅은 붉은색으로 깐다. 범위를 벗어난 극단값은 가장자리에 속이 빈 점으로 붙인다.
+ * "주의 구간"(자본 낮고 위험 높은 쪽)을 옅은 붉은색으로 깐다. 범위를 벗어난 극단값은 가장자리에 속이 빈 점으로 붙인다.
  */
 export function quadrantSvg({ points, xMean, yMean, xLabel, yLabel, xUnit = "%", yUnit = "%", yHigherBetter = false, width = 600, height = 440, labelAll = false }) {
   const pts = points.filter((p) => num(p.x) && num(p.y));
@@ -104,7 +104,7 @@ export function quadrantSvg({ points, xMean, yMean, xLabel, yLabel, xUnit = "%",
   const X = (v) => ml + ((Math.min(x1, Math.max(x0, v)) - x0) / (x1 - x0)) * w;
   const Y = (v) => mt + h - ((Math.min(y1, Math.max(y0, v)) - y0) / (y1 - y0)) * h;
   const xm = X(xMean), ym = Y(yMean);
-  // 취약: x는 평균보다 낮고, y는 나쁜 쪽(부실비율↑ 이면 위, 수익성↓ 이면 아래)
+  // 주의 구간: x는 평균보다 낮고, y는 나쁜 쪽(부실비율↑ 이면 위, 수익성↓ 이면 아래)
   const dy0 = yHigherBetter ? ym : mt, dy1 = yHigherBetter ? mt + h : ym;
   let svg = `<svg viewBox="0 0 ${width} ${height}" class="rk-chart rk-quad" role="img" aria-label="업권 내 위치(사분면)">`;
   svg += `<rect x="${ml}" y="${mt}" width="${w}" height="${h}" class="rk-plot"/>`;
@@ -112,7 +112,7 @@ export function quadrantSvg({ points, xMean, yMean, xLabel, yLabel, xUnit = "%",
   for (const t of niceTicks(x0, x1, 5)) svg += `<line x1="${X(t)}" x2="${X(t)}" y1="${mt}" y2="${mt + h}" class="rk-grid"/><text x="${X(t)}" y="${mt + h + 15}" text-anchor="middle" class="rk-t">${fmtTick(t)}</text>`;
   for (const t of niceTicks(y0, y1, 4)) svg += `<line x1="${ml}" x2="${ml + w}" y1="${Y(t)}" y2="${Y(t)}" class="rk-grid"/><text x="${ml - 6}" y="${Y(t) + 4}" text-anchor="end" class="rk-t">${fmtTick(t)}</text>`;
   svg += `<line x1="${xm}" x2="${xm}" y1="${mt}" y2="${mt + h}" class="rk-mean"/><line x1="${ml}" x2="${ml + w}" y1="${ym}" y2="${ym}" class="rk-mean"/>`;
-  svg += `<text x="${ml + 6}" y="${dy0 + 14}" class="rk-t rk-corner rk-dn">취약 구간</text>`;
+  svg += `<text x="${ml + 6}" y="${dy0 + 14}" class="rk-t rk-corner rk-dn">주의 구간</text>`;
   svg += `<text x="${xm + 4}" y="${mt + 11}" class="rk-t">업권 중앙값 ${fmtTick(xMean)}${esc(xUnit)}</text>`;
   svg += `<text x="${ml + w - 4}" y="${ym - 4}" text-anchor="end" class="rk-t">중앙값 ${fmtTick(yMean)}${esc(yUnit)}</text>`;
   svg += `<text x="${ml + w / 2}" y="${height - 6}" text-anchor="middle" class="rk-t rk-ax">${esc(xLabel)} →</text>`;

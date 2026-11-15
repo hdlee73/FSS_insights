@@ -441,7 +441,7 @@ fun FinanceNewsRadarApp(
                     SCREEN_BRIEFING -> BriefingScreen(newsViewModel, releasesViewModel, marketViewModel, onOpenTab = ::go)
                     SCREEN_NEWS -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     SCREEN_MARKET -> MarketScreen(marketViewModel)
-                    SCREEN_FISIS -> FisisScreen(fisisViewModel, sanctionViewModel, onOpenLaw = ::openLaw)
+                    SCREEN_FISIS -> WebEmbedScreen("fisis", backEnabled = !drawerState.isOpen)
                     SCREEN_DART -> DartScreen(dartViewModel, searchRequest = dartRequest, onSearchRequestConsumed = { dartRequest = null })
                     SCREEN_DISCLOSURE -> DisclosureScreen(
                         accountingState, disclosureSelected, onSelect = { disclosureSelected = it },
@@ -456,7 +456,7 @@ fun FinanceNewsRadarApp(
                     SCREEN_CONSUMER -> WebEmbedScreen("consumer", backEnabled = !drawerState.isOpen)
                     SCREEN_FINSIM -> WebEmbedScreen("finsim", backEnabled = !drawerState.isOpen)
                     SCREEN_CRYPTO -> WebEmbedScreen("crypto", backEnabled = !drawerState.isOpen)
-                    SCREEN_RISK -> WebEmbedScreen("risk", backEnabled = !drawerState.isOpen)
+                    SCREEN_RISK -> WebEmbedScreen("fisis?tool=risk&view=overview", backEnabled = !drawerState.isOpen)
                     SCREEN_REGULATORY -> RegulatoryScreen(regulatoryViewModel)
                     SCREEN_SANCTION -> SanctionScreen(sanctionViewModel, onOpenLaw = ::openLaw)
                     SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen(
