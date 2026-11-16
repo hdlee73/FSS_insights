@@ -7,7 +7,7 @@ const SITUATIONS = [
   { ic: "calendar", t: "가입한 걸 취소하고 싶어요", d: "대출·보험·투자 청약철회 기한(D-Day)을 계산합니다.", to: ["diagnose", { tab: "withdraw" }] },
   { ic: "scale", t: "설명을 제대로 못 듣고 가입했어요", d: "위법계약해지 요건을 점검하고 요구서 초안을 만듭니다.", to: ["diagnose", { tab: "cancel" }] },
   { ic: "gavel", t: "금감원 분쟁조정, 해볼 만할까요?", d: "내 상황을 문장으로 쓰면 비슷한 사례와 인정 비율을 찾습니다.", to: ["cases"] },
-  { ic: "coins", t: "빚이 너무 부담돼요", d: "신용회복위원회(CCRS)에서 채무조정·신용회복 지원을 알아봅니다. 새 창으로 열립니다.", href: "https://www.ccrs.or.kr/cms/com/index.do?MENU_ID=2690", ccrs: true },
+  { ic: "coins", t: "불법사금융 피해를 당했어요", d: "신용회복위원회(CCRS)의 피해 상담·지원 안내를 확인합니다. 새 창으로 열립니다.", href: "https://www.ccrs.or.kr/cms/com/index.do?MENU_ID=2690", ccrs: true },
   { ic: "landmark", t: "이 업체, 믿어도 되나요?", d: "제도권 금융회사·등록 대부업체인지 확인하는 방법을 안내합니다.", to: ["company"] },
   { ic: "bar-chart-3", t: "내 금융회사는 소비자보호 잘 하나요?", d: "실태평가 등급, 민원, 제재를 비교합니다.", to: ["scorecard"] },
   { ic: "book-open", t: "금융꿀팁·소비자경보 보기", d: "금융감독원이 알리는 소비자 유의사항을 모았습니다.", to: ["tips"] },
