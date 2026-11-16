@@ -54,6 +54,17 @@ assert.equal(e.period.from, "2026-11-12");
 e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", ufrom: "2026-11-13", uto: "2026-11-13" });
 assert.deepEqual(e.period.users.map((x) => [x.id, x.days, x.visits, x.secs]), [["u1", 1, 4, 120]]);
 
+// 3-b) 접속일은 측정 여부와 무관하게 접속 신호를 받은 모든 날(방문·시간은 측정된 날만)
+{
+  const rows = ["2026-11-05", "2026-11-06", "2026-11-07", "2026-11-13"].map((day) => ({ day, uid: "b04da1xx", version: "2.8.1" }));
+  const act = [{ day: "2026-11-13", uid: "b04da1xx", visits: 3, secs: 90 }];
+  const r = engagement({ allRows: rows, activityRows: act, from: "2026-11-13", to: "2026-11-13", ufrom: "2000-01-01", uto: "2026-11-13" });
+  assert.deepEqual(r.period.users.map((x) => [x.id, x.days, x.visits, x.secs]), [["b04da1", 4, 3, 90]]);
+  assert.equal(r.period.from, "2026-11-05");
+  assert.equal(r.series[0].list[0].cd, 4);
+  assert.equal(r.series[0].list[0].cv, 3);
+}
+
 // 4) 플랫폼 필터
 e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", platform: "web" });
 assert.equal(e.userDays, 1);
