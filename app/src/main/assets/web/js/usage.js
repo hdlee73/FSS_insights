@@ -6,7 +6,11 @@ import { APP_VERSION, SERVER, store } from "./core.js";
 
 const KEEP_DAYS = 14;
 const pad = (n) => String(n).padStart(2, "0");
-const dayOf = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// 통계 날짜는 기기 시간대와 관계없이 항상 한국시간(UTC+9) 기준이다(서버·관리자 화면이 한국시간 하루로 집계하므로, 해외·다른 시간대 기기의 신호가 전날로 잡히지 않게 한다).
+const dayOf = (d = new Date()) => {
+  const k = new Date(d.getTime() + 9 * 3600e3);
+  return `${k.getUTCFullYear()}-${pad(k.getUTCMonth() + 1)}-${pad(k.getUTCDate())}`;
+};
 // 자동화 브라우저(테스트·점검용: HeadlessChrome·Playwright·Puppeteer, navigator.webdriver)나 주소에 ?notrack=1 로 한 번 연 브라우저는 통계를 보내지 않는다(?notrack=0 으로 다시 켠다).
 try {
   const nt = new URLSearchParams(location.search).get("notrack");

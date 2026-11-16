@@ -45,6 +45,13 @@ import androidx.compose.material.icons.filled.BusinessCenter
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.CurrencyBitcoin
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Balance
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material.icons.filled.StarBorder
 import io.github.hdlee73.financenewsradar.accounting.AccountingViewModel
 import io.github.hdlee73.financenewsradar.accounting.ui.screens.AuditScreen
@@ -177,6 +184,16 @@ private fun sectionIcon(title: String) = when (title) {
 }
 
 private const val FAV_TITLE = "즐겨찾기"
+
+/** v3.0 하단 탭: 뉴스검색·금융시장·소비자·법령은 어느 화면에서든 한 번에, 나머지는 '전체'(서랍)에서. */
+private class BottomTab(val screen: Int, val label: String, val icon: ImageVector)
+
+private val bottomTabs = listOf(
+    BottomTab(SCREEN_NEWS, "뉴스검색", Icons.Filled.Newspaper),
+    BottomTab(SCREEN_MARKET, "금융시장", Icons.Filled.ShowChart),
+    BottomTab(SCREEN_CONSUMER, "소비자", Icons.Filled.VerifiedUser),
+    BottomTab(SCREEN_LAW, "법령", Icons.Filled.Balance)
+)
 
 private class DrawerSection(val title: String?, val ids: List<Int>)
 
@@ -431,7 +448,14 @@ fun FinanceNewsRadarApp(
             IconButton(onClick = ::openMenu) {
                 Icon(Icons.Filled.Menu, contentDescription = "메뉴 열기", tint = AppColors.onHero)
             }
-            Text("FSS Insights", color = AppColors.onHero, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+            // 제목을 누르면 홈(오늘의 브리핑)으로 간다.
+            Text(
+                "FSS Insights", color = AppColors.onHero, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f).clickable(onClickLabel = "홈(오늘의 브리핑)으로") { go(SCREEN_BRIEFING) }
+            )
+            IconButton(onClick = { go(SCREEN_BRIEFING) }) {
+                Icon(Icons.Filled.Home, contentDescription = "홈(오늘의 브리핑)", tint = AppColors.onHero)
+            }
         }
         NoticeBanner()
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -475,6 +499,29 @@ fun FinanceNewsRadarApp(
                     SCREEN_ALERTS -> AlertSettingsScreen(newsState.settings.keywords)
                     else -> AppInfoScreen()
                 }
+            }
+        }
+        // 하단 탭(키보드가 올라와 있는 동안은 숨겨 입력 화면을 가리지 않는다). 시스템 내비게이션 영역은 바깥 Column이 이미 비워 둔다.
+        val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+        if (!imeVisible) {
+            NavigationBar(windowInsets = WindowInsets(0, 0, 0, 0)) {
+                bottomTabs.forEach { tab ->
+                    NavigationBarItem(
+                        selected = screen == tab.screen,
+                        onClick = { go(tab.screen) },
+                        icon = { Icon(tab.icon, contentDescription = null) },
+                        label = { Text(tab.label, maxLines = 1) },
+                        alwaysShowLabel = true
+                    )
+                }
+                NavigationBarItem(
+                    selected = screen != SCREEN_BRIEFING && bottomTabs.none { it.screen == screen },
+                    onClick = ::openMenu,
+                    icon = { Icon(Icons.Filled.Apps, contentDescription = null) },
+                    label = { Text("전체", maxLines = 1) },
+                    alwaysShowLabel = true,
+                    modifier = Modifier.semantics { contentDescription = "전체 메뉴 열기" }
+                )
             }
         }
         }
