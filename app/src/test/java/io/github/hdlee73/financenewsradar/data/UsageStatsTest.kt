@@ -47,7 +47,8 @@ class UsageStatsTest {
     fun nothingToSendWhenAlreadyPingedToday() {
         val p = JSONObject()
         UsageLog.add(p, "2026-11-04", "뉴스 검색")
-        assertNull(UsageLog.payload("id-1", "2.2.0", p, "2026-11-04", includeToday = false).first)
+        val sent = JSONObject().put("2026-11-04", 1)
+        assertNull(UsageLog.payload("id-1", "2.2.0", p, "2026-11-04", includeToday = false, menuAcked = sent).first)
     }
 
     @Test
