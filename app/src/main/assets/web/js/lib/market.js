@@ -263,6 +263,7 @@ export const POPULAR = [
 
 const ALIASES = {
   "^IXIC": "nasdaq composite ixic 나스닥 나스닥종합 나스닥지수", "^GSPC": "s&p 500 sp500 snp 에스앤피 gspc",
+  "NQ=F": "nasdaq 100 futures nq 나스닥100선물 나스닥선물 선물",
   "^DJI": "dow jones djia 다우 다우지수", "^NDX": "nasdaq 100 nasdaq100 나스닥100 ndx",
   "^SOX": "philadelphia semiconductor sox 필라델피아 반도체지수", "^VIX": "volatility vix 변동성 공포지수",
   "^KS11": "kospi 코스피", "^KQ11": "kosdaq 코스닥",
@@ -405,7 +406,7 @@ export const signed = (v, digits = 0) => (v > 0 ? "▲" : v < 0 ? "▼" : "") + 
 const ins = (symbol, name, currency, type) => ({ symbol, name, currency, type });
 export const KOREA_INDEXES = [ins("^KS11", "KOSPI", "KRW", "INDEX"), ins("^KQ11", "KOSDAQ", "KRW", "INDEX")];
 export const PANEL_CATALOG = [
-  ins("^GSPC", "S&P 500", "USD", "INDEX"), ins("^IXIC", "Nasdaq", "USD", "INDEX"), ins("KRW=X", "USD/KRW", "KRW", "FX"), ins("CL=F", "WTI", "USD", "EQUITY"),
+  ins("^GSPC", "S&P 500", "USD", "INDEX"), ins("^IXIC", "Nasdaq", "USD", "INDEX"), ins("NQ=F", "Nasdaq 100 Futures (나스닥100선물)", "USD", "INDEX"), ins("KRW=X", "USD/KRW", "KRW", "FX"), ins("CL=F", "WTI", "USD", "EQUITY"),
   ins("^TNX", "US 10Y", "USD", "RATE"), ins("GC=F", "Gold", "USD", "EQUITY"),
   ins("^DJI", "Dow Jones", "USD", "INDEX"), ins("^SOX", "Philadelphia Semiconductor", "USD", "INDEX"), ins("^NDX", "Nasdaq 100", "USD", "INDEX"),
   ins("^RUT", "Russell 2000", "USD", "INDEX"), ins("^VIX", "VIX", "USD", "INDEX"),
@@ -417,14 +418,23 @@ export const PANEL_CATALOG = [
   ins("BTC-USD", "Bitcoin", "USD", "EQUITY"), ins("ETH-USD", "Ethereum", "USD", "EQUITY"),
 ];
 export const INDEX_CHOICES = [...KOREA_INDEXES, ...PANEL_CATALOG];
-const DEFAULT_MARKET_INDEXES = [...KOREA_INDEXES, ...PANEL_CATALOG.slice(0, 6)].map((x) => x.symbol);
-const BRIEFING_DEFAULT = ["^KS11", "^KQ11", "^IXIC", "^GSPC", "KRW=X"]; // 오늘의 브리핑 기본: KOSPI·KOSDAQ·Nasdaq·S&P 500·환율(고르기 전)
+const DEFAULT_MARKET_INDEXES = [...KOREA_INDEXES, ...PANEL_CATALOG.slice(0, 7)].map((x) => x.symbol);
+const BRIEFING_DEFAULT = ["^KS11", "^KQ11", "^IXIC", "^GSPC", "NQ=F", "KRW=X"]; // 오늘의 브리핑 기본: KOSPI·KOSDAQ·Nasdaq·S&P 500·나스닥100 선물·환율(고르기 전)
 export const DEFAULT_WATCH = [ins("005930.KS", "삼성전자", "KRW", "EQUITY"), ins("000660.KS", "SK하이닉스", "KRW", "EQUITY"), ins("069500.KS", "KODEX 200", "KRW", "ETF")];
 
 /** 증시 지표 선택 { market:[...], briefing:[...] } (이 브라우저에 저장). */
 export function indexSelection() {
-  const market = store.get("market.indexes", DEFAULT_MARKET_INDEXES);
-  const briefing = store.get("briefing.indexes", BRIEFING_DEFAULT);
+  let market = store.get("market.indexes", DEFAULT_MARKET_INDEXES);
+  let briefing = store.get("briefing.indexes", BRIEFING_DEFAULT);
+  // 나스닥100 선물을 기본에 새로 넣었으므로, 이미 지표를 골라 둔 사용자에게도 한 번만 추가한다(이후 빼면 그대로 유지).
+  if (!store.get("nq.added", false)) {
+    const add = (list, after) => (list.includes("NQ=F") ? list : (() => { const i = list.indexOf(after); const c = list.slice(); c.splice(i < 0 ? c.length : i + 1, 0, "NQ=F"); return c; })());
+    market = add(market, "^IXIC");
+    briefing = add(briefing, "^GSPC");
+    store.set("market.indexes", market);
+    store.set("briefing.indexes", briefing);
+    store.set("nq.added", true);
+  }
   return { market, briefing };
 }
 export function saveIndexSelection(sel) {

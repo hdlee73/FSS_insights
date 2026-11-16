@@ -297,13 +297,20 @@ export const DrfParsers = {
     if (!olds || !news) return null;
     const plain = (t) => (t || "").replace(/<\/?P>/g, "").replace(/\s+/g, "");
     const same = /^\(?(현행과같음|생략)\)?$|^[0-9]+\.?[∼~·-]?[0-9]*\.?\(?(현행과같음|생략)\)?$/;
-    const out = [];
+    // 바뀐 항·호·목 쌍을 '제N조' 머리글 기준으로 묶는다(머리글은 조문 첫 줄이 '제N조(제목)'으로 시작하는 항목).
+    const headRe = /^\s*(제\s*\d+(?:-\d+)*\s*조(?:\s*의\s*\d+)?\s*\([^)]*\))/;
+    const headOf = (t) => ((headRe.exec((t || "").replace(/<\/?P>/g, "")) || [])[1] || "").replace(/\s+/g, "");
+    const groups = [];
+    let head = "", cur = null;
     for (let i = 0; i < Math.max(olds.length, news.length); i++) {
       const o = (olds[i] || "").trim(), n = (news[i] || "").trim();
+      const hd = headOf(n) || headOf(o);
+      if (hd && hd !== head) (head = hd), (cur = null); // 새 조가 시작되면 묶음을 새로 연다
       if (plain(o) === plain(n) || /현행과\s*같음/.test(n) || same.test(plain(n))) continue;
-      out.push({ old: o, nw: n });
+      if (!cur) groups.push((cur = { head, rows: [] }));
+      cur.rows.push({ old: o, nw: n });
     }
-    return out;
+    return groups;
   },
   precedentSearch(xml) {
     const r = root(xml);

@@ -51,10 +51,18 @@ export async function render(root, params, ctx) {
     if (!artsR.ok) throw artsR.error;
     const arts = (adm ? artsR.value.articles : artsR.value.filter((a) => a.number));
     const reason = adm ? artsR.value.reason : metaR.ok ? metaR.value?.reason : null;
-    const pairs = onR.ok ? onR.value : null;
+    const groups = onR.ok ? onR.value : null; // [{head: "제2조(정의)", rows: [{old, nw}]}]
+    const nGroups = groups ? groups.length : 0;
+    const nItems = groups ? groups.reduce((n, g) => n + g.rows.length, 0) : 0;
+    // 조 번호 열쇠(제84조의2 → "84-2"): 신·구조문 대비에 나온 조도 ‘이번 개정’ 조로 센다.
+    const noKey = (t) => {
+      const m = /제\s*(\d+)\s*조(?:\s*의\s*(\d+))?/.exec(t || "");
+      return m ? m[1] + (m[2] ? "-" + m[2] : "") : "";
+    };
+    const diffKeys = new Set((groups || []).map((g) => noKey(g.head)).filter(Boolean));
     const rows = arts.map((a) => {
       const raw = adm ? a.content || a.body || "" : a.content;
-      return { a, amended: amendedOn(raw, pd) };
+      return { a, amended: amendedOn(raw, pd) || diffKeys.has(noKey(a.fullTitle)) };
     });
     const nAmended = rows.filter((r) => r.amended).length;
 
@@ -63,15 +71,19 @@ export async function render(root, params, ctx) {
       reason
         ? h("details", { open: true }, h("summary", null, "제·개정이유"), h("div", { class: "lw-text" }, reason))
         : h("p", { class: "note" }, "국가법령정보 API가 이 개정의 제·개정이유를 제공하지 않았습니다(타법개정·소규모 개정은 비어 있는 경우가 많습니다)."),
-      pairs && pairs.length
-        ? h("details", null, h("summary", null, `신·구조문 대비 (바뀐 조문 ${pairs.length}건)`), h("div", { class: "lw-on" }, pairs.slice(0, 300).map((p) =>
-          h("div", { class: "lw-on-row" }, h("div", null, h("b", null, "개정 전"), h("div", { class: "lw-text" }, marked(p.old || "(없음)"))), h("div", null, h("b", null, "개정 후"), h("div", { class: "lw-text" }, marked(p.nw || "(삭제)")))))))
+      groups && groups.length
+        ? h("details", null, h("summary", null, `신·구조문 대비 — 바뀐 조 ${nGroups}개 (세부 항목 ${nItems}건)`), h("div", { class: "lw-on" }, groups.slice(0, 200).map((g) =>
+          h("div", { class: "lw-on-g" },
+            h("div", { class: "lw-on-h" }, h("b", null, g.head || "조 표시 없음"), h("span", { class: "tag" }, `${g.rows.length}건`)),
+            h("table", { class: "lw-on-t" },
+              h("thead", null, h("tr", null, h("th", null, "개정 전"), h("th", null, "개정 후"))),
+              h("tbody", null, g.rows.map((p) => h("tr", null, h("td", { class: "lw-text" }, marked(p.old || "(없음)")), h("td", { class: "lw-text" }, marked(p.nw || "(삭제)"))))))))))
         : h("p", { class: "note" }, adm ? "행정규칙은 신·구조문 대비표를 API로 제공하지 않습니다. 아래에서 ‘이번 개정’ 표시가 붙은 조문을 확인하세요." : onR.ok ? "신·구조문 대비 자료가 비어 있습니다(제정·전부개정이거나 API가 제공하지 않는 경우)." : "신·구조문 대비 자료를 가져오지 못했습니다."),
-      h("p", { class: "note" }, nAmended ? `아래 조문 중 이번 개정(${dot(pd)})이 표시된 조문은 ${nAmended}개입니다.` : "조문 글에서 이번 개정 표시를 찾지 못했습니다(제정이거나 개정 표시 형식이 다른 경우)."));
+      h("p", { class: "note" }, nAmended ? `이번 개정(${dot(pd)})으로 바뀐 조는 ${nAmended}개 조입니다.${nItems ? ` (신·구조문 대비의 세부 항목 ${nItems}건은 이 조들에 속한 항·호·목입니다.)` : ""}` : "조문 글에서 이번 개정 표시를 찾지 못했습니다(제정이거나 개정 표시 형식이 다른 경우)."));
 
     const filter = h("input", { type: "search", placeholder: "조문 제목·내용에서 찾기", "aria-label": "조문 찾기" });
     let only = false;
-    const chip = h("button", { type: "button", class: "pill", disabled: !nAmended }, `이번 개정 조문만 (${nAmended})`);
+    const chip = h("button", { type: "button", class: "pill", disabled: !nAmended }, `이번 개정 조문만 (${nAmended}개 조)`);
     const list = h("div", { class: "stack" });
     const draw = () => {
       const q = filter.value.trim();
