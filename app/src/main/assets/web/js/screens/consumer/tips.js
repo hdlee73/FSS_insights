@@ -31,7 +31,7 @@ export async function render(root, params, ctx) {
       h("div", { class: "stack" }, box, count, list,
         h("p", { class: "note" }, `${tips.source}. 최근 ${tips.items.length}건만 수록했고 기준일은 ${tips.asOf}입니다. 전체 목록은 오른쪽 ‘더 보기’에서 확인하세요.`)),
       h("div", { class: "stack" },
-        card("더 보기 (금융감독원·파인)", "globe", h("div", { class: "link-list" }, links.learn.map((x) =>
+        card("더 보기 (금융감독원·파인·관련 기관)", "globe", h("div", { class: "link-list" }, links.learn.map((x) =>
           h("a", { class: "link-item slim", href: x.u, target: "_blank", rel: "noopener noreferrer" }, h("b", null, x.t), icon("external-link"))))),
         card("소비자경보란?", "bell", h("p", { class: "note" }, "금융소비자의 피해가 우려될 때 금융감독원이 발령하는 경보입니다. 발령내역은 ‘금융소비자경보 발령내역’에서 확인할 수 있습니다."))))
   );
