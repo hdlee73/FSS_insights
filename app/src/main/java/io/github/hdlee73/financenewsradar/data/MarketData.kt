@@ -169,7 +169,7 @@ class WatchlistStore(context: Context) {
     fun loadIndexSelection(): IndexSelection {
         val saved = preferences.getStringSet(INDEX_MARKET, null)
         val market = saved ?: (KOREA_INDEXES.map { it.symbol } + panelSlots(loadPanelSlots()).map { it.symbol }).toSet()
-        val briefing = preferences.getStringSet(INDEX_BRIEFING, null) ?: (market - BRIEFING_EXCLUDED_DEFAULT)
+        val briefing = preferences.getStringSet(INDEX_BRIEFING, null) ?: BRIEFING_DEFAULT_INDEXES
         return IndexSelection(market, briefing)
     }
 
@@ -288,6 +288,8 @@ val INDEX_CHOICES: List<Instrument> = KOREA_INDEXES + PANEL_CATALOG
 
 /** 처음에 브리핑 시장 지표에서 뺀 항목: S&P 500, WTI, US 10Y, 필라델피아 반도체. */
 val BRIEFING_EXCLUDED_DEFAULT = setOf("^GSPC", "CL=F", "^TNX", "^SOX")
+/** 오늘의 브리핑 시장 지표 기본값(사용자가 따로 고르기 전): KOSPI·KOSDAQ·나스닥·S&P 500·환율. */
+val BRIEFING_DEFAULT_INDEXES = setOf("^KS11", "^KQ11", "^IXIC", "^GSPC", "KRW=X")
 
 /** 사용자가 고른 증시 지표: 증시동향에 보일 것과 오늘의 브리핑에 보일 것(심볼). */
 data class IndexSelection(val market: Set<String>, val briefing: Set<String>) {

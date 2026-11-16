@@ -418,13 +418,13 @@ export const PANEL_CATALOG = [
 ];
 export const INDEX_CHOICES = [...KOREA_INDEXES, ...PANEL_CATALOG];
 const DEFAULT_MARKET_INDEXES = [...KOREA_INDEXES, ...PANEL_CATALOG.slice(0, 6)].map((x) => x.symbol);
-const BRIEFING_EXCLUDED = ["^GSPC", "CL=F", "^TNX", "^SOX"];
+const BRIEFING_DEFAULT = ["^KS11", "^KQ11", "^IXIC", "^GSPC", "KRW=X"]; // 오늘의 브리핑 기본: KOSPI·KOSDAQ·Nasdaq·S&P 500·환율(고르기 전)
 export const DEFAULT_WATCH = [ins("005930.KS", "삼성전자", "KRW", "EQUITY"), ins("000660.KS", "SK하이닉스", "KRW", "EQUITY"), ins("069500.KS", "KODEX 200", "KRW", "ETF")];
 
 /** 증시 지표 선택 { market:[...], briefing:[...] } (이 브라우저에 저장). */
 export function indexSelection() {
   const market = store.get("market.indexes", DEFAULT_MARKET_INDEXES);
-  const briefing = store.get("briefing.indexes", market.filter((s) => !BRIEFING_EXCLUDED.includes(s)));
+  const briefing = store.get("briefing.indexes", BRIEFING_DEFAULT);
   return { market, briefing };
 }
 export function saveIndexSelection(sel) {

@@ -1311,7 +1311,7 @@ a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; te
 .hm-kpis .tile .nm { color: var(--muted); font-weight: 600; }
 .hm-kpis .tile .px { font-size: 22px; text-align: left; font-weight: 700; }
 .hm-kpis .tile .dl { text-align: left; }
-.hm-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 12px; margin-top: 12px; align-items: start; }
+.hm-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 12px; margin-top: 12px; align-items: stretch; }
 .hm-right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .hm-card { min-width: 0; }
 .hm-ch { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -1339,3 +1339,9 @@ a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; te
 
 .ln-row .ln-t { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ln-row > .i { color: var(--muted); align-self: center; }
+
+/* 보도자료·제재공시·법령 카드 높이 맞춤: 왼쪽 열과 오른쪽 열 높이를 같게, 오른쪽 두 카드는 남는 높이를 똑같이 나눈다. */
+@media (min-width: 1001px) {
+  .hm-press { height: 100%; }
+  .hm-right .hm-card { flex: 1 1 0; }
+}
