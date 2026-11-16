@@ -61,6 +61,7 @@ import io.github.hdlee73.financenewsradar.data.Instrument
 import io.github.hdlee73.financenewsradar.data.IntradaySeries
 import io.github.hdlee73.financenewsradar.data.Quote
 import io.github.hdlee73.financenewsradar.data.Greeting
+import io.github.hdlee73.financenewsradar.data.MACRO_CATALOG
 import io.github.hdlee73.financenewsradar.data.STAT_CATALOG
 import io.github.hdlee73.financenewsradar.data.StatItem
 import io.github.hdlee73.financenewsradar.data.periodLabel
@@ -90,7 +91,7 @@ private val BRIEFING_PRESS = listOf(AgencyId.FSS, AgencyId.FSC)
 private val BRIEFING_RESEARCH = AgencyId.entries.filter { it.group == AgencyGroup.RESEARCH && it != AgencyId.CUSTOM }
 private const val BRIEFING_PRESS_COUNT = 5
 private const val BRIEFING_ARTICLE_COUNT = 5
-private const val BRIEFING_RESEARCH_PER_AGENCY = 3
+private const val BRIEFING_RESEARCH_COUNT = 10
 private val SEOUL = ZoneId.of("Asia/Seoul")
 private val dateFormat = DateTimeFormatter.ofPattern("M월 d일 EEEE", Locale.KOREAN)
 private val briefingTime = DateTimeFormatter.ofPattern("M월 d일 HH:mm", Locale.KOREAN).withZone(ZoneId.of("Asia/Seoul"))
@@ -103,7 +104,8 @@ fun BriefingScreen(
     marketViewModel: MarketViewModel,
     onOpenTab: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    onOpenLawNews: (String?) -> Unit = {}
+    onOpenLawNews: (String?) -> Unit = {},
+    favorites: List<Pair<Int, String>> = emptyList()
 ) {
     val news by newsViewModel.state.collectAsStateWithLifecycle()
     val releases by releasesViewModel.state.collectAsStateWithLifecycle()
@@ -136,12 +138,12 @@ fun BriefingScreen(
         .filter { PublisherCatalog.isMajor(it.source, it.link) }
         .sortedByDescending { it.publishedAt }
         .take(BRIEFING_ARTICLE_COUNT)
-    val weekAgo = LocalDate.now(SEOUL).minusDays(7)
-    // 기본 기관마다 최근 7일 자료를 최대 [BRIEFING_RESEARCH_PER_AGENCY]건씩 담아 어느 기관도 빠지지 않게 한다.
-    val researchItems = (BRIEFING_RESEARCH.flatMap { agency -> releases.of(agency).latest.recentWeek(weekAgo) } +
-        releases.institutesOf(AgencyGroup.RESEARCH).flatMap { releases.ofCustom(it.url).latest.recentWeek(weekAgo) })
+    // 기본 연구기관의 최신 자료를 날짜순으로 [BRIEFING_RESEARCH_COUNT]건.
+    val researchItems = (BRIEFING_RESEARCH.flatMap { agency -> releases.of(agency).latest } +
+        releases.institutesOf(AgencyGroup.RESEARCH).flatMap { releases.ofCustom(it.url).latest })
         .distinctBy { it.link }
         .sortedByDescending { it.date }
+        .take(BRIEFING_RESEARCH_COUNT)
 
     // 최신 주요 이슈: 맞춤 뉴스가 보일 때만 만든다(뉴스 탭에서 검색 중이면 결과가 달라 건너뜀).
     val digest = remember(news.articles, news.leaderArticles, news.isHome) {
@@ -182,6 +184,9 @@ fun BriefingScreen(
                 weatherTick++
             }
 
+            // 즐겨찾기: 메뉴를 열지 않고 바로 가도록 맨 위에 둔다.
+            FavoritesRow(favorites, onOpenTab)
+
             SectionTitle("시장 지표", "한눈에 보는 오늘 시장") { onOpenTab(TAB_MARKET) }
             val tiles = market.indexes.briefingItems
                 .mapNotNull { item -> market.quotes[item.symbol]?.let { item to it } }
@@ -195,6 +200,37 @@ fun BriefingScreen(
                         MarketTile(item, quote, market.intraday[item.symbol], market.investors[item.symbol].takeIf { korea }, Modifier.width(if (korea) 214.dp else 160.dp)) { onOpenTab(TAB_MARKET) }
                     }
                 }
+            }
+
+            // 주요 금융 통계(한국은행 ECOS)와 거시경제 지표: 고른 것을 증시 지표 바로 아래에 둔다(고르기 전: 국고채 3년·회사채 3년 AA-·가계신용 잔액·소비자물가 상승률·실업률).
+            val keyStats = STAT_CATALOG.mapNotNull { def -> market.stats.firstOrNull { it.id == def.id && def.id in market.statSelection.briefing } } +
+                MACRO_CATALOG.mapNotNull { def -> market.macro.firstOrNull { it.id == def.id && def.id in market.macroBriefing } }
+            if (keyStats.isNotEmpty()) {
+                SectionTitle("주요 금융 통계·거시경제 지표", "한국은행 ECOS") { onOpenTab(TAB_MARKET) }
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    keyStats.chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            pair.forEach { StatTile(it, Modifier.weight(1f)) { onOpenTab(TAB_MARKET) } }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+
+            SectionTitle("최근 기사", "30대 언론 · 최신순") { onOpenTab(TAB_NEWS) }
+            when {
+                !news.isHome -> {
+                    Hint("뉴스 탭에서 검색 중이라 맞춤 뉴스를 대신 불러와야 합니다.")
+                    TextButton(onClick = newsViewModel::refreshHome, modifier = Modifier.padding(horizontal = 12.dp)) { Text("맞춤 뉴스 불러오기") }
+                }
+                articles.isNotEmpty() -> BriefingCard {
+                    articles.forEachIndexed { i, article ->
+                        if (i > 0) RowDivider(inset = 14.dp)
+                        ArticleLine(article) { ArticleReaderActivity.open(context, article.link, article.title) }
+                    }
+                }
+                news.isLoading -> Hint("불러오는 중…")
+                else -> Hint("30대 언론의 최근 기사가 없습니다.")
             }
 
             SectionTitle("최신 보도자료", if (newLinks.isEmpty()) "금융감독원 · 금융위원회 · 최근 ${BRIEFING_PRESS_COUNT}건" else "최근 ${BRIEFING_PRESS_COUNT}건 · 새 자료 ${newLinks.size}건", accent = newLinks.isNotEmpty()) { onOpenTab(TAB_PRESS) }
@@ -243,42 +279,13 @@ fun BriefingScreen(
                 else -> Hint("법령 개정 정보를 불러오지 못했습니다. 스마트 법령검색에서 확인하세요.")
             }
 
-            SectionTitle("최근 기사", "30대 언론 · 최신순") { onOpenTab(TAB_NEWS) }
-            when {
-                !news.isHome -> {
-                    Hint("뉴스 탭에서 검색 중이라 맞춤 뉴스를 대신 불러와야 합니다.")
-                    TextButton(onClick = newsViewModel::refreshHome, modifier = Modifier.padding(horizontal = 12.dp)) { Text("맞춤 뉴스 불러오기") }
-                }
-                articles.isNotEmpty() -> BriefingCard {
-                    articles.forEachIndexed { i, article ->
-                        if (i > 0) RowDivider(inset = 14.dp)
-                        ArticleLine(article) { ArticleReaderActivity.open(context, article.link, article.title) }
-                    }
-                }
-                news.isLoading -> Hint("불러오는 중…")
-                else -> Hint("30대 언론의 최근 기사가 없습니다.")
-            }
-
             if (digest != null) {
                 SectionTitle("최신 주요 이슈", "${digest.label} 기사 ${digest.total}건 기준") { onOpenTab(TAB_NEWS) }
                 IssueCard(digest, aiLines, aiBusy, onWord = { word -> newsViewModel.search(word); onOpenTab(TAB_NEWS) }) { link, title -> ArticleReaderActivity.open(context, link, title) }
             }
 
-            val keyStats = STAT_CATALOG.mapNotNull { def -> market.stats.firstOrNull { it.id == def.id && def.id in market.statSelection.briefing } }
-            if (keyStats.isNotEmpty()) {
-                SectionTitle("주요 금융 통계", "한국은행 ECOS") { onOpenTab(TAB_MARKET) }
-                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    keyStats.chunked(2).forEach { pair ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            pair.forEach { StatTile(it, Modifier.weight(1f)) { onOpenTab(TAB_MARKET) } }
-                            if (pair.size == 1) Spacer(Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-
             if (researchItems.isNotEmpty()) {
-                SectionTitle("이번 주 금융리포트", "기본 연구기관 · 최근 7일 내 업데이트") { onOpenTab(TAB_RESEARCH) }
+                SectionTitle("최근 금융리포트", "기본 연구기관 · 최신 ${BRIEFING_RESEARCH_COUNT}건") { onOpenTab(TAB_RESEARCH) }
                 BriefingCard {
                     researchItems.forEachIndexed { i, item ->
                         if (i > 0) RowDivider(inset = 14.dp)
@@ -452,11 +459,6 @@ private fun ArticleLine(article: NewsArticle, onOpen: () -> Unit) {
     }
 }
 
-private fun List<ReleaseItem>.recentWeek(weekAgo: LocalDate): List<ReleaseItem> =
-    filter { item -> item.date?.let { !it.isBefore(weekAgo) } == true }
-        .sortedByDescending { it.date }
-        .take(BRIEFING_RESEARCH_PER_AGENCY)
-
 /** 브리핑의 '최근 검사·공시조사·회계감리 결과' 한 줄. [screen]은 눌렀을 때 열 화면. */
 private data class ActionEntry(val kind: String, val company: String, val date: LocalDate, val summary: String, val screen: Int)
 private data class RecentActions(val items: List<ActionEntry>, val failed: List<String>)
@@ -490,6 +492,26 @@ private suspend fun loadRecentActions(context: android.content.Context): RecentA
 }
 
 private val actionDateFormat = DateTimeFormatter.ofPattern("yyyy.MM.dd")
+
+/** 즐겨찾기 화면으로 바로 가는 알약 버튼 줄. 없으면 추가 방법을 안내한다. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FavoritesRow(favorites: List<Pair<Int, String>>, onOpen: (Int) -> Unit) {
+    if (favorites.isEmpty()) {
+        Hint("메뉴(≡)에서 ★를 누르면 자주 쓰는 화면이 여기에 모입니다.")
+        return
+    }
+    FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        favorites.forEach { (id, label) ->
+            Surface(
+                Modifier.clickable { onOpen(id) },
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) { Text("★ $label", Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge, maxLines = 1) }
+        }
+    }
+}
 
 @Composable
 private fun LawNewsLine(e: LawNewsEntry, onOpen: () -> Unit) {

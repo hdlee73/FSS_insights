@@ -470,7 +470,7 @@ fun FinanceNewsRadarApp(
             // 화면을 오가도 각 화면의 검색어·스크롤 위치가 유지되도록 화면별로 상태를 보관한다.
             stateHolder.SaveableStateProvider(screen) {
                 when (screen) {
-                    SCREEN_BRIEFING -> BriefingScreen(newsViewModel, releasesViewModel, marketViewModel, onOpenTab = ::go, onOpenLawNews = { route -> go(SCREEN_LAWNEWS); lawNewsRoute = route })
+                    SCREEN_BRIEFING -> BriefingScreen(newsViewModel, releasesViewModel, marketViewModel, onOpenTab = ::go, onOpenLawNews = { route -> go(SCREEN_LAWNEWS); lawNewsRoute = route }, favorites = favorites.map { it to appScreens[it].label })
                     SCREEN_NEWS -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     SCREEN_MARKET -> MarketScreen(marketViewModel)
                     SCREEN_FISIS -> WebEmbedScreen("fisis", backEnabled = !drawerState.isOpen)

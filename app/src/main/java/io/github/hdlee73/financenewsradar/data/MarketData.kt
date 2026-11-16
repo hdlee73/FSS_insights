@@ -155,6 +155,13 @@ class WatchlistStore(context: Context) {
         preferences.edit().putStringSet(MACRO_SELECTED, ids).apply()
     }
 
+    /** 거시경제 지표 중 오늘의 브리핑에도 보일 것. 저장된 값이 없으면 소비자물가 상승률·실업률. */
+    fun loadMacroBriefing(): Set<String> = preferences.getStringSet(MACRO_BRIEFING, null) ?: DEFAULT_BRIEFING_MACRO.toSet()
+
+    fun saveMacroBriefing(ids: Set<String>) {
+        preferences.edit().putStringSet(MACRO_BRIEFING, ids).apply()
+    }
+
     /** 자본시장 통계에서 숨긴 항목 키. 저장된 값이 없으면 전부 보이고, 새로 생긴 항목도 기본으로 보인다. */
     fun loadKofiaHidden(): Set<String> = preferences.getStringSet(KOFIA_HIDDEN, null) ?: emptySet()
 
@@ -200,6 +207,7 @@ class WatchlistStore(context: Context) {
         const val STAT_MARKET = "stat_market_v1"
         const val STAT_BRIEFING = "stat_briefing_v1"
         const val MACRO_SELECTED = "macro_selected_v1"
+        const val MACRO_BRIEFING = "macro_briefing_v1"
         const val KOFIA_HIDDEN = "kofia_hidden_v1"
         const val ITEMS = "items"
         const val PANEL = "panel_slots"

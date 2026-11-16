@@ -8,7 +8,7 @@ export const DISCLAIMER_DETAIL =
   "FSS Insights는 개인이 만든 비공식 서비스이며 금융감독원 등 어떤 기관과도 제휴·위탁 관계가 없습니다. " +
   "화면에 표시되는 보도자료, 통계, 법령 등은 외부 출처의 공개 자료를 모아 보여주는 것으로, 정확성과 최신성을 보장하지 않습니다. " +
   "중요한 판단에는 반드시 원문과 공식 자료를 확인하시기 바랍니다.";
-export const APP_VERSION = "3.2.8";
+export const APP_VERSION = "3.3.0";
 
 // 서버(Cloudflare Worker). 앱과 같은 서버를 쓰고, 웹 주소(Origin)로 들어온 요청만 토큰 없이 받는다.
 const DEFAULT_SERVER = "https://news-proxy.hdlee73.workers.dev";
@@ -208,6 +208,23 @@ export function forget(prefix) {
   };
 }
 
+/** 외부 데이터(JSON·RSS 등)에서 온 주소를 http:/https: 로만 허용한다. 아니면 "" (javascript:, data: 등 차단). */
+export function safeHttpUrl(url, base) {
+  if (typeof url !== "string" || !url.trim()) return "";
+  try {
+    const u = new URL(url.trim(), base || undefined);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : "";
+  } catch {
+    return "";
+  }
+}
+// href 로 허용하는 방식: http(s)·mailto·tel·blob, 그리고 방식이 없는 상대 주소(#/화면 등)
+const HREF_OK = /^(https?|mailto|tel|blob):/i;
+function safeHref(v) {
+  const s = String(v).replace(/[\u0000-\u001f\u007f\s]+/g, "");
+  return /^[a-z][a-z0-9+.-]*:/i.test(s) && !HREF_OK.test(s) ? null : v;
+}
+
 export function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
   if (attrs) {
@@ -217,6 +234,7 @@ export function h(tag, attrs, ...children) {
       else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
       else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2).toLowerCase(), v);
       else if (k === "html") el.innerHTML = v;
+      else if (k === "href" && safeHref(v) == null) continue;
       else if (v === true) el.setAttribute(k, "");
       else el.setAttribute(k, v);
     }
@@ -288,7 +306,9 @@ export function toast(text) {
 
 export function openUrl(url) {
   if (window.FssNative) return window.FssNative.openUrl(String(url));
-  window.open(url, "_blank", "noopener");
+  const safe = safeHttpUrl(url);
+  if (!safe) return toast("열 수 없는 주소입니다.");
+  window.open(safe, "_blank", "noopener");
 }
 
 export async function share(title, url) {
