@@ -18,7 +18,7 @@ class UsageStatsTest {
     }
 
     @Test
-    fun payloadSendsPastDaysWithCountsAndTodayAsPresenceOnly() {
+    fun payloadSendsPastDaysWithCountsAndTodayCumulative() {
         val p = JSONObject()
         UsageLog.add(p, "2026-11-03", "뉴스 검색")
         UsageLog.add(p, "2026-11-04", "뉴스 검색")
@@ -26,7 +26,7 @@ class UsageStatsTest {
         assertEquals(listOf("2026-11-03", "2026-11-04"), days)
         val arr = body!!.getJSONArray("days")
         assertEquals(1, arr.getJSONObject(0).getJSONObject("m").getInt("뉴스 검색"))
-        assertEquals(0, arr.getJSONObject(1).getJSONObject("m").length())
+        assertEquals(1, arr.getJSONObject(1).getJSONObject("m").getInt("뉴스 검색"))
         assertTrue(!body.has("name") && body.getString("id") == "id-1")
     }
 
@@ -48,6 +48,18 @@ class UsageStatsTest {
         val p = JSONObject()
         UsageLog.add(p, "2026-11-04", "뉴스 검색")
         assertNull(UsageLog.payload("id-1", "2.2.0", p, "2026-11-04", includeToday = false).first)
+    }
+
+    @Test
+    fun todayMenusSentOnlyWhenChanged() {
+        val p = JSONObject()
+        UsageLog.add(p, "2026-11-04", "뉴스 검색")
+        val sent = JSONObject().put("2026-11-04", 1)
+        assertNull(UsageLog.payload("id-1", "2.8.2", p, "2026-11-04", includeToday = false, menuAcked = sent).first)
+        UsageLog.add(p, "2026-11-04", "앱 정보")
+        val (body, days) = UsageLog.payload("id-1", "2.8.2", p, "2026-11-04", includeToday = false, menuAcked = sent)
+        assertEquals(listOf("2026-11-04"), days)
+        assertEquals(1, body!!.getJSONArray("days").getJSONObject(0).getJSONObject("m").getInt("앱 정보"))
     }
 
     @Test
