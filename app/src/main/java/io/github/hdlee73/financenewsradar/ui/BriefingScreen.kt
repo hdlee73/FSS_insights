@@ -1,6 +1,7 @@
 package io.github.hdlee73.financenewsradar.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -177,41 +178,46 @@ fun BriefingScreen(
                 weatherTick++
             }
 
-            if (digest != null) {
-                SectionTitle("최신 주요 이슈", "${digest.label} 기사 ${digest.total}건 기준") { onOpenTab(TAB_NEWS) }
-                IssueCard(digest, aiLines, aiBusy, onWord = { word -> newsViewModel.search(word); onOpenTab(TAB_NEWS) }) { link, title -> ArticleReaderActivity.open(context, link, title) }
-            }
-
             SectionTitle("시장 지표", "한눈에 보는 오늘 시장") { onOpenTab(TAB_MARKET) }
             val tiles = market.indexes.briefingItems
                 .mapNotNull { item -> market.quotes[item.symbol]?.let { item to it } }
             if (tiles.isEmpty()) {
                 Hint(if (market.isRefreshing) "시세 연결 중…" else "시세를 불러오지 못했습니다.")
             } else {
-                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    tiles.chunked(2).forEach { pair ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            pair.forEach { (item, quote) ->
-                                MarketTile(item, quote, market.intraday[item.symbol], market.investors[item.symbol].takeIf { KOREA_INDEXES.any { k -> k.symbol == item.symbol } }, Modifier.weight(1f)) { onOpenTab(TAB_MARKET) }
-                            }
-                            if (pair.size == 1) Spacer(Modifier.weight(1f))
-                        }
+                // 시안 v2-01: 지표 카드를 한 줄로 늘어놓고 옆으로 밀어 본다.
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    tiles.forEach { (item, quote) ->
+                        val korea = KOREA_INDEXES.any { k -> k.symbol == item.symbol }
+                        MarketTile(item, quote, market.intraday[item.symbol], market.investors[item.symbol].takeIf { korea }, Modifier.width(if (korea) 214.dp else 160.dp)) { onOpenTab(TAB_MARKET) }
                     }
                 }
             }
 
-            val keyStats = STAT_CATALOG.mapNotNull { def -> market.stats.firstOrNull { it.id == def.id && def.id in market.statSelection.briefing } }
-            if (keyStats.isNotEmpty()) {
-                SectionTitle("주요 금융 통계", "한국은행 ECOS") { onOpenTab(TAB_MARKET) }
-                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    keyStats.chunked(2).forEach { pair ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            pair.forEach { StatTile(it, Modifier.weight(1f)) { onOpenTab(TAB_MARKET) } }
-                            if (pair.size == 1) Spacer(Modifier.weight(1f))
-                        }
+            SectionTitle("최신 보도자료", if (newLinks.isEmpty()) "금융감독원 · 금융위원회 · 최근 ${BRIEFING_PRESS_COUNT}건" else "최근 ${BRIEFING_PRESS_COUNT}건 · 새 자료 ${newLinks.size}건", accent = newLinks.isNotEmpty()) { onOpenTab(TAB_PRESS) }
+            when {
+                pressItems.isNotEmpty() -> BriefingCard {
+                    pressItems.forEachIndexed { i, item ->
+                        if (i > 0) RowDivider(inset = 14.dp)
+                        PressLine(item, item.link in newLinks) { openItem(context, item) }
                     }
                 }
+                pressLoading -> Hint("불러오는 중…")
+                else -> Hint("보도자료를 불러오지 못했습니다. 새로고침을 눌러 주세요.")
             }
+
+            SectionTitle("최근 제재공시", "검사·공시조사·회계감리 결과 · 최근 ${RECENT_ACTION_DAYS}일") { onOpenTab(SCREEN_SANCTION_ID) }
+            val acts = actions
+            when {
+                acts == null -> Hint("불러오는 중…")
+                acts.items.isNotEmpty() -> BriefingCard {
+                    acts.items.forEachIndexed { i, a ->
+                        if (i > 0) RowDivider(inset = 14.dp)
+                        ActionLine(a) { onOpenTab(a.screen) }
+                    }
+                }
+                else -> Hint("최근 ${RECENT_ACTION_DAYS}일 이내 새로 공시된 검사·공시조사·회계감리 결과가 없습니다.")
+            }
+            if (acts != null && acts.failed.isNotEmpty()) Hint("${acts.failed.joinToString("·")} 자료는 불러오지 못했습니다.")
 
             SectionTitle("최근 기사", "30대 언론 · 최신순") { onOpenTab(TAB_NEWS) }
             when {
@@ -229,31 +235,23 @@ fun BriefingScreen(
                 else -> Hint("30대 언론의 최근 기사가 없습니다.")
             }
 
-            SectionTitle("최근 금융당국 보도자료", if (newLinks.isEmpty()) "금융감독원 · 금융위원회 · 최근 ${BRIEFING_PRESS_COUNT}건" else "최근 ${BRIEFING_PRESS_COUNT}건 · 새 자료 ${newLinks.size}건", accent = newLinks.isNotEmpty()) { onOpenTab(TAB_PRESS) }
-            when {
-                pressItems.isNotEmpty() -> BriefingCard {
-                    pressItems.forEachIndexed { i, item ->
-                        if (i > 0) RowDivider(inset = 14.dp)
-                        PressLine(item, item.link in newLinks) { openItem(context, item) }
-                    }
-                }
-                pressLoading -> Hint("불러오는 중…")
-                else -> Hint("보도자료를 불러오지 못했습니다. 새로고침을 눌러 주세요.")
+            if (digest != null) {
+                SectionTitle("최신 주요 이슈", "${digest.label} 기사 ${digest.total}건 기준") { onOpenTab(TAB_NEWS) }
+                IssueCard(digest, aiLines, aiBusy, onWord = { word -> newsViewModel.search(word); onOpenTab(TAB_NEWS) }) { link, title -> ArticleReaderActivity.open(context, link, title) }
             }
 
-            SectionTitle("최근 검사·공시조사·회계감리 결과", "제재공시 · 공시조사결과제재 · 회계감리결과제재 · 최근 ${RECENT_ACTION_DAYS}일") { onOpenTab(SCREEN_SANCTION_ID) }
-            val acts = actions
-            when {
-                acts == null -> Hint("불러오는 중…")
-                acts.items.isNotEmpty() -> BriefingCard {
-                    acts.items.forEachIndexed { i, a ->
-                        if (i > 0) RowDivider(inset = 14.dp)
-                        ActionLine(a) { onOpenTab(a.screen) }
+            val keyStats = STAT_CATALOG.mapNotNull { def -> market.stats.firstOrNull { it.id == def.id && def.id in market.statSelection.briefing } }
+            if (keyStats.isNotEmpty()) {
+                SectionTitle("주요 금융 통계", "한국은행 ECOS") { onOpenTab(TAB_MARKET) }
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    keyStats.chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            pair.forEach { StatTile(it, Modifier.weight(1f)) { onOpenTab(TAB_MARKET) } }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
-                else -> Hint("최근 ${RECENT_ACTION_DAYS}일 이내 새로 공시된 검사·공시조사·회계감리 결과가 없습니다.")
             }
-            if (acts != null && acts.failed.isNotEmpty()) Hint("${acts.failed.joinToString("·")} 자료는 불러오지 못했습니다.")
 
             if (researchItems.isNotEmpty()) {
                 SectionTitle("이번 주 금융리포트", "기본 연구기관 · 최근 7일 내 업데이트") { onOpenTab(TAB_RESEARCH) }
@@ -303,42 +301,24 @@ private fun IssueCard(digest: IssueDigest, ai: List<String>?, aiBusy: Boolean, o
     }
 }
 
-/** 날짜·요일, 날씨, 인삿말을 얹은 그라데이션 머리말. */
+/** 시안 v2-01 머리말: 큰 제목, 날짜·갱신 시각, 날씨·인삿말 한 줄, 새로고침. */
 @Composable
 private fun BriefingHeader(weather: Weather?, onRefresh: () -> Unit) {
     val now = remember { ZonedDateTime.now(SEOUL) }
     val greeting = remember(weather) { Greeting.pick(now, weather) }
-    Box(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp)).background(Brush.verticalGradient(listOf(AppColors.heroStart, AppColors.heroEnd)))
-            .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 22.dp)
-    ) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("TODAY'S BRIEFING", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = AppColors.onHero.copy(alpha = 0.7f), letterSpacing = 2.sp)
-                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침", tint = AppColors.onHero) }
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("오늘의 브리핑", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("${dateFormat.format(now)} · ${DateTimeFormatter.ofPattern("HH:mm").format(now)} 갱신", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(dateFormat.format(now), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = AppColors.onHero)
-                    Text("오늘의 브리핑", Modifier.padding(top = 2.dp), style = MaterialTheme.typography.titleMedium, color = AppColors.onHero.copy(alpha = 0.8f))
-                }
-                if (weather != null) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(weather.emoji, fontSize = 38.sp)
-                        Text("${weather.temp}°", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = AppColors.onHero)
-                    }
-                }
-            }
-            if (weather != null) {
-                val rain = weather.rainChance?.let { " · 강수 $it%" }.orEmpty()
-                Text(
-                    "서울 ${weather.summary} · ${weather.min}° / ${weather.max}°$rain",
-                    Modifier.padding(top = 10.dp).background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelLarge, color = AppColors.onHero
-                )
-            }
-            Text(greeting, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodyLarge, color = AppColors.onHero.copy(alpha = 0.85f))
+            IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
         }
+        val weatherText = weather?.let { "${it.emoji} ${it.temp}° ${it.summary} · ${it.min}°/${it.max}°" }
+        Text(
+            listOfNotNull(weatherText, greeting).joinToString("  ·  "),
+            Modifier.padding(top = 6.dp, end = 12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
