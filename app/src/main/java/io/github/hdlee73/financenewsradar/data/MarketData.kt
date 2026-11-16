@@ -170,6 +170,13 @@ class WatchlistStore(context: Context) {
         val saved = preferences.getStringSet(INDEX_MARKET, null)
         val market = saved ?: (KOREA_INDEXES.map { it.symbol } + panelSlots(loadPanelSlots()).map { it.symbol }).toSet()
         val briefing = preferences.getStringSet(INDEX_BRIEFING, null) ?: (market - BRIEFING_EXCLUDED_DEFAULT)
+        // 나스닥100 선물을 기본에 새로 넣었으므로, 이미 지표를 골라 둔 사용자에게도 한 번만 추가한다(이후 빼면 그대로 유지).
+        if (!preferences.getBoolean(NQ_ADDED, false)) {
+            val migrated = IndexSelection(market + NQ_FUTURES, briefing + NQ_FUTURES)
+            preferences.edit().putBoolean(NQ_ADDED, true).apply()
+            saveIndexSelection(migrated)
+            return migrated
+        }
         return IndexSelection(market, briefing)
     }
 
@@ -196,6 +203,7 @@ class WatchlistStore(context: Context) {
         const val WATCH_INTRADAY = "watch_chart_intraday_v1"
         const val INDEX_MARKET = "index_market_v1"
         const val INDEX_BRIEFING = "index_briefing_v1"
+        const val NQ_ADDED = "index_nq_futures_added_v1"
         const val HIDDEN_STATS = "hidden_stats"
         const val STAT_MARKET = "stat_market_v1"
         const val STAT_BRIEFING = "stat_briefing_v1"
@@ -226,17 +234,18 @@ val KOREA_INDEXES = listOf(
     Instrument("^KQ11", "KOSDAQ", "KRW", Instrument.TYPE_INDEX)
 )
 
-/** 코스피·코스닥 아래 둘째·셋째 줄(3칸씩)의 칸 수. */
-const val PANEL_SLOT_COUNT = 6
+/** 코스피·코스닥 아래 기본 칸 수(S&P 500·Nasdaq·나스닥100 선물·환율·WTI·US 10Y·Gold). */
+const val PANEL_SLOT_COUNT = 7
 
 private fun idx(symbol: String, name: String) = Instrument(symbol, name, "USD", Instrument.TYPE_INDEX)
 private fun quoteOf(symbol: String, name: String) = Instrument(symbol, name, "USD", Instrument.TYPE_EQUITY)
 
 /** 둘째·셋째 줄에 고를 수 있는 시장 지표. 앞에서부터 [PANEL_SLOT_COUNT]개가 기본값이다. */
 val PANEL_CATALOG = listOf(
-    // 기본 6칸
+    // 기본 7칸
     idx("^GSPC", "S&P 500"),
     idx("^IXIC", "Nasdaq"),
+    idx("NQ=F", "Nasdaq 100 Futures"),
     Instrument("KRW=X", "USD/KRW", "KRW", Instrument.TYPE_FX),
     quoteOf("CL=F", "WTI"),
     Instrument("^TNX", "US 10Y", "USD", Instrument.TYPE_RATE),
@@ -287,6 +296,8 @@ fun panelSlots(saved: List<String>): List<Instrument> {
 val INDEX_CHOICES: List<Instrument> = KOREA_INDEXES + PANEL_CATALOG
 
 /** 처음에 브리핑 시장 지표에서 뺀 항목: S&P 500, WTI, US 10Y, 필라델피아 반도체. */
+const val NQ_FUTURES = "NQ=F"
+
 val BRIEFING_EXCLUDED_DEFAULT = setOf("^GSPC", "CL=F", "^TNX", "^SOX")
 
 /** 사용자가 고른 증시 지표: 증시동향에 보일 것과 오늘의 브리핑에 보일 것(심볼). */
@@ -329,6 +340,7 @@ val POPULAR_INSTRUMENTS = listOf(
 private val INDEX_ALIASES = mapOf(
     "^IXIC" to "nasdaq composite ixic 나스닥 나스닥종합 나스닥지수",
     "^GSPC" to "s&p 500 sp500 snp 에스앤피 gspc",
+    "NQ=F" to "nasdaq 100 futures nq 나스닥100선물 나스닥선물 선물",
     "^DJI" to "dow jones djia 다우 다우지수",
     "^NDX" to "nasdaq 100 nasdaq100 나스닥100 ndx",
     "^SOX" to "philadelphia semiconductor sox 필라델피아 반도체지수",
