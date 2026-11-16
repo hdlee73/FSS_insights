@@ -1345,3 +1345,17 @@ a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; te
   .hm-press { height: 100%; }
   .hm-right .hm-card { flex: 1 1 0; }
 }
+
+/* v3.2 스마트 법령검색 서브 메뉴 · 법령 개정 내용 */
+.lw-tabs { display: flex; gap: 6px; margin: 0 0 12px; border-bottom: 1px solid var(--line, #e3e8ef); }
+.lw-tab { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; font-weight: 700; font-size: 14px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; text-decoration: none; }
+.lw-tab svg { width: 16px; height: 16px; }
+.lw-tab.on { color: var(--acc-fg); border-bottom-color: var(--acc-fg); }
+.lw-amend details { margin: 6px 0; }
+.lw-amend summary { cursor: pointer; font-weight: 700; padding: 4px 0; }
+.lw-on { display: grid; gap: 10px; margin-top: 6px; }
+.lw-on-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; border: 1px solid var(--line, #e3e8ef); border-radius: 10px; }
+.lw-on-row mark { background: var(--warn-soft); color: var(--warn-fg); border-radius: 3px; padding: 0 2px; }
+.lw-on-row b { font-size: 12px; color: var(--muted); }
+.lw-amended { border-left: 3px solid var(--warn-fg); }
+@media (max-width: 700px) { .lw-on-row { grid-template-columns: 1fr; } }

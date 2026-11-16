@@ -180,12 +180,14 @@ private val appScreens = listOf(
 private fun sectionIcon(title: String) = when (title) {
     "금융회사 현황 및 검사" -> Icons.Filled.AccountBalance
     "기업공시 및 회계" -> Icons.Filled.BusinessCenter
+    LAW_SECTION -> Icons.Filled.Balance
     "금융관련 자료" -> Icons.Filled.LibraryBooks
     FAV_TITLE -> Icons.Filled.Star
     else -> Icons.Filled.MoreHoriz
 }
 
 private const val FAV_TITLE = "즐겨찾기"
+private const val LAW_SECTION = "스마트 법령검색"
 
 /** v3.0 하단 탭: 뉴스검색·금융시장·소비자·법령은 어느 화면에서든 한 번에, 나머지는 '전체'(서랍)에서. */
 private class BottomTab(val screen: Int, val label: String, val icon: ImageVector)
@@ -200,7 +202,9 @@ private val bottomTabs = listOf(
 private class DrawerSection(val title: String?, val ids: List<Int>)
 
 private val drawerSections = listOf(
-    DrawerSection(null, listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_LAW, SCREEN_LAWNEWS, SCREEN_CONSUMER)),
+    DrawerSection(null, listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET)),
+    DrawerSection(LAW_SECTION, listOf(SCREEN_LAW, SCREEN_LAWNEWS)),
+    DrawerSection(null, listOf(SCREEN_CONSUMER)),
     DrawerSection("금융회사 현황 및 검사", listOf(SCREEN_FISIS, SCREEN_SANCTION, SCREEN_FINSIM)),
     DrawerSection("기업공시 및 회계", listOf(SCREEN_DART, SCREEN_DISCLOSURE, SCREEN_AUDIT, SCREEN_ACC_SEARCH, SCREEN_SIMULATOR)),
     DrawerSection(null, listOf(SCREEN_CRYPTO)),
@@ -381,7 +385,7 @@ fun FinanceNewsRadarApp(
                                 val sub = title != null
                                 NavigationDrawerItem(
                                     icon = { Icon(item.icon, contentDescription = null, modifier = if (sub) Modifier.size(20.dp) else Modifier) },
-                                    label = { Text(item.label, style = if (sub) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    label = { Text(if (title == LAW_SECTION && id == SCREEN_LAW) "법령 검색" else item.label, style = if (sub) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                     badge = {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             if (id == SCREEN_INFO && updateAvailable != null) {
@@ -489,7 +493,8 @@ fun FinanceNewsRadarApp(
                     SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen(
                         launch = lawLaunch,
                         onLaunchConsumed = { lawLaunch = null },
-                        onReturn = if (lawFromLink) ({ goBack() }) else null
+                        onReturn = if (lawFromLink) ({ goBack() }) else null,
+                        onOpenNews = { go(SCREEN_LAWNEWS) }
                     )
                     SCREEN_PRESS -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
                     SCREEN_RESEARCH -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)

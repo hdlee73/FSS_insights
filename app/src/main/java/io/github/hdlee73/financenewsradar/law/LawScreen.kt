@@ -1,7 +1,16 @@
 package io.github.hdlee73.financenewsradar.law
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,7 +51,7 @@ data class LawLaunch(val query: String, val nonce: Long = System.nanoTime())
  * [onReturn]이 있으면(다른 화면에서 들어온 경우) 검색 결과 화면에서 뒤로가기 시 들어온 화면으로 바로 돌아간다.
  */
 @Composable
-fun LawScreen(launch: LawLaunch? = null, onLaunchConsumed: () -> Unit = {}, onReturn: (() -> Unit)? = null) {
+fun LawScreen(launch: LawLaunch? = null, onLaunchConsumed: () -> Unit = {}, onReturn: (() -> Unit)? = null, onOpenNews: (() -> Unit)? = null) {
     val container = LawContainer.get(LocalContext.current)
     val factory = container.viewModelFactory
     val searchVm: SearchViewModel = viewModel(factory = factory)
@@ -76,7 +85,15 @@ fun LawScreen(launch: LawLaunch? = null, onLaunchConsumed: () -> Unit = {}, onRe
     BackHandler(enabled = onReturn != null && stack.isEmpty()) { onReturn?.invoke() }
 
     ProvideCitationHandler(onCite = runQuery) {
-        Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+        // 스마트 법령검색의 서브 메뉴: 법령 검색 · 최근 개정 소식
+        if (onOpenNews != null && stack.isEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = {}) { Text("법령 검색", fontWeight = FontWeight.Bold) }
+                TextButton(onClick = onOpenNews) { Text("최근 개정 소식") }
+            }
+        }
+        Box(Modifier.weight(1f)) {
             when (val top = stack.lastOrNull()) {
                 null -> SearchScreen(
                     vm = searchVm,
@@ -100,6 +117,7 @@ fun LawScreen(launch: LawLaunch? = null, onLaunchConsumed: () -> Unit = {}, onRe
                     DocumentScreen(vm, load = { loadAdminRule(top.serialNo) }, onBack = { stack = stack.dropLast(1) }, onOpenTree = runQuery)
                 }
             }
+        }
         }
     }
 }
