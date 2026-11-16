@@ -639,6 +639,7 @@ input,select,button{font:inherit;padding:8px 10px;border-radius:8px;border:1px s
 svg{width:100%;height:200px}.leg{font-size:12px;color:var(--mut)}.leg b{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 4px 0 10px}
 table{width:100%;border-collapse:collapse;font-size:13px}
 dialog{border:1px solid var(--ln);border-radius:14px;background:var(--card);color:var(--fg);max-width:620px;width:calc(100% - 24px);padding:14px}dialog::backdrop{background:rgba(0,0,0,.45)}.exb{cursor:pointer;text-decoration:underline dotted}td,th{padding:4px 6px;border-bottom:1px solid var(--ln);text-align:right}td:first-child,th:first-child{text-align:left}
+.fold{cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}.fold:before{content:'\\25BE';display:inline-block;width:1.1em;color:var(--mut);transition:transform .15s}.fold.off:before{transform:rotate(-90deg)}.fold select{margin-left:6px}
 </style></head><body><main>
 <h1>FSS Insights 사용 통계 <a class="leg" href="/admin/notices">· 공지사항 관리</a></h1>
 <div class="card"><input id="tok" type="password" placeholder="관리자 토큰" autocomplete="off"> <select id="pf"><option value="all">전체(앱+웹)</option><option value="app">앱만</option><option value="web">웹만</option></select> <select id="span"><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option></select> <button id="go">조회</button> <span id="msg" class="leg"></span></div>
@@ -747,4 +748,14 @@ $("udb").innerHTML=(u.ambiguous?'<p class="leg">⚠ 같은 앞부분을 가진 �
 $("udx").onclick=()=>$("ud").close();$("udex").onclick=()=>{if(udId&&confirm(udId+" 접속자를 통계에서 제외할까요?")){$("ud").close();exApi({add:udId})}};
 document.addEventListener("click",e=>{const t=e.target;if(t.classList&&t.classList.contains("exb"))openUser(t.dataset.id);if(t.dataset&&t.dataset.rm)exApi({remove:t.dataset.rm})});
 $("go").onclick=load;$("ugo").onclick=load;$("uq").onchange=()=>{if($("uq").value!=="custom")load()};if($("tok").value)load();
+</script><script>
+// 각 구역 제목(h2)을 눌러 그 아래 내용을 접고 펼친다. 접힘 상태는 이 기기(브라우저)에 기억한다.
+(function(){let st={};try{st=JSON.parse(localStorage.getItem("fold")||"{}")}catch(e){}
+const save=()=>{try{localStorage.setItem("fold",JSON.stringify(st))}catch(e){}};
+document.querySelectorAll("main .card h2").forEach(h=>{const key=(h.childNodes[0]&&h.childNodes[0].textContent||h.textContent).trim().slice(0,40);if(!key)return;
+const body=[];for(let n=h.nextElementSibling;n&&n.tagName!=="H2";n=n.nextElementSibling)body.push(n);if(!body.length)return;
+const apply=off=>{h.classList.toggle("off",off);h.setAttribute("aria-expanded",String(!off));body.forEach(n=>{n.style.display=off?"none":""})};
+h.classList.add("fold");h.setAttribute("role","button");h.tabIndex=0;apply(!!st[key]);
+const tog=e=>{if(e.target.closest("select,button,input,a"))return;const off=!h.classList.contains("off");st[key]=off?1:0;if(!off)delete st[key];save();apply(off)};
+h.addEventListener("click",tog);h.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();tog(e)}})})})();
 </script></body></html>`;
