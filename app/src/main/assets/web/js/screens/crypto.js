@@ -780,9 +780,12 @@ function saveCard(data) {
   };
   const pr = () => {
     if (!picked().size) { status.textContent = "저장할 항목을 하나 이상 선택해 주세요."; return; }
-    const w = window.open("", "_blank");
-    if (!w) { status.textContent = "팝업이 차단되었습니다. HTML 저장을 이용해 주세요."; return; }
-    w.document.write(make()); w.document.close(); w.focus(); setTimeout(() => w.print(), 400);
+    // 인쇄 전용 문서를 blob 주소로 새 창(noopener)에 연다. 이 창이 원래 창에 접근하지 못한다.
+    const html = make().replace("</body>", "<script>addEventListener('load',()=>setTimeout(()=>print(),400))<\/script></body>");
+    const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+    window.open(url, "_blank", "noopener");
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+    status.textContent = "새 창에서 인쇄 창이 열립니다. 열리지 않으면 팝업 차단을 풀거나 HTML 저장을 이용해 주세요.";
   };
   return card("일보 저장 — 포함할 항목 선택", "download", h("div", { class: "stack" },
     h("div", { class: "cr-picks" }, boxes.map((b) => b.el)),
