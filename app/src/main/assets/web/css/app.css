@@ -1306,7 +1306,7 @@ a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; te
 /* ---- v3.0 홈(오늘의 브리핑): KPI 4칸 · 보도자료/제재공시/법령 2열 · 소비자·가상자산·알림 3칸 (시안 v2-01) ---- */
 .hm-hello { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
 .hm-w { font-weight: 600; color: var(--fg); }
-.hm-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.hm-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 12px; }
 .hm-kpis .tile { background: var(--card); padding: 12px 14px; }
 .hm-kpis .tile .nm { color: var(--muted); font-weight: 600; }
 .hm-kpis .tile .px { font-size: 22px; text-align: left; font-weight: 700; }
@@ -1336,3 +1336,6 @@ a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; te
 @media (max-width: 1000px) { .hm-grid { grid-template-columns: 1fr; } .hm-bot { grid-template-columns: 1fr; } }
 @media (max-width: 860px) { .hm-kpis { grid-template-columns: repeat(2, 1fr); gap: 10px; } .hm-kpis .tile .px { font-size: 18px; } }
 .hm-press .item .acts { display: none; }
+
+.ln-row .ln-t { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ln-row > .i { color: var(--muted); align-self: center; }
