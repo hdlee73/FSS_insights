@@ -245,7 +245,7 @@ val PANEL_CATALOG = listOf(
     // 기본 7칸
     idx("^GSPC", "S&P 500"),
     idx("^IXIC", "Nasdaq"),
-    idx("NQ=F", "Nasdaq 100 Futures"),
+    idx("NQ=F", "Nasdaq 100 Futures (나스닥100선물)"),
     Instrument("KRW=X", "USD/KRW", "KRW", Instrument.TYPE_FX),
     quoteOf("CL=F", "WTI"),
     Instrument("^TNX", "US 10Y", "USD", Instrument.TYPE_RATE),
