@@ -396,7 +396,10 @@ export function engagement({ allRows, activityRows = [], from, to, platform = "a
   const dau = new Map();
   for (const r of rows) dau.set(r.day, (dau.get(r.day) ?? 0) + 1);
   const act = activityRows.filter((a) => a.day >= from && a.day <= to && (a.visits > 0 || a.secs > 0) && present.has(key(a.day, a.uid)));
-  // 사용자별 누적(측정이 시작된 뒤 전체 기간, 조회 기간과 무관): 접속일수·방문 합계·사용 시간 합계
+  // 접속일 = 측정 여부와 무관하게 접속 신호(usage_daily)를 받은 날. 방문·시간만 측정된 날 기준이다.
+  const connDays = new Map();
+  for (const r of rows) connDays.set(r.uid, (connDays.get(r.uid) ?? 0) + 1);
+  // 사용자별 누적(조회 기간과 무관): 접속일수는 접속 신호 전체 날짜, 방문 합계·사용 시간 합계는 측정된 날만
   const cum = new Map();
   for (const a of activityRows) {
     if (!(a.visits > 0 || a.secs > 0) || !present.has(key(a.day, a.uid))) continue;
@@ -434,19 +437,18 @@ export function engagement({ allRows, activityRows = [], from, to, platform = "a
       avgSecs: n ? sum(list, (x) => x.secs) / n : null, maxSecs: max(list, (x) => x.secs),
       // 익명 사용자 목록(해시 앞 6자리만, 사용 시간 긴 순). 날짜당 최대 300명.
       list: list.slice().sort((a, b) => b.secs - a.secs || b.visits - a.visits).slice(0, 300)
-        .map((x) => ({ id: String(x.uid).slice(0, 6), p: platOf.get(key(d, x.uid)), ver: verOf.get(key(d, x.uid)) ?? null, visits: x.visits, secs: x.secs, at: x.last_at ?? null, cd: cum.get(x.uid)?.days ?? 0, cv: cum.get(x.uid)?.visits ?? 0, cs: cum.get(x.uid)?.secs ?? 0 })),
+        .map((x) => ({ id: String(x.uid).slice(0, 6), p: platOf.get(key(d, x.uid)), ver: verOf.get(key(d, x.uid)) ?? null, visits: x.visits, secs: x.secs, at: x.last_at ?? null, cd: connDays.get(x.uid) ?? 0, cv: cum.get(x.uid)?.visits ?? 0, cs: cum.get(x.uid)?.secs ?? 0 })),
     });
   }
   // 기간별 접속자 합산(ufrom~uto): 접속자별 접속일수·방문 합계·사용 시간 합계·마지막 신호 시각. 조회 기간(from~to)과 무관하다.
   let period = null;
-  const firstSeen = activityRows.reduce((m, a) => (!m || a.day < m ? a.day : m), "");
+  const firstSeen = rows.reduce((m, r) => (!m || r.day < m ? r.day : m), "");
   if (ufrom && uto) {
     const pf = ufrom > firstSeen ? ufrom : firstSeen || ufrom;
     const per = new Map();
     for (const a of activityRows) {
       if (a.day < pf || a.day > uto || !(a.visits > 0 || a.secs > 0) || !present.has(key(a.day, a.uid))) continue;
       const c = per.get(a.uid) ?? { id: String(a.uid).slice(0, 6), p: platOf.get(key(a.day, a.uid)), ver: null, verDay: "", days: 0, visits: 0, secs: 0, at: null };
-      c.days++;
       // 기간 중 가장 최근 날짜에 쓴 버전
       const vv = verOf.get(key(a.day, a.uid));
       if (vv && a.day >= c.verDay) { c.ver = vv; c.verDay = a.day; }
@@ -455,6 +457,13 @@ export function engagement({ allRows, activityRows = [], from, to, platform = "a
       if (a.last_at && (!c.at || a.last_at > c.at)) c.at = a.last_at;
       per.set(a.uid, c);
     }
+    // 접속일수는 방문·시간 측정 여부와 무관하게 접속 신호를 받은 모든 날
+    const pDays = new Map();
+    for (const r of rows) {
+      if (r.day < pf || r.day > uto) continue;
+      pDays.set(r.uid, (pDays.get(r.uid) ?? 0) + 1);
+    }
+    for (const [uid, c] of per) c.days = pDays.get(uid) ?? c.days;
     const users = [...per.values()].sort((x, y) => y.secs - x.secs || y.visits - x.visits).map(({ verDay, ...u }) => u);
     // 기간 중 측정 기록이 전혀 없는 접속자(신호만 보낸 사용자): 접속일수만 알 수 있어 '미측정'으로 뒤에 붙인다.
     const unp = new Map();
@@ -638,11 +647,11 @@ dialog{border:1px solid var(--ln);border-radius:14px;background:var(--card);colo
 <h2 style="margin-top:10px">일자별 평균 (선: 방문 횟수 <span style="color:var(--a)">●</span> · 사용 시간(분) <span style="color:var(--b)">●</span>, 각자 최대값 기준 비율)</h2><svg id="engc" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
 <h2 style="margin-top:10px">하루 방문 횟수 분포 (사용자·일 기준)</h2><div id="engv"></div><h2 style="margin-top:8px">하루 사용 시간 분포</h2><div id="engt"></div>
 <details style="margin-top:8px"><summary class="leg">일자별 표</summary><table id="engd"></table></details>
-<h2 style="margin-top:10px">날짜별 접속자 상세 <select id="engday"></select></h2><div id="engusum" class="leg"></div><div style="overflow-x:auto"><table id="engu" style="white-space:nowrap;min-width:700px"></table></div><div class="leg">접속자는 익명 ID(설치별 해시의 앞 6자리)로만 표시되며 이름·기기 정보와 연결되지 않습니다. 사용 시간이 긴 순입니다. 누적 접속일·방문·시간은 측정이 시작된 날(웹·앱 방문·시간 기록 시작일) 이후 전체 기간을 더한 값이며, 그 이전 기록은 없어 실제 사용 이력보다 적을 수 있습니다(제외한 접속자는 빠집니다). 표가 넓으면 옆으로 밀어 보세요. 버전 = 그날(기간 표는 기간 중 가장 최근 날) 쓴 앱·웹 버전이며 기록이 없으면 -입니다. 최종 접속 = 서버가 마지막으로 그 사용자의 신호(열기·사용 중 전송·닫기)를 받은 시각(한국시간)이며, 오늘 접속분부터 기록됩니다. 미측정 = 그날 접속 신호는 받았지만 방문·사용 시간 기록이 없는 사용자입니다(방문·시간 측정 기능이 들어가기 전 웹·앱 버전을 쓰거나, 새 버전으로 아직 갱신되지 않은 기기). 버전 열로 확인할 수 있으며 갱신되면 측정으로 바뀝니다. 사용 시간 0초는 열자마자 닫는 등으로 시간 전송 전에 끝난 경우입니다(웹 v2.21.2부터 보완).</div>
+<h2 style="margin-top:10px">날짜별 접속자 상세 <select id="engday"></select></h2><div id="engusum" class="leg"></div><div style="overflow-x:auto"><table id="engu" style="white-space:nowrap;min-width:700px"></table></div><div class="leg">접속자는 익명 ID(설치별 해시의 앞 6자리)로만 표시되며 이름·기기 정보와 연결되지 않습니다. 사용 시간이 긴 순입니다. 누적 접속일은 접속 신호를 받은 모든 날(측정 여부와 무관)을 센 값이고, 누적 방문·시간은 방문·시간이 측정된 날(웹·앱 방문·시간 기록 시작일 이후)만 더한 값이라 실제 사용 이력보다 적을 수 있습니다(제외한 접속자는 빠집니다). 표가 넓으면 옆으로 밀어 보세요. 버전 = 그날(기간 표는 기간 중 가장 최근 날) 쓴 앱·웹 버전이며 기록이 없으면 -입니다. 최종 접속 = 서버가 마지막으로 그 사용자의 신호(열기·사용 중 전송·닫기)를 받은 시각(한국시간)이며, 오늘 접속분부터 기록됩니다. 미측정 = 그날 접속 신호는 받았지만 방문·사용 시간 기록이 없는 사용자입니다(방문·시간 측정 기능이 들어가기 전 웹·앱 버전을 쓰거나, 새 버전으로 아직 갱신되지 않은 기기). 버전 열로 확인할 수 있으며 갱신되면 측정으로 바뀝니다. 사용 시간 0초는 열자마자 닫는 등으로 시간 전송 전에 끝난 경우입니다(웹 v2.21.2부터 보완).</div>
 <h2 style="margin-top:14px">기간별 접속자 합산</h2>
 <div><select id="uq"><option value="7">최근 7일</option><option value="30">최근 30일</option><option value="all">전체(측정 시작 이후)</option><option value="custom">직접 선택</option></select> <input type="date" id="ufrom"> ~ <input type="date" id="uto"> <button id="ugo">보기</button></div>
 <div id="usum" class="leg" style="margin:6px 0"></div><div style="overflow-x:auto"><table id="uper" style="white-space:nowrap;min-width:620px"></table></div>
-<div class="leg">선택한 기간 안에서 접속자별로 접속한 날 수, 방문 횟수, 사용 시간을 더한 표입니다(위의 "날짜별 접속자 상세"는 하루만 보는 표). 측정이 시작된 날 이전은 값이 없고, 제외한 접속자는 빠집니다. 사용 시간이 긴 순이며 최대 500명까지 보여 줍니다.</div>
+<div class="leg">선택한 기간 안에서 접속자별로 접속한 날 수, 방문 횟수, 사용 시간을 더한 표입니다(위의 "날짜별 접속자 상세"는 하루만 보는 표). 접속일수는 접속 신호를 받은 모든 날을 세며, 방문·사용 시간은 측정이 시작된 날 이후 값만 더합니다(그 이전은 값이 없음). 제외한 접속자는 빠집니다. 사용 시간이 긴 순이며 최대 500명까지 보여 줍니다.</div>
 <div class="leg" style="margin-top:6px">방문 = 앱·웹을 열 때마다 1회(앱은 다시 앞으로 가져올 때, 웹은 처음 열거나 다른 탭·창에서 돌아올 때도 포함). 사용 시간 = 화면이 보이는 동안 1분 단위로 기록(백그라운드·숨김 시간 제외). 이 기능이 들어간 새 앱·웹을 쓴 사용자만 집계되며, 그 이전 날짜는 값이 없습니다. 오늘 값은 사용 중에도 몇 분마다·화면을 닫을 때 올라옵니다.</div></div>
 <div class="card"><h2>통계에서 제외할 접속자</h2><input id="exid" placeholder="익명 ID(예: 18a57f)" size="12"> <button id="exadd">제외 추가</button><div id="exlist" class="leg" style="margin-top:6px"></div><div class="leg">운영자 본인 기기 등을 제외합니다. 아래 "날짜별 접속자 상세"의 ID를 눌러도 추가됩니다. 제외하면 DAU·WAU·MAU·방문·사용 시간·메뉴·신규/재방문 등 모든 집계에서 빠지고, 이후 신호도 저장하지 않습니다. 앱·웹 정보 화면의 통계 끄기 스위치로 그 기기에서 아예 보내지 않게 할 수도 있습니다.</div></div>
 <div class="card"><h2>일자별 활성사용자</h2><svg id="chart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg><div class="leg"><b style="background:var(--a)"></b>DAU<b style="background:var(--b)"></b>WAU(7일)<b style="background:var(--c)"></b>MAU(30일)</div></div>
