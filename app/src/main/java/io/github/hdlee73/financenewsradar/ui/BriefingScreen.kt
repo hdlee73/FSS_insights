@@ -205,7 +205,14 @@ fun BriefingScreen(
                 else -> Hint("보도자료를 불러오지 못했습니다. 새로고침을 눌러 주세요.")
             }
 
-            SectionTitle("최근 제재공시", "검사·공시조사·회계감리 결과 · 최근 ${RECENT_ACTION_DAYS}일") { onOpenTab(SCREEN_SANCTION_ID) }
+            SectionTitle(
+                "최근 검사·공시조사·회계감리 제재", "최근 ${RECENT_ACTION_DAYS}일 · 항목을 누르면 해당 목록으로",
+                links = listOf(
+                    "검사" to { onOpenTab(SCREEN_SANCTION_ID) },
+                    "공시조사" to { onOpenTab(SCREEN_DISCLOSURE_ID) },
+                    "회계감리" to { onOpenTab(SCREEN_AUDIT_ID) }
+                )
+            )
             val acts = actions
             when {
                 acts == null -> Hint("불러오는 중…")
@@ -324,14 +331,22 @@ private fun BriefingHeader(weather: Weather?, onRefresh: () -> Unit) {
 
 /** 색 막대가 붙은 구역 제목과 '더 보기'. */
 @Composable
-private fun SectionTitle(title: String, subtitle: String, accent: Boolean = false, onMore: () -> Unit) {
+private fun SectionTitle(title: String, subtitle: String, accent: Boolean = false, links: List<Pair<String, () -> Unit>>? = null, onMore: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 22.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(4.dp).height(34.dp).background(if (accent) AppColors.accent else MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
         Column(Modifier.weight(1f).padding(start = 10.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(subtitle, style = MaterialTheme.typography.labelMedium, color = if (accent) AppColors.accent else MaterialTheme.colorScheme.onSurfaceVariant)
+            // 유형별 전체 목록으로 가는 링크(예: 검사 · 공시조사 · 회계감리)
+            if (links != null) {
+                Row {
+                    links.forEach { (label, go) ->
+                        TextButton(onClick = go, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text("$label 전체 ›") }
+                    }
+                }
+            }
         }
-        TextButton(onClick = onMore) { Text("더 보기") }
+        if (links == null) TextButton(onClick = onMore) { Text("더 보기") }
     }
 }
 

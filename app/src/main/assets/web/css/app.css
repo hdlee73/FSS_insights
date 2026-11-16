@@ -1359,3 +1359,5 @@ a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; te
 .lw-on-row b { font-size: 12px; color: var(--muted); }
 .lw-amended { border-left: 3px solid var(--warn-fg); }
 @media (max-width: 700px) { .lw-on-row { grid-template-columns: 1fr; } }
+.hm-links { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.hm-ch h3 { min-width: 0; }
