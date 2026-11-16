@@ -28,7 +28,10 @@ export async function render(root, params, ctx) {
     open: (view, p = {}) => ctx.go({ v: view, ...p }),
   };
   root.append(tabs(VIEWS.map((x) => x[1]), idx, (i) => ctx.go({ v: VIEWS[i][0] }, { replace: true })));
-  if (id !== "emergency") root.append(h("a", { class: "sos-inline", href: "#/consumer?v=emergency" }, icon("alert-triangle"), "사기를 당했거나 의심되면 → 보이스피싱 긴급대응"));
+  const quick = h("div", { class: "quick-row" });
+  if (id !== "emergency") quick.append(h("a", { class: "sos-inline", href: "#/consumer?v=emergency" }, icon("alert-triangle"), "사기를 당했거나 의심되면 → 보이스피싱 긴급대응"));
+  quick.append(h("a", { class: "sos-inline ccrs", href: "https://www.ccrs.or.kr/cms/com/index.do?MENU_ID=2690", target: "_blank", rel: "noopener noreferrer" }, icon("coins"), "빚이 부담되면 → 신용회복위원회 채무조정(CCRS)", icon("external-link")));
+  root.append(quick);
   const body = h("div", { class: "screen-consumer" });
   root.append(body);
   let mod;
