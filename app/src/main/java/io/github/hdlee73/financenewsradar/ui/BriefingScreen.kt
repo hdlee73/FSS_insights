@@ -102,7 +102,8 @@ fun BriefingScreen(
     releasesViewModel: ReleasesViewModel,
     marketViewModel: MarketViewModel,
     onOpenTab: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenLawNews: (String?) -> Unit = {}
 ) {
     val news by newsViewModel.state.collectAsStateWithLifecycle()
     val releases by releasesViewModel.state.collectAsStateWithLifecycle()
@@ -119,6 +120,9 @@ fun BriefingScreen(
     // 최근 검사·공시조사·회계감리 결과: 세 자료 중 최근 7일 이내 건을 합친다. 한 곳이 실패해도 나머지는 보여 준다.
     var actions by remember { mutableStateOf<RecentActions?>(null) }
     LaunchedEffect(weatherTick) { actions = loadRecentActions(context.applicationContext) }
+    // 법률·시행령·시행규칙·감독규정·시행세칙의 최신 개정 5건. 못 읽으면 빈 목록으로 두고 안내만 보인다.
+    var lawNews by remember { mutableStateOf<List<LawNewsEntry>?>(null) }
+    LaunchedEffect(Unit) { lawNews = runCatching { loadLawNews(context.applicationContext) }.getOrDefault(emptyList()) }
     LaunchedEffect(releases.institutes) { releases.institutes.forEach(releasesViewModel::ensureCustom) }
     LaunchedEffect(weatherTick) { WeatherClient.fetch()?.let { weather = it } }
 
@@ -225,6 +229,19 @@ fun BriefingScreen(
                 else -> Hint("최근 ${RECENT_ACTION_DAYS}일 이내 새로 공시된 검사·공시조사·회계감리 결과가 없습니다.")
             }
             if (acts != null && acts.failed.isNotEmpty()) Hint("${acts.failed.joinToString("·")} 자료는 불러오지 못했습니다.")
+
+            SectionTitle("법령·하위 법규 개정 소식", "법률·시행령·시행규칙·감독규정·시행세칙 · 최신 5건") { onOpenLawNews(null) }
+            val ln = lawNews
+            when {
+                ln == null -> Hint("불러오는 중…")
+                ln.isNotEmpty() -> BriefingCard {
+                    ln.forEachIndexed { i, e ->
+                        if (i > 0) RowDivider(inset = 14.dp)
+                        LawNewsLine(e) { onOpenLawNews(e.route) }
+                    }
+                }
+                else -> Hint("법령 개정 정보를 불러오지 못했습니다. 스마트 법령검색에서 확인하세요.")
+            }
 
             SectionTitle("최근 기사", "30대 언론 · 최신순") { onOpenTab(TAB_NEWS) }
             when {
@@ -473,6 +490,22 @@ private suspend fun loadRecentActions(context: android.content.Context): RecentA
 }
 
 private val actionDateFormat = DateTimeFormatter.ofPattern("yyyy.MM.dd")
+
+@Composable
+private fun LawNewsLine(e: LawNewsEntry, onOpen: () -> Unit) {
+    fun ymd(v: String?) = if (v != null && v.length == 8) "${v.substring(0, 4)}.${v.substring(4, 6)}.${v.substring(6)}" else v ?: "-"
+    Column(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            TagLabel(e.kind, accent = e.kind == "감독규정" || e.kind == "시행세칙")
+            Text(e.type ?: "개정", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text(e.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            "${if (e.route.startsWith("lawdoc?adm=")) "발령" else "공포"} ${ymd(e.promulgation)} · 시행 ${ymd(e.effective)}",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
 
 @Composable
 private fun ActionLine(a: ActionEntry, onOpen: () -> Unit) {

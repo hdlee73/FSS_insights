@@ -294,9 +294,11 @@ fun FinanceNewsRadarApp(
         scope.launch { drawerState.open() }
     }
     // 제재공시의 위반 조문을 누르면 스마트 법령검색을 그 조문으로 연다. 이때 뒤로가기는 제재공시로 바로 돌아간다.
+    var lawNewsRoute by remember { mutableStateOf<String?>(null) }
     var lawLaunch by remember { mutableStateOf<io.github.hdlee73.financenewsradar.law.LawLaunch?>(null) }
     var lawFromLink by rememberSaveable { mutableStateOf(false) }
     fun go(target: Int) {
+        lawNewsRoute = null
         keyboard?.hide()
         focusManager.clearFocus()
         lawFromLink = false
@@ -468,7 +470,7 @@ fun FinanceNewsRadarApp(
             // 화면을 오가도 각 화면의 검색어·스크롤 위치가 유지되도록 화면별로 상태를 보관한다.
             stateHolder.SaveableStateProvider(screen) {
                 when (screen) {
-                    SCREEN_BRIEFING -> BriefingScreen(newsViewModel, releasesViewModel, marketViewModel, onOpenTab = ::go)
+                    SCREEN_BRIEFING -> BriefingScreen(newsViewModel, releasesViewModel, marketViewModel, onOpenTab = ::go, onOpenLawNews = { route -> go(SCREEN_LAWNEWS); lawNewsRoute = route })
                     SCREEN_NEWS -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     SCREEN_MARKET -> MarketScreen(marketViewModel)
                     SCREEN_FISIS -> WebEmbedScreen("fisis", backEnabled = !drawerState.isOpen)
@@ -486,7 +488,7 @@ fun FinanceNewsRadarApp(
                     SCREEN_CONSUMER -> WebEmbedScreen("consumer", backEnabled = !drawerState.isOpen)
                     SCREEN_FINSIM -> WebEmbedScreen("finsim", backEnabled = !drawerState.isOpen)
                     SCREEN_CRYPTO -> WebEmbedScreen("crypto", backEnabled = !drawerState.isOpen)
-                    SCREEN_LAWNEWS -> WebEmbedScreen("lawnews", backEnabled = !drawerState.isOpen, onOpenLaw = ::openLaw)
+                    SCREEN_LAWNEWS -> WebEmbedScreen(lawNewsRoute ?: "lawnews", backEnabled = !drawerState.isOpen, onOpenLaw = ::openLaw)
                     SCREEN_RISK -> WebEmbedScreen("fisis?tool=risk&view=overview", backEnabled = !drawerState.isOpen)
                     SCREEN_REGULATORY -> RegulatoryScreen(regulatoryViewModel)
                     SCREEN_SANCTION -> SanctionScreen(sanctionViewModel, onOpenLaw = ::openLaw)
