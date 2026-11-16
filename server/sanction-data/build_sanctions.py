@@ -92,6 +92,7 @@ def clean_html(s: str) -> str:
 
 
 import extract_text  # noqa: E402
+import ocr_correct  # noqa: E402
 
 EXTRACT_VERSION = 3  # 캐시에 이 값 미만이면, 지적사항·조치를 못 뽑은 건은 첨부를 새 방식으로 다시 읽는다.
 CACHE_DIR = None
@@ -834,6 +835,13 @@ def main():
         hint = " ".join(it["t"] + " " + " ".join(it["laws"]) for it in c.get("items", []))
         c["sector"] = sector(c["co"], c.get("dept", ""), hint)
         cases.append(c)
+    # 스캔 문서를 글자 인식(OCR)으로 읽은 건의 오인식('ELS'→'615', '보험'→'보혐' 등)을 글자 층 자료 기준으로 바로잡는다.
+    stats = ocr_correct.correct_cases(cases)
+    print("OCR 보정:", dict(stats), file=sys.stderr)
+    for c in cases:  # 보정으로 법령명이 바뀌었을 수 있어 업권 판정에 쓰는 힌트를 다시 만든다
+        if c.get("ocr"):
+            hint = " ".join(it["t"] + " " + " ".join(it["laws"]) for it in c.get("items", []))
+            c["sector"] = sector(c["co"], c.get("dept", ""), hint)
     unify_law_names(cases)
     cases.sort(key=lambda c: (c["date"], c["id"]), reverse=True)
     if args.limit == 0 and prev and len(cases) < len(prev) * 0.9:
