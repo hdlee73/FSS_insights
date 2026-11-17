@@ -1236,3 +1236,14 @@ body.rp-view .print-doc.rp-law { display: block; box-sizing: border-box; max-wid
 body.rp-view .print-doc.rp-law.land { max-width: 297mm; }
 @media print { body.rp-view .print-doc.rp-law { margin: 0; padding: 0; max-width: none; box-shadow: none; } }
 a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; text-underline-offset: 2px; }
+
+/* ---- 익명게시판 ---- */
+.bd-notice { background: var(--accent-soft, rgba(20, 33, 61, .05)); border-left: 3px solid var(--accent); }
+.bd-body { white-space: pre-wrap; word-break: break-word; line-height: 1.65; font-size: 14.5px; color: var(--fg); padding: 12px 0 4px; }
+.bd-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.bd-cmt { padding: 10px 0; border-top: 1px solid var(--line2); }
+.bd-cmt:first-child { border-top: 0; }
+.bd-cmt-txt { white-space: pre-wrap; word-break: break-word; font-size: 13.5px; line-height: 1.55; margin-top: 4px; }
+.bd-form { display: flex; flex-direction: column; gap: 10px; }
+.bd-form input, .bd-form textarea { width: 100%; box-sizing: border-box; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.bd-form textarea { min-height: 120px; resize: vertical; }

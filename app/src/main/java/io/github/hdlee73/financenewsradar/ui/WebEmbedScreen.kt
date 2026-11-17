@@ -240,6 +240,8 @@ private fun proxyApi(request: WebResourceRequest): WebResourceResponse? {
     val uri = request.url
     val host = runCatching { Uri.parse(base).host }.getOrNull() ?: return null
     if (host.isBlank() || uri.host != host) return null
+    // 익명게시판(/board/)은 글·댓글 쓰기(POST·DELETE, 본문 있음)가 필요한데 여기서는 본문을 읽을 수 없으므로 가로채지 않고 그대로 서버로 보낸다(서버가 앱 출처를 CORS 허용해야 함).
+    if (uri.path.orEmpty().startsWith("/board/")) return null
     if (request.method == "OPTIONS" || (request.method != "GET" && request.method != "HEAD")) {
         return WebResourceResponse("text/plain", "utf-8", 204, "No Content", CORS_HEADERS, java.io.ByteArrayInputStream(ByteArray(0)))
     }
