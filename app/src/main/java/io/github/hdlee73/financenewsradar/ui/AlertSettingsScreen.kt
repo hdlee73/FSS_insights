@@ -158,7 +158,7 @@ fun AlertSettingsScreen(keywords: List<String>, modifier: Modifier = Modifier) {
                     SanctionAlerts.DISCLOSURE to "공시조사결과 제재에 새 건이 올라오면",
                     SanctionAlerts.AUDIT to "회계감리결과 제재에 새 건이 올라오면"
                 ).forEach { (kind, title) ->
-                    SwitchRow(title, "", X if (on) enabling { applySanction(kind, true) } else applySanction(kind, false) }
+                    SwitchRow(title, null, sanctions[kind] == true) { on -> if (on) enabling { applySanction(kind, true) } else applySanction(kind, false) }
                 }
             }
             SectionBand(6.dp)
