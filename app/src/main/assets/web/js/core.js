@@ -8,7 +8,7 @@ export const DISCLAIMER_DETAIL =
   "FSS Insights는 개인이 만든 비공식 서비스이며 금융감독원 등 어떤 기관과도 제휴·위탁 관계가 없습니다. " +
   "화면에 표시되는 보도자료, 통계, 법령 등은 외부 출처의 공개 자료를 모아 보여주는 것으로, 정확성과 최신성을 보장하지 않습니다. " +
   "중요한 판단에는 반드시 원문과 공식 자료를 확인하시기 바랍니다.";
-export const APP_VERSION = "3.4.3";
+export const APP_VERSION = "3.5.0";
 
 // 서버(Cloudflare Worker). 앱과 같은 서버를 쓰고, 웹 주소(Origin)로 들어온 요청만 토큰 없이 받는다.
 const DEFAULT_SERVER = "https://news-proxy.hdlee73.workers.dev";
@@ -398,7 +398,7 @@ export function download(blob, name, opt = {}) {
 export function dialog({ title, text, body, fields, ok = "확인", cancel = "취소", danger = false, wide = false }) {
   return new Promise((resolve) => {
     const inputs = (fields || []).map((f) =>
-      h("label", { class: "field" }, h("span", null, f.label), h(f.multiline ? "textarea" : "input", { name: f.name, value: f.value || "", placeholder: f.placeholder || "", rows: f.multiline ? 3 : null }))
+      h("label", { class: "field" }, h("span", null, f.label), h(f.multiline ? "textarea" : "input", { name: f.name, value: f.value || "", placeholder: f.placeholder || "", rows: f.multiline ? 3 : null, type: f.multiline ? null : f.type || "text", autocomplete: f.type === "password" ? "off" : null }))
     );
     for (const [i, f] of (fields || []).entries()) if (f.multiline) inputs[i].querySelector("textarea").value = f.value || "";
     const close = (v) => {

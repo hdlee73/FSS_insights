@@ -183,9 +183,6 @@ fun BriefingScreen(
                 weatherTick++
             }
 
-            // 즐겨찾기: 메뉴를 열지 않고 바로 가도록 맨 위에 둔다.
-            FavoritesRow(favorites, onOpenTab)
-
             SectionTitle("시장 지표", "한눈에 보는 오늘 시장") { onOpenTab(TAB_MARKET) }
             val tiles = market.indexes.briefingItems
                 .mapNotNull { item -> market.quotes[item.symbol]?.let { item to it } }
@@ -502,26 +499,6 @@ private suspend fun loadRecentActions(context: android.content.Context): RecentA
 }
 
 private val actionDateFormat = DateTimeFormatter.ofPattern("yyyy.MM.dd")
-
-/** 즐겨찾기 화면으로 바로 가는 알약 버튼 줄. 없으면 추가 방법을 안내한다. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun FavoritesRow(favorites: List<Pair<Int, String>>, onOpen: (Int) -> Unit) {
-    if (favorites.isEmpty()) {
-        Hint("메뉴(≡)에서 ★를 누르면 자주 쓰는 화면이 여기에 모입니다.")
-        return
-    }
-    FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        favorites.forEach { (id, label) ->
-            Surface(
-                Modifier.clickable { onOpen(id) },
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-            ) { Text("★ $label", Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge, maxLines = 1) }
-        }
-    }
-}
 
 @Composable
 private fun LawNewsLine(e: LawNewsEntry, onOpen: () -> Unit) {

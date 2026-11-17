@@ -24,6 +24,22 @@ const setAdminKey = (k) => {
   } catch {}
 };
 
+// 익명 투표자 ID: 이 브라우저에서만 쓰는 무작위 값(로그인 없음). 지우면 새 사람으로 취급된다.
+let memVoter = "";
+function voterId() {
+  try {
+    let v = localStorage.getItem("fss.boardVoter");
+    if (!v || !/^[A-Za-z0-9_-]{8,64}$/.test(v)) {
+      v = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)).replace(/[^A-Za-z0-9_-]/g, "");
+      localStorage.setItem("fss.boardVoter", v);
+    }
+    return v;
+  } catch {
+    if (!memVoter) memVoter = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    return memVoter;
+  }
+}
+
 async function req(path, { method = "GET", body, admin = false } = {}) {
   const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -56,56 +72,18 @@ function fmtDate(iso) {
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-async function promptAdmin(ctx) {
-  if (adminKey()) {
-    const out = await dialog({
-      title: "관리자 인증됨",
-      text: "현재 관리자(공지 작성·삭제) 상태입니다.",
-      ok: "로그아웃",
-      cancel: "닫기",
-    });
-    if (out) {
-      setAdminKey("");
-      toast("관리자 인증을 해제했습니다.");
-      ctx.go({}, { replace: true });
-    }
-    return false;
-  }
-  const out = await dialog({
-    title: "관리자 인증",
-    text: "FSS Insights 관리자(/admin)와 같은 관리자 토큰을 입력해 주세요.",
-    fields: [{ name: "key", label: "관리자 토큰", type: "password", placeholder: "ADMIN_TOKEN" }],
-    ok: "인증",
-  });
-  if (!out || !out.key) return false;
-  try {
-    setAdminKey(out.key.trim());
-    await req("/board/admin/verify", { method: "POST", admin: true });
-    toast("관리자로 인증되었습니다.");
-    ctx.go({}, { replace: true });
-    return true;
-  } catch (e) {
-    setAdminKey("");
-    toast(errorText(e));
-    return false;
-  }
-}
-
-async function openWriteDialog(ctx, isNotice = false) {
-  if (isNotice && !adminKey()) {
-    const ok = await promptAdmin(ctx);
-    if (!ok) return;
-  }
+async function openWriteDialog(ctx) {
+  const isNotice = false; // 게시판 공지는 서버 /admin/notices 화면에서만 작성한다.
   const titleEl = h("input", { type: "text", maxlength: 120, placeholder: isNotice ? "공지 제목을 입력하세요" : "제목을 입력하세요" });
   const authorEl = h("input", { type: "text", maxlength: 20, placeholder: isNotice ? "관리자" : "닉네임 (비우면 익명)" });
   const bodyEl = h("textarea", { maxlength: 5000, placeholder: "내용을 입력하세요 (최대 5,000자)" });
-  const pwEl = isNotice ? null : h("input", { type: "password", maxlength: 32, placeholder: "삭제용 비밀번호 (선택, 4자 이상)" });
+  const pwEl = isNotice ? null : h("input", { type: "password", maxlength: 32, placeholder: "삭제·수정용 비밀번호 (선택, 4자 이상)" });
 
   const form = h("div", { class: "bd-form" },
     h("label", null, "제목", titleEl),
     isNotice ? null : h("label", null, "작성자", authorEl),
     h("label", null, "내용", bodyEl),
-    pwEl ? h("label", null, "삭제 비밀번호", pwEl) : null
+    pwEl ? h("label", null, "삭제·수정 비밀번호", pwEl) : null
   );
   const ok = await dialog({
     title: isNotice ? "공지사항 작성 (관리자 전용)" : "익명 글쓰기",
@@ -139,11 +117,8 @@ export async function render(root, params, ctx) {
 }
 
 async function renderList(root, params, ctx) {
-  const isAdmin = !!adminKey();
-  setHeader("익명게시판", "자유로운 의견·질문 · 공지사항은 관리자만 작성 가능", [
-    h("button", { class: "pill", type: "button", onclick: () => openWriteDialog(ctx, false) }, icon("pencil"), h("span", { class: "lbl" }, "글쓰기")),
-    h("button", { class: "pill", type: "button", onclick: () => openWriteDialog(ctx, true) }, icon("pin"), h("span", { class: "lbl" }, "공지 작성")),
-    h("button", { class: "pill" + (isAdmin ? " on" : ""), type: "button", title: "관리자 인증", onclick: () => promptAdmin(ctx) }, icon("lock"), h("span", { class: "lbl" }, isAdmin ? "관리자" : "인증")),
+  setHeader("익명게시판", "자유로운 의견·질문", [
+    h("button", { class: "pill", type: "button", onclick: () => openWriteDialog(ctx) }, icon("pencil"), h("span", { class: "lbl" }, "글쓰기")),
   ]);
 
   const q = (params.q || "").trim();
@@ -197,7 +172,8 @@ async function renderList(root, params, ctx) {
       p.title,
       p.comment_count ? h("span", { class: "note", style: { marginLeft: "6px" } }, `[${p.comment_count}]`) : null
     ),
-    h("div", { class: "m" }, `${p.author || "익명"} · ${fmtDate(p.created_at)}`)
+    h("div", { class: "m" }, `${p.author || "익명"} · ${fmtDate(p.created_at)}` +
+      (p.like_count || p.dislike_count ? ` · 👍 ${p.like_count || 0} 👎 ${p.dislike_count || 0}` : ""))
   ));
 
   const cards = [];
@@ -232,7 +208,7 @@ async function renderDetail(root, id, ctx) {
 
   let data;
   try {
-    data = await req(`/board/posts/${encodeURIComponent(id)}`);
+    data = await req(`/board/posts/${encodeURIComponent(id)}?voter=${encodeURIComponent(voterId())}`);
   } catch (e) {
     if (!ctx.alive()) return;
     box.replaceChildren(message(errorText(e), { error: true, action: "목록으로", onAction: () => ctx.go({}) }));
@@ -299,8 +275,99 @@ async function renderDetail(root, id, ctx) {
     }
   };
 
+  const editPost = async () => {
+    const isAdmin = !!adminKey();
+    const out = await dialog({
+      title: "게시글 수정",
+      text: isAdmin ? "관리자 권한으로 수정합니다." : "작성 시 입력한 비밀번호가 필요합니다.",
+      fields: [
+        { name: "title", label: "제목", value: p.title },
+        { name: "author", label: "작성자", value: p.author || "" },
+        { name: "body", label: "내용", value: p.body, multiline: true },
+        ...(isAdmin ? [] : [{ name: "pw", label: "비밀번호", type: "password" }]),
+      ],
+      ok: "저장",
+    });
+    if (!out) return;
+    if (!out.title || !out.body) return toast("제목과 내용을 모두 입력해 주세요.");
+    if (!isAdmin && !out.pw) return toast("비밀번호를 입력해 주세요.");
+    try {
+      await req(`/board/posts/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        admin: isAdmin,
+        body: { title: out.title, body: out.body, author: out.author, password: out.pw || "" },
+      });
+      toast("수정했습니다.");
+      ctx.go({ id }, { replace: true });
+    } catch (e) {
+      toast(errorText(e));
+    }
+  };
+
+  const editComment = async (c) => {
+    const isAdmin = !!adminKey();
+    const out = await dialog({
+      title: "댓글 수정",
+      text: isAdmin ? "관리자 권한으로 수정합니다." : "댓글 작성 시 입력한 비밀번호가 필요합니다.",
+      fields: [
+        { name: "body", label: "내용", value: c.body, multiline: true },
+        ...(isAdmin ? [] : [{ name: "pw", label: "비밀번호", type: "password" }]),
+      ],
+      ok: "저장",
+    });
+    if (!out) return;
+    if (!out.body) return toast("댓글 내용을 입력해 주세요.");
+    if (!isAdmin && !out.pw) return toast("비밀번호를 입력해 주세요.");
+    try {
+      await req(`/board/comments/${encodeURIComponent(c.id)}`, {
+        method: "PUT",
+        admin: isAdmin,
+        body: { body: out.body, password: out.pw || "" },
+      });
+      toast("댓글을 수정했습니다.");
+      ctx.go({ id }, { replace: true });
+    } catch (e) {
+      toast(errorText(e));
+    }
+  };
+
+  // 좋아요·싫어요: 같은 단추를 다시 누르면 취소, 반대쪽을 누르면 변경. 서버 응답으로 숫자를 갱신한다.
+  const vote = { likes: p.likes || 0, dislikes: p.dislikes || 0, mine: p.my_vote || 0, busy: false };
+  const likeBtn = h("button", { type: "button", class: "btn ghost sm bd-vote" });
+  const dislikeBtn = h("button", { type: "button", class: "btn ghost sm bd-vote" });
+  const paintVote = () => {
+    likeBtn.textContent = `👍 좋아요 ${vote.likes}`;
+    dislikeBtn.textContent = `👎 싫어요 ${vote.dislikes}`;
+    likeBtn.classList.toggle("on", vote.mine === 1);
+    dislikeBtn.classList.toggle("on", vote.mine === -1);
+    likeBtn.setAttribute("aria-pressed", vote.mine === 1);
+    dislikeBtn.setAttribute("aria-pressed", vote.mine === -1);
+    likeBtn.disabled = dislikeBtn.disabled = vote.busy;
+  };
+  const castVote = async (v) => {
+    if (vote.busy) return;
+    vote.busy = true;
+    paintVote();
+    try {
+      const r = await req(`/board/posts/${encodeURIComponent(id)}/vote`, {
+        method: "POST",
+        body: { voter: voterId(), vote: vote.mine === v ? 0 : v },
+      });
+      vote.likes = r.likes;
+      vote.dislikes = r.dislikes;
+      vote.mine = r.my_vote;
+    } catch (e) {
+      toast(errorText(e));
+    }
+    vote.busy = false;
+    paintVote();
+  };
+  likeBtn.onclick = () => castVote(1);
+  dislikeBtn.onclick = () => castVote(-1);
+  paintVote();
+
   const cAuthor = h("input", { type: "text", maxlength: 20, placeholder: "닉네임 (비우면 익명)" });
-  const cPw = h("input", { type: "password", maxlength: 32, placeholder: "삭제 비밀번호 (선택)" });
+  const cPw = h("input", { type: "password", maxlength: 32, placeholder: "삭제·수정 비밀번호 (선택)" });
   const cBody = h("textarea", { maxlength: 1000, placeholder: "댓글을 입력하세요 (최대 1,000자)", style: { minHeight: "72px" } });
   const submitComment = async (e) => {
     e.preventDefault();
@@ -325,11 +392,15 @@ async function renderDetail(root, id, ctx) {
         h("div", { class: "bd-meta" },
           p.is_notice ? h("span", { class: "tag blue" }, "공지") : null,
           h("b", null, p.author || "익명"),
-          h("span", null, fmtDate(p.created_at)),
-          h("button", { class: "btn ghost sm", type: "button", style: { marginLeft: "auto" }, onclick: deletePost }, icon("trash-2"), "삭제")
+          h("span", null, fmtDate(p.created_at) + (p.edited_at ? " (수정됨)" : "")),
+          h("span", { class: "bd-acts" },
+            p.is_notice || p.has_pw ? h("button", { class: "btn ghost sm", type: "button", onclick: editPost }, icon("pencil"), "수정") : null,
+            h("button", { class: "btn ghost sm", type: "button", onclick: deletePost }, icon("trash-2"), "삭제")
+          )
         ),
         h("h2", { style: { margin: "10px 0 6px", fontSize: "18px" } }, p.title),
-        h("div", { class: "bd-body" }, p.body)
+        h("div", { class: "bd-body" }, p.body),
+        h("div", { class: "bd-votes" }, likeBtn, dislikeBtn)
       ),
       h("section", { class: "card", style: { padding: "16px" } },
         h("div", { class: "section-label" }, `댓글 ${comments.length}`),
@@ -337,8 +408,11 @@ async function renderDetail(root, id, ctx) {
           ? h("div", null, comments.map((c) => h("div", { class: "bd-cmt" },
               h("div", { class: "bd-meta" },
                 h("b", null, c.author || "익명"),
-                h("span", null, fmtDate(c.created_at)),
-                h("button", { class: "ib", type: "button", title: "댓글 삭제", style: { marginLeft: "auto" }, onclick: () => deleteComment(c.id) }, icon("trash-2"))
+                h("span", null, fmtDate(c.created_at) + (c.edited_at ? " (수정됨)" : "")),
+                h("span", { class: "bd-acts" },
+                  c.has_pw ? h("button", { class: "ib", type: "button", title: "댓글 수정", onclick: () => editComment(c) }, icon("pencil")) : null,
+                  h("button", { class: "ib", type: "button", title: "댓글 삭제", onclick: () => deleteComment(c.id) }, icon("trash-2"))
+                )
               ),
               h("div", { class: "bd-cmt-txt" }, c.body)
             )))
