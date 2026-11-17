@@ -122,6 +122,9 @@ console.log("usage-lib engagement tests passed");
   assert.equal(u.hours[9], 4);
   assert.equal(u.days.length, 14);
   assert.equal(u.days.find((d) => d.day === "2026-11-13").secs, 300);
+  assert.equal(u.env, null);
+  const ue = userSummary({ envRow: { day: "2026-11-13", dev: "휴대폰", br: "Samsung", os: "Android", sc: "480 미만", inst: "브라우저" }, to: "2026-11-14" });
+  assert.deepEqual(ue.env, { dev: "휴대폰", br: "Samsung", os: "Android", sc: "480 미만", inst: "브라우저", day: "2026-11-13" });
   assert.equal(userSummary({ to: "2026-11-14" }).menus.length, 0);
 }
 console.log("userSummary OK");
