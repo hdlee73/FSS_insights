@@ -26,6 +26,26 @@ const setAdminKey = (k) => {
 
 // 익명 투표자 ID: 이 브라우저에서만 쓰는 무작위 값(로그인 없음). 지우면 새 사람으로 취급된다.
 let memVoter = "";
+// 내가 누른 표(글 번호 → 1/-1): 목록에서 단추 색을 바로 칠하기 위한 이 브라우저의 기억. 정확한 값은 글을 펼칠 때 서버에서 다시 받는다.
+function myVotes() {
+  try {
+    const o = JSON.parse(localStorage.getItem("fss.boardMyVotes") || "{}");
+    return o && typeof o === "object" ? o : {};
+  } catch {
+    return {};
+  }
+}
+function rememberVote(id, v) {
+  try {
+    const o = myVotes();
+    if (v) o[id] = v;
+    else delete o[id];
+    const keys = Object.keys(o);
+    if (keys.length > 500) for (const k of keys.slice(0, keys.length - 500)) delete o[k];
+    localStorage.setItem("fss.boardMyVotes", JSON.stringify(o));
+  } catch {}
+}
+
 function voterId() {
   try {
     let v = localStorage.getItem("fss.boardVoter");
@@ -159,22 +179,88 @@ async function renderList(root, params, ctx) {
   const pageSize = data.pageSize || 20;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  const row = (p, notice) => h("div", {
-    class: "item" + (notice ? " bd-notice" : ""),
-    role: "link",
-    tabindex: 0,
-    onclick: () => ctx.go({ id: p.id }),
-    onkeydown: (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), ctx.go({ id: p.id })),
-  },
-  h("div", { class: "body" },
-    h("div", { class: "t" },
-      notice ? h("span", { class: "tag blue", style: { marginRight: "6px" } }, "공지") : null,
-      p.title,
-      p.comment_count ? h("span", { class: "note", style: { marginLeft: "6px" } }, `[${p.comment_count}]`) : null
-    ),
-    h("div", { class: "m" }, `${p.author || "익명"} · ${fmtDate(p.created_at)}` +
-      (p.like_count || p.dislike_count ? ` · 👍 ${p.like_count || 0} 👎 ${p.dislike_count || 0}` : ""))
-  ));
+  // 목록의 한 줄: 제목을 누르면 그 자리에서 내용·댓글·댓글 입력이 펼쳐지고, 👍/👎는 펼치지 않고도 누를 수 있다.
+  const row = (p, notice) => {
+    const st = { likes: p.like_count || 0, dislikes: p.dislike_count || 0, mine: myVotes()[p.id] || 0, cmts: p.comment_count || 0, busy: false, open: false };
+    const likeB = h("button", { type: "button", class: "bd-mini", title: "좋아요" });
+    const disB = h("button", { type: "button", class: "bd-mini", title: "싫어요" });
+    const cmtB = h("button", { type: "button", class: "bd-mini", title: "댓글 보기·달기" });
+    const panel = h("div", { class: "bd-panel", hidden: true });
+    const paint = () => {
+      likeB.textContent = `👍 ${st.likes}`;
+      disB.textContent = `👎 ${st.dislikes}`;
+      cmtB.textContent = `💬 ${st.cmts}`;
+      likeB.classList.toggle("on", st.mine === 1);
+      disB.classList.toggle("on", st.mine === -1);
+      cmtB.classList.toggle("on", st.open);
+      likeB.setAttribute("aria-pressed", st.mine === 1);
+      disB.setAttribute("aria-pressed", st.mine === -1);
+      likeB.disabled = disB.disabled = st.busy;
+    };
+    const vote = async (v) => {
+      if (st.busy) return;
+      st.busy = true;
+      paint();
+      try {
+        const r = await req(`/board/posts/${encodeURIComponent(p.id)}/vote`, {
+          method: "POST",
+          body: { voter: voterId(), vote: st.mine === v ? 0 : v },
+        });
+        st.likes = r.likes;
+        st.dislikes = r.dislikes;
+        st.mine = r.my_vote;
+        rememberVote(p.id, r.my_vote);
+      } catch (e) {
+        toast(errorText(e));
+      }
+      st.busy = false;
+      paint();
+    };
+    likeB.onclick = () => vote(1);
+    disB.onclick = () => vote(-1);
+    const toggle = () => {
+      st.open = !st.open;
+      panel.hidden = !st.open;
+      head.setAttribute("aria-expanded", st.open);
+      if (st.open && !panel.dataset.loaded) {
+        panel.dataset.loaded = "1";
+        mountPost(panel, p.id, ctx, {
+          inline: true,
+          onLoaded: (d) => {
+            st.cmts = (d.comments || []).length;
+            st.likes = d.post.likes;
+            st.dislikes = d.post.dislikes;
+            st.mine = d.post.my_vote || 0;
+            rememberVote(p.id, st.mine);
+            paint();
+          },
+          onDeleted: () => ctx.go(params, { replace: true }),
+        });
+      }
+      paint();
+    };
+    cmtB.onclick = toggle;
+    const head = h("div", {
+      class: "bd-head",
+      role: "button",
+      tabindex: 0,
+      "aria-expanded": "false",
+      onclick: toggle,
+      onkeydown: (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), toggle()),
+    },
+      h("div", { class: "t" },
+        notice ? h("span", { class: "tag blue", style: { marginRight: "6px" } }, "공지") : null,
+        p.title
+      ),
+      h("div", { class: "m" }, `${p.author || "익명"} · ${fmtDate(p.created_at)}`)
+    );
+    paint();
+    return h("div", { class: "bd-item" + (notice ? " bd-notice" : "") },
+      head,
+      h("div", { class: "bd-mini-row" }, likeB, disB, cmtB),
+      panel
+    );
+  };
 
   const cards = [];
   if (notices.length) {
@@ -202,9 +288,16 @@ async function renderDetail(root, id, ctx) {
   setHeader("익명게시판", "게시글 보기", [
     h("button", { class: "pill", type: "button", onclick: () => ctx.go({}) }, icon("chevron-left"), h("span", { class: "lbl" }, "목록")),
   ]);
-
-  const box = h("div", null, loading("글을 불러오는 중…"));
+  const box = h("div", null);
   root.append(box);
+  return mountPost(box, id, ctx, {});
+}
+
+// 글 내용·댓글·수정/삭제·댓글 입력을 box 안에 그린다. 상세 화면과 목록의 펼침 영역이 함께 쓴다.
+// opts.inline: 목록 안에서 펼친 모양(제목·큰 투표 단추 생략), opts.onLoaded(data): 불러온 뒤 호출, opts.onDeleted(): 삭제 뒤 호출.
+async function mountPost(box, id, ctx, opts = {}) {
+  const inline = !!opts.inline;
+  box.replaceChildren(loading("글을 불러오는 중…"));
 
   let data;
   try {
@@ -218,6 +311,7 @@ async function renderDetail(root, id, ctx) {
 
   const p = data.post;
   const comments = data.comments || [];
+  if (opts.onLoaded) opts.onLoaded(data);
 
   const deletePost = async () => {
     const isAdmin = !!adminKey();
@@ -243,7 +337,8 @@ async function renderDetail(root, id, ctx) {
         body: { password },
       });
       toast("삭제했습니다.");
-      ctx.go({});
+      if (opts.onDeleted) opts.onDeleted();
+      else ctx.go({});
     } catch (e) {
       toast(errorText(e));
     }
@@ -269,7 +364,7 @@ async function renderDetail(root, id, ctx) {
         body: { password },
       });
       toast("댓글을 삭제했습니다.");
-      ctx.go({ id }, { replace: true });
+      mountPost(box, id, ctx, opts);
     } catch (e) {
       toast(errorText(e));
     }
@@ -298,7 +393,7 @@ async function renderDetail(root, id, ctx) {
         body: { title: out.title, body: out.body, author: out.author, password: out.pw || "" },
       });
       toast("수정했습니다.");
-      ctx.go({ id }, { replace: true });
+      mountPost(box, id, ctx, opts);
     } catch (e) {
       toast(errorText(e));
     }
@@ -325,7 +420,7 @@ async function renderDetail(root, id, ctx) {
         body: { body: out.body, password: out.pw || "" },
       });
       toast("댓글을 수정했습니다.");
-      ctx.go({ id }, { replace: true });
+      mountPost(box, id, ctx, opts);
     } catch (e) {
       toast(errorText(e));
     }
@@ -380,7 +475,7 @@ async function renderDetail(root, id, ctx) {
         body: { author: cAuthor.value.trim() || "익명", body, password: cPw.value },
       });
       toast("댓글을 등록했습니다.");
-      ctx.go({ id }, { replace: true });
+      mountPost(box, id, ctx, opts);
     } catch (err) {
       toast(errorText(err));
     }
@@ -398,9 +493,9 @@ async function renderDetail(root, id, ctx) {
             h("button", { class: "btn ghost sm", type: "button", onclick: deletePost }, icon("trash-2"), "삭제")
           )
         ),
-        h("h2", { style: { margin: "10px 0 6px", fontSize: "18px" } }, p.title),
+        inline ? null : h("h2", { style: { margin: "10px 0 6px", fontSize: "18px" } }, p.title),
         h("div", { class: "bd-body" }, p.body),
-        h("div", { class: "bd-votes" }, likeBtn, dislikeBtn)
+        inline ? null : h("div", { class: "bd-votes" }, likeBtn, dislikeBtn)
       ),
       h("section", { class: "card", style: { padding: "16px" } },
         h("div", { class: "section-label" }, `댓글 ${comments.length}`),
