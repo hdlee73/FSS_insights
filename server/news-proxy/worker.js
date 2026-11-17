@@ -125,7 +125,7 @@ async function route(request, url, env, ctx, fromWeb) {
         return fail(502, "통계 저장 오류");
       }
     }
-    if (url.pathname === "/news" && request.method === "GET") return news(url, env, ctx);
+    if (url.pathname === "/news" && request.method === "GET") return withMoveNotice(await news(url, env, ctx), request, url);
     if (url.pathname === "/stats" && request.method === "GET") {
       try {
         return await stats(url, env, ctx);
@@ -187,6 +187,28 @@ async function law(url, env, ctx) {
   });
   if (res.ok) ctx.waitUntil(cache.put(cacheKey, out.clone()));
   return out;
+}
+
+// 옛 웹 주소(hdlee73.github.io)는 새 주소로 301 이동해 서비스 워커를 갱신할 수 없다. 그 출처에서 온 뉴스 요청의 첫 쪽 맨 위에 이동 안내 항목을 끼워 넣는다.
+const OLD_WEB_ORIGIN = "https://hdlee73.github.io";
+async function withMoveNotice(res, request, url) {
+  if (request.headers.get("Origin") !== OLD_WEB_ORIGIN || !res.ok || (url.searchParams.get("start") || "1") !== "1") return res;
+  try {
+    const data = await res.clone().json();
+    if (!Array.isArray(data.items)) return res;
+    data.items.unshift({
+      title: "[안내] FSS Insights 웹 주소가 바뀌었습니다 — www.fssinsights.com 으로 접속하세요",
+      link: "https://www.fssinsights.com/",
+      originallink: "https://www.fssinsights.com/",
+      description: "현재 화면은 옛 주소(hdlee73.github.io)의 이전 버전이라 업데이트가 표시되지 않습니다. 이 항목을 눌러 새 주소로 이동한 뒤 북마크·홈 화면 아이콘을 바꿔 주세요.",
+      pubDate: new Date().toUTCString(),
+    });
+    const headers = new Headers(res.headers);
+    headers.delete("Content-Length");
+    return new Response(JSON.stringify(data), { status: res.status, headers });
+  } catch {
+    return res;
+  }
 }
 
 async function news(url, env, ctx) {
