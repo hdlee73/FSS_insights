@@ -7,10 +7,12 @@
 //  - /usage   : 익명 사용 통계(일일 핑) 수집, /admin 은 관리자 통계 화면(usage-lib.js).
 //  - /fisis   : 금융통계정보시스템(FISIS) Open API 중계(금융회사 목록·총자산 순위·주요 경영정보). 인증키는 이 서버의 비밀값(FISIS_API_KEY)으로만 존재한다.
 //  - /fetch   : 웹 버전 전용. 브라우저가 직접 못 읽는(CORS) 기관·시세 사이트를 허용 목록 안에서만 대신 읽는다(web-lib.js).
+//  - /board   : 웹 익명게시판(D1 DB 공용). 공지 작성·글/댓글 강제 삭제는 ADMIN_TOKEN 으로 보호한다(board-lib.js).
 // 웹 버전(fss-insights-web)은 앱 토큰을 숨길 수 없어서, 허용 출처(WEB_ORIGINS)에서 온 요청은 토큰 없이 받고 IP별 요청 수를 제한한다.
 import fisisData from "./fisis-data.json";
 import { usagePing, adminApi, adminPage, adminExclude, adminUser } from "./usage-lib.js";
 import { publicNotices, adminNotices, noticesPage } from "./notices-lib.js";
+import { handleBoard } from "./board-lib.js";
 import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, webSearchCorps, withDartClass } from "./dart-lib.js";
 import { corsPreflight, proxyFetch, webAccess, withCors } from "./web-lib.js";
 import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos, statementOf } from "./fisis-lib.js";
@@ -81,6 +83,15 @@ async function route(request, url, env, ctx, fromWeb) {
         return await adminNotices(request, env);
       } catch (e) {
         return fail(502, `공지 처리 오류: ${e.message}`);
+      }
+    }
+    // 익명게시판(board-lib.js). 웹에서 토큰 없이 쓰고, 공지 작성·삭제는 ADMIN_TOKEN(X-Admin-Token)으로 보호한다.
+    // /board 는 WEB_PATHS 밖이라 CORS(DELETE, X-Admin-Token 포함)를 board-lib 이 직접 붙인다.
+    if (url.pathname.startsWith("/board/")) {
+      try {
+        return await handleBoard(request, env);
+      } catch (e) {
+        return fail(502, `게시판 오류: ${e.message}`);
       }
     }
     if (!fromWeb && (!env.APP_TOKEN || request.headers.get("X-App-Token") !== env.APP_TOKEN)) {
