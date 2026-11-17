@@ -85,7 +85,6 @@ private const val TAB_PRESS = 3   // 자료 탭(보도자료 구분 탭)
 private const val SCREEN_SANCTION_ID = 11
 private const val SCREEN_DISCLOSURE_ID = 14
 private const val SCREEN_AUDIT_ID = 15
-private const val RECENT_ACTION_DAYS = 7L
 private val BRIEFING_PRESS = listOf(AgencyId.FSS, AgencyId.FSC)
 /** 연구자료 탭에 기본으로 들어 있는 기관 전부. */
 private val BRIEFING_RESEARCH = AgencyId.entries.filter { it.group == AgencyGroup.RESEARCH && it != AgencyId.CUSTOM }
@@ -184,20 +183,27 @@ fun BriefingScreen(
                 weatherTick++
             }
 
-            // 즐겨찾기: 메뉴를 열지 않고 바로 가도록 맨 위에 둔다.
-            FavoritesRow(favorites, onOpenTab)
-
             SectionTitle("시장 지표", "한눈에 보는 오늘 시장") { onOpenTab(TAB_MARKET) }
             val tiles = market.indexes.briefingItems
                 .mapNotNull { item -> market.quotes[item.symbol]?.let { item to it } }
             if (tiles.isEmpty()) {
                 Hint(if (market.isRefreshing) "시세 연결 중…" else "시세를 불러오지 못했습니다.")
             } else {
-                // 시안 v2-01: 지표 카드를 한 줄로 늘어놓고 옆으로 밀어 본다.
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    tiles.forEach { (item, quote) ->
-                        val korea = KOREA_INDEXES.any { k -> k.symbol == item.symbol }
-                        MarketTile(item, quote, market.intraday[item.symbol], market.investors[item.symbol].takeIf { korea }, Modifier.width(if (korea) 214.dp else 160.dp)) { onOpenTab(TAB_MARKET) }
+                // 첫 줄에는 코스피·코스닥만 크게(순매수 포함), 나머지 지표는 아래 줄에서 옆으로 밀어 본다.
+                val (koreaTiles, otherTiles) = tiles.partition { (item, _) -> KOREA_INDEXES.any { k -> k.symbol == item.symbol } }
+                if (koreaTiles.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        koreaTiles.forEach { (item, quote) ->
+                            MarketTile(item, quote, market.intraday[item.symbol], market.investors[item.symbol], Modifier.weight(1f)) { onOpenTab(TAB_MARKET) }
+                        }
+                        if (koreaTiles.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+                if (otherTiles.isNotEmpty()) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = if (koreaTiles.isNotEmpty()) 10.dp else 0.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        otherTiles.forEach { (item, quote) ->
+                            MarketTile(item, quote, market.intraday[item.symbol], null, Modifier.width(160.dp)) { onOpenTab(TAB_MARKET) }
+                        }
                     }
                 }
             }
@@ -246,7 +252,7 @@ fun BriefingScreen(
             }
 
             SectionTitle(
-                "최근 검사·공시조사·회계감리 제재", "최근 ${RECENT_ACTION_DAYS}일 · 항목을 누르면 해당 목록으로",
+                "최근 검사·공시조사·회계감리 제재", "최근 5건 · 항목을 누르면 해당 목록으로",
                 links = listOf(
                     "검사" to { onOpenTab(SCREEN_SANCTION_ID) },
                     "공시조사" to { onOpenTab(SCREEN_DISCLOSURE_ID) },
@@ -262,7 +268,7 @@ fun BriefingScreen(
                         ActionLine(a) { onOpenTab(a.screen) }
                     }
                 }
-                else -> Hint("최근 ${RECENT_ACTION_DAYS}일 이내 새로 공시된 검사·공시조사·회계감리 결과가 없습니다.")
+                else -> Hint("검사·공시조사·회계감리 결과가 없습니다.")
             }
             if (acts != null && acts.failed.isNotEmpty()) Hint("${acts.failed.joinToString("·")} 자료는 불러오지 못했습니다.")
 
@@ -464,7 +470,8 @@ private data class ActionEntry(val kind: String, val company: String, val date: 
 private data class RecentActions(val items: List<ActionEntry>, val failed: List<String>)
 
 private suspend fun loadRecentActions(context: android.content.Context): RecentActions = coroutineScope {
-    val from = LocalDate.now(SEOUL).minusDays(RECENT_ACTION_DAYS)
+    // 기간 제한 없이 가장 최근 5건(아래 take(5))
+    val from = LocalDate.MIN
     val san = async { runCatching { SanctionRepository(context).load() }.getOrNull() }
     val acc = AccountingRepository(context)
     val dis = async { runCatching { acc.loadDisclosure().data.items }.getOrNull() }
@@ -488,30 +495,10 @@ private suspend fun loadRecentActions(context: android.content.Context): RecentA
         out += ActionEntry("회계감리", x.company, date, listOf(x.market, x.actions.take(2).joinToString(", ")).filter { it.isNotBlank() }.joinToString(" · "), SCREEN_AUDIT_ID)
     }
     val failed = buildList { if (s == null) add("제재공시"); if (d == null) add("공시조사결과제재"); if (a == null) add("회계감리결과제재") }
-    RecentActions(out.sortedWith(compareByDescending<ActionEntry> { it.date }.thenBy { it.kind }), failed)
+    RecentActions(out.sortedWith(compareByDescending<ActionEntry> { it.date }.thenBy { it.kind }).take(5), failed)
 }
 
 private val actionDateFormat = DateTimeFormatter.ofPattern("yyyy.MM.dd")
-
-/** 즐겨찾기 화면으로 바로 가는 알약 버튼 줄. 없으면 추가 방법을 안내한다. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun FavoritesRow(favorites: List<Pair<Int, String>>, onOpen: (Int) -> Unit) {
-    if (favorites.isEmpty()) {
-        Hint("메뉴(≡)에서 ★를 누르면 자주 쓰는 화면이 여기에 모입니다.")
-        return
-    }
-    FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        favorites.forEach { (id, label) ->
-            Surface(
-                Modifier.clickable { onOpen(id) },
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-            ) { Text("★ $label", Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge, maxLines = 1) }
-        }
-    }
-}
 
 @Composable
 private fun LawNewsLine(e: LawNewsEntry, onOpen: () -> Unit) {
