@@ -2,6 +2,7 @@ package io.github.hdlee73.financenewsradar.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -68,6 +69,8 @@ import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Newspaper
 import androidx.compose.material.icons.outlined.ShowChart
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -467,6 +470,48 @@ fun FinanceNewsRadarApp(
             )
             IconButton(onClick = { go(SCREEN_BRIEFING) }) {
                 Icon(Icons.Filled.Home, contentDescription = "홈(오늘의 브리핑)", tint = AppColors.onHero)
+            }
+            // 홈 옆 ★: 어느 화면에서나 즐겨찾기를 펼쳐 바로 가고, 별을 눌러 해제하거나 메인 메뉴 항목을 추가한다.
+            var favMenuOpen by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { favMenuOpen = true }) {
+                    Icon(Icons.Filled.Star, contentDescription = "즐겨찾기 열기", tint = androidx.compose.ui.graphics.Color(0xFFF5B83D))
+                }
+                DropdownMenu(expanded = favMenuOpen, onDismissRequest = { favMenuOpen = false }) {
+                    Text("즐겨찾기", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                    if (favorites.isEmpty()) {
+                        Text("아직 없습니다. 아래에서 추가하거나 메뉴의 ★를 누르세요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).widthIn(max = 240.dp))
+                    }
+                    favorites.forEach { id ->
+                        DropdownMenuItem(
+                            text = { Text(appScreens[id].label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            leadingIcon = { Icon(appScreens[id].icon, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                            trailingIcon = {
+                                IconButton(onClick = { toggleFavorite(id) }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Filled.Star, contentDescription = "${appScreens[id].label} 즐겨찾기 해제", tint = androidx.compose.ui.graphics.Color(0xFFF5B83D), modifier = Modifier.size(20.dp))
+                                }
+                            },
+                            onClick = { favMenuOpen = false; go(id) }
+                        )
+                    }
+                    val addable = listOf(SCREEN_NEWS, SCREEN_MARKET, SCREEN_CONSUMER, SCREEN_LAW, SCREEN_CRYPTO).filter { it !in favorites }
+                    if (addable.isNotEmpty()) {
+                        HorizontalDivider()
+                        Text("메인 메뉴에서 추가", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                        addable.forEach { id ->
+                            DropdownMenuItem(
+                                text = { Text(appScreens[id].label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                leadingIcon = { Icon(appScreens[id].icon, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                                trailingIcon = {
+                                    IconButton(onClick = { toggleFavorite(id) }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Filled.StarBorder, contentDescription = "${appScreens[id].label} 즐겨찾기에 추가", modifier = Modifier.size(20.dp))
+                                    }
+                                },
+                                onClick = { favMenuOpen = false; go(id) }
+                            )
+                        }
+                    }
+                }
             }
         }
         NoticeBanner()

@@ -697,11 +697,20 @@ function finView(root, data, params, ctx) {
       : [[`${e.n}(${e.corp || ""})`, "공시 없음", ...cols.map(() => "-"), "-", "-"]])))));
   const interimRows = list.flatMap((e) => interim(e).map((y) => [`${e.n}(${e.corp || ""})`, `${y.year} ${y.period} ${y.basis || ""}`, ...cols.map(([, key]) => (y[key] == null ? "-" : won(y[key]))), pct(ratioOf(y.liabilities, y.equity), 0), pct(ratioOf(y.op_income, y.revenue), 1)]));
   if (interimRows.length) root.append(card("최근 분기·반기 (정기보고서 제출 법인, 손익은 누적)", "calendar", table(["거래소(법인)", "기간", ...cols.map((c) => c[0]), "부채비율", "영업이익률"], interimRows)));
+  // 비교 카드는 재무 기준일(연간 = 사업연도말)을 함께 보여 준다. 적자는 0 막대로 그리되 값은 그대로 표시한다.
+  const asOf = (y) => (y ? (y.period && y.period !== "연간" ? `${y.year} ${y.period}` : `${y.year}.12.31`) : "");
+  const baseLine = (items) => {
+    const per = latest.filter((e) => items.some((i) => i.label === e.n)).map((e) => [e.n, asOf(e.y), e.y?.basis || ""]);
+    const same = per.every((x) => x[1] === per[0]?.[1]);
+    return same && per.length ? `기준일 ${per[0][1]} (사업연도말, 연결·별도는 위 표 참고)` : "기준일 " + per.map((x) => `${x[0]} ${x[1]}${x[2] ? "(" + x[2] + ")" : ""}`).join(" · ");
+  };
   const bar = (key, label, color) => {
     const items = latest.filter((e) => e.y?.[key] != null).map((e) => ({ label: e.n, v: e.y[key], color: e.y[key] < 0 ? "#e5484d" : color }));
-    return items.length ? card(label, "bar-chart-3", hbars(items.map((i) => ({ ...i, v: Math.max(i.v, 0) })), (v) => won(v))) : null;
+    if (!items.length) return null;
+    const neg = items.some((i) => i.v < 0);
+    return card(label + (neg ? " (적자는 0 표시)" : ""), "bar-chart-3", h("div", null, h("small", { class: "cr-asof" }, baseLine(items)), hbars(items.map((i) => ({ ...i, v: Math.max(i.v, 0) })), (v) => won(v))));
   };
-  root.append(h("div", { class: "cr-grid2" }, bar("revenue", "영업수익 비교", COLORS[0]), bar("net_income", "당기순이익 비교 (적자는 0 표시)", COLORS[1]), bar("assets", "자산총계 비교", COLORS[3]), bar("equity", "자본총계 비교", COLORS[2])));
+  root.append(h("div", { class: "cr-grid3" }, bar("assets", "자산총계 비교", COLORS[3]), bar("liabilities", "부채총계 비교", "#c2410c"), bar("equity", "자본총계 비교", COLORS[2]), bar("revenue", "영업수익 비교", COLORS[0]), bar("op_income", "영업이익 비교", "#2f8f9d"), bar("net_income", "당기순이익 비교", COLORS[1])));
   const sel = list.some((e) => e.k === params.ex) ? params.ex : (list.find((e) => e.years.length)?.k || "upbit");
   root.append(tabs(EXCHANGES.map((e) => e[1]), EXCHANGES.findIndex(([k]) => k === sel), (i) => ctx.go({ ...params, ex: EXCHANGES[i][0] }, { replace: true }), "seg"));
   const cur = list.find((e) => e.k === sel);
