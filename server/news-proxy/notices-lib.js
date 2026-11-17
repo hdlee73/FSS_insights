@@ -99,6 +99,12 @@ label{display:block;font-size:12px;color:var(--mut);margin:8px 0 2px}.row{displa
 <p><button id="save">저장</button> <button id="reset" class="g">새로 쓰기</button></p>
 <div class="leg">저장하면 1~2분 안에 앱·웹 맨 위 배너에 나타납니다. 종료일이 지나면 자동으로 사라지며, 이용자가 닫은 공지는 그 기기에서 다시 뜨지 않습니다.</div></div>
 <div class="card"><h2>등록된 공지</h2><div id="list"></div></div>
+<div class="card"><h2>익명게시판 공지 (게시판 맨 위 고정글)</h2>
+<label>제목</label><input id="bti" class="w" maxlength="120">
+<label>내용</label><textarea id="bbo" maxlength="5000"></textarea>
+<p><button id="bsave">게시판 공지 등록</button></p>
+<div id="blist"></div>
+<div class="leg">웹 게시판에서는 공지 작성·관리자 인증 단추가 없으므로, 게시판 공지는 여기서만 등록·삭제합니다.</div></div>
 </div></main>
 <script>
 const $=i=>document.getElementById(i);$("tok").value=sessionStorage.getItem("t")||"";let items=[],editId=null,today="";
@@ -108,7 +114,14 @@ function reset(){editId=null;$("fh").textContent="새 공지 작성";$("ti").val
 function draw(){$("list").innerHTML=items.length?items.map(n=>{const st=n.end<today?"종료":n.start>today?"예정":"게시 중";return '<div class="n"><div class="t'+(n.level==="urgent"?' u':'')+'">'+esc(n.title)+'</div><div class="m">'+st+' · '+n.start+' ~ '+(n.end==="9999-12-31"?"계속":n.end)+(n.level==="urgent"?" · 중요":"")+'</div><div class="m">'+esc(n.body).slice(0,120)+'</div><p><button class="g" data-e="'+n.id+'">수정</button> <button class="d" data-d="'+n.id+'">삭제</button></p></div>'}).join(""):'<span class="leg">등록된 공지가 없습니다</span>'}
 async function load(){$("msg").textContent="불러오는 중…";sessionStorage.setItem("t",$("tok").value);const r=await api("GET");
 if(!r.ok){$("msg").textContent=r.status==401?"토큰이 맞지 않습니다":"오류 "+r.status;return}
-const d=await r.json();today=d.today;items=d.notices;$("msg").textContent="";$("out").hidden=false;if(editId===null&&!$("st").value)reset();draw()}
+const d=await r.json();today=d.today;items=d.notices;$("msg").textContent="";$("out").hidden=false;if(editId===null&&!$("st").value)reset();draw();bload()}
+const bapi=(m,p,b)=>fetch("/board/posts"+p,{method:m,headers:{"X-Admin-Token":$("tok").value,"Content-Type":"application/json"},body:b?JSON.stringify(b):undefined});
+let bitems=[];
+async function bload(){try{const r=await bapi("GET","?page=1");const d=await r.json();bitems=d.notices||[]}catch(e){bitems=[]}
+$("blist").innerHTML=bitems.length?bitems.map(n=>'<div class="n"><div class="t">'+esc(n.title)+'</div><div class="m">#'+n.id+' · '+esc(String(n.created_at||"").slice(0,10))+'</div><p><button class="d" data-bd="'+n.id+'">삭제</button></p></div>').join(""):'<span class="leg">등록된 게시판 공지가 없습니다</span>'}
+$("bsave").onclick=async()=>{const t=$("bti").value.trim(),b=$("bbo").value.trim();if(!t||!b){alert("제목과 내용을 모두 입력해 주세요");return}
+const r=await bapi("POST","",{title:t,body:b,author:"관리자",is_notice:true});if(!r.ok){alert((await r.json().catch(()=>({}))).error||"등록하지 못했습니다");return}$("bti").value="";$("bbo").value="";bload()};
+$("blist").onclick=async e=>{const id=e.target.dataset.bd;if(id&&confirm("이 게시판 공지를 삭제할까요?")){const r=await bapi("DELETE","/"+id);if(!r.ok)alert("삭제하지 못했습니다");bload()}};
 $("go").onclick=load;$("reset").onclick=reset;
 $("save").onclick=async()=>{const b={title:$("ti").value,body:$("bo").value,start:$("st").value,end:$("en").value,level:$("lv").value};if(editId)b.id=editId;
 const r=await api("POST","",b);if(!r.ok){alert((await r.json()).error||"저장하지 못했습니다");return}reset();load()};
