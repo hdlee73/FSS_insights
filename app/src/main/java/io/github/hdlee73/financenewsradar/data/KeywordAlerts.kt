@@ -67,7 +67,7 @@ object KeywordAlerts {
         val store = SettingsStore(app)
         val modes = store.loadSettings().keywords.map(store::keywordAlertMode)
         val fast = KeywordAlertMode.FAST in modes
-        val hourly = KeywordAlertMode.HOURLY in modes || NewMaterialAlerts.anyEnabled(store) || store.libraryAlertEnabled()
+        val hourly = KeywordAlertMode.HOURLY in modes || NewMaterialAlerts.anyEnabled(store) || store.libraryAlertEnabled() || SanctionAlerts.anyEnabled(store)
         enqueue(app, WORK_FAST, KeywordAlertMode.FAST, FAST_MINUTES, fast)
         enqueue(app, WORK_HOURLY, KeywordAlertMode.HOURLY, HOURLY_MINUTES, hourly)
     }
@@ -133,6 +133,7 @@ class KeywordAlertWorker(context: Context, params: WorkerParameters) : Coroutine
         if (mode == KeywordAlertMode.HOURLY) {
             runCatching { NewMaterialAlerts.check(applicationContext) }
             runCatching { LibraryAlerts.check(applicationContext) }
+            runCatching { SanctionAlerts.check(applicationContext) }
         }
         return Result.success()
     }

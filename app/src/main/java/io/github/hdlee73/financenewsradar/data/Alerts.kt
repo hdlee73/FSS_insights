@@ -18,6 +18,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.github.hdlee73.financenewsradar.MainActivity
+import io.github.hdlee73.financenewsradar.accounting.data.AccountingRepository
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.model.AgencyId
 import io.github.hdlee73.financenewsradar.model.TimeRange
@@ -146,6 +147,58 @@ object LibraryAlerts {
             }
         }
         return files
+    }
+}
+
+/** 제재공시·공시조사결과제재·회계감리결과제재 자료에 새 건이 생기면 알리는 기능(자료는 매일 갱신). 1시간 작업에 함께 실려 확인한다. */
+object SanctionAlerts {
+    private const val CHANNEL_ID = "sanction_alerts"
+    const val SANCTION = "sanction"
+    const val DISCLOSURE = "disclosure"
+    const val AUDIT = "audit"
+    val kinds = listOf(SANCTION, DISCLOSURE, AUDIT)
+
+    fun anyEnabled(store: SettingsStore): Boolean = kinds.any(store::sanctionAlertEnabled)
+
+    internal suspend fun check(context: Context) {
+        val store = SettingsStore(context)
+        if (!anyEnabled(store) || UpdateChecker.needsNotificationPermission(context)) return
+        if (store.sanctionAlertEnabled(SANCTION)) {
+            val hits = runCatching {
+                SanctionRepository(context).load().cases.map { c ->
+                    val detail = listOf(c.sector, SanctionText.line(c.inst.ifBlank { c.exec.ifBlank { c.staff } })).filter { it.isNotBlank() }.joinToString(" · ")
+                    AlertHit("${c.company}${if (detail.isBlank()) "" else " · $detail"}", c.id, c.date.toString())
+                }
+            }.getOrNull()
+            notifyFresh(context, store, SANCTION, hits, "제재공시", 3101)
+        }
+        if (store.sanctionAlertEnabled(DISCLOSURE)) {
+            val hits = runCatching {
+                AccountingRepository(context).loadDisclosure().data.items.filter { it.id.isNotBlank() }.map { c ->
+                    val detail = listOfNotNull(c.actions.firstOrNull(), c.violations.firstOrNull { it.title.isNotBlank() }?.title).joinToString(" · ")
+                    AlertHit("${c.company}${if (detail.isBlank()) "" else " · $detail"}", c.id, c.date.ifEmpty { c.postDate })
+                }
+            }.getOrNull()
+            notifyFresh(context, store, DISCLOSURE, hits, "공시조사결과 제재", 3102)
+        }
+        if (store.sanctionAlertEnabled(AUDIT)) {
+            val hits = runCatching {
+                AccountingRepository(context).loadAudit().data.items.map { a ->
+                    val detail = listOf(a.market, a.actions.take(2).joinToString(", ")).filter { it.isNotBlank() }.joinToString(" · ")
+                    AlertHit("${a.company}${if (detail.isBlank()) "" else " · $detail"}", a.key, a.actionDate)
+                }
+            }.getOrNull()
+            notifyFresh(context, store, AUDIT, hits, "회계감리결과 제재", 3103)
+        }
+    }
+
+    private fun notifyFresh(context: Context, store: SettingsStore, kind: String, hits: List<AlertHit>?, label: String, id: Int) {
+        // 처음 켜면 지금 있는 건을 '이미 본 것'으로만 기록한다(알리지 않음). 목록이 길어 기록 한도를 넉넉히 둔다.
+        val (fresh, seen) = KeywordAlertLogic.diff(hits, store.seenLinks("sanction_$kind"))
+        if (seen != null) store.saveSeenLinks("sanction_$kind", seen, 8000)
+        if (fresh.isNotEmpty()) {
+            AlertNotifier.post(context, CHANNEL_ID, "제재 알림", id, "새 $label ${fresh.size}건", fresh.map { "[${it.source}] ${it.title}" })
+        }
     }
 }
 
