@@ -190,9 +190,17 @@ export function summarize(allRows, menuRows, from, to, menuUserRows = [], platfo
     for (let i = 0; i < len; i++) for (const u of byDay.get(dayShift(end, -i)) ?? []) set.add(u);
     return set.size;
   };
+  // 누적 설치: 각 ID가 처음 관측된 날 기준으로 그 날짜까지의 고유 ID 누계(기록 시작 전은 0)
+  const firstDay = new Map();
+  for (const r of rows) if (!firstDay.has(r.uid) || r.day < firstDay.get(r.uid)) firstDay.set(r.uid, r.day);
+  const firstCount = new Map();
+  for (const day of firstDay.values()) firstCount.set(day, (firstCount.get(day) ?? 0) + 1);
+  let installs = 0;
+  for (const [day, n] of firstCount) if (day < from) installs += n;
   const series = [];
   for (let d = from; d <= to; d = dayShift(d, 1)) {
-    series.push({ day: d, dau: byDay.get(d)?.size ?? 0, wau: window(d, 7), mau: window(d, 30) });
+    installs += firstCount.get(d) ?? 0;
+    series.push({ day: d, dau: byDay.get(d)?.size ?? 0, wau: window(d, 7), mau: window(d, 30), installs });
   }
   const weekStart = dayShift(to, -6);
   for (const r of [...rows].sort((a, b) => (a.day < b.day ? -1 : 1))) {
@@ -779,7 +787,7 @@ const hm=Math.max(1,...D.hours.map(x=>x.hits));$("hrs").innerHTML=D.hours.map((x
 const wm=Math.max(1,...D.weekday.map(x=>x.avg));$("wdy").innerHTML=D.weekday.map(x=>'<div class="bar"><em>'+x.label+'요일</em><i style="width:'+Math.round(x.avg/wm*55)+'%"></i>'+x.avg.toFixed(1)+'</div>').join("");
 const er=Object.entries(D.errors).sort((a,b)=>b[1].hits-a[1].hits);
 $("errs").innerHTML="<tr><th>이름</th><th>횟수</th><th>영향 사용자</th><th>마지막</th></tr>"+(er.length?er.map(([k,v])=>"<tr><td>"+esc(k)+"</td><td>"+v.hits+"</td><td>"+v.users+"</td><td>"+v.last.slice(5)+"</td></tr>").join(""):"<tr><td colspan=4>기록 없음</td></tr>");
-$("tbl").innerHTML="<tr><th>날짜</th><th>DAU</th><th>WAU</th><th>MAU</th></tr>"+s.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.wau+"</td><td>"+p.mau+"</td></tr>").join("")}
+$("tbl").innerHTML="<tr><th>날짜</th><th>DAU</th><th>WAU</th><th>MAU</th><th>누적 설치</th></tr>"+s.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.wau+"</td><td>"+p.mau+"</td><td>"+p.installs+"</td></tr>").join("")}
 async function exApi(body){const r=await fetch("/admin/exclude",{method:"POST",headers:{"X-Admin-Token":$("tok").value,"Content-Type":"application/json"},body:JSON.stringify(body)});if(!r.ok){alert(r.status==400?(await r.json()).error:"오류 "+r.status);return}load()}
 $("exadd").onclick=()=>{const v=$("exid").value.trim();if(v){$("exid").value="";exApi({add:v})}};
 let udId="";
