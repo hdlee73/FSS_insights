@@ -10,6 +10,7 @@ const ROUTES = {
   fisis: { label: "금융회사 주요 현황", load: () => import("./screens/fisis.js") },
   lawnews: { label: "최근 금융관련 법령개정 소식", load: () => import("./screens/lawnews.js") },
   lawdoc: { label: "법령 개정 내용", load: () => import("./screens/lawdoc.js") },
+  board: { label: "익명게시판", load: () => import("./screens/board.js") },
 };
 const HOME = "consumer";
 

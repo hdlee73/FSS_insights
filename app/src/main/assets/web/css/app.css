@@ -826,7 +826,20 @@ body.collapsed .menu .sec .mr .mi { padding-right: 0; }
   .fresh.stale #fresh-btn { color: var(--warn-fg); position: relative; }
   .fresh.stale #fresh-btn::after { content: ""; position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn-fg); }
 }
-}
+.top-board-btn { margin-right: 4px; gap: 5px; font-weight: 600; }
+.top-board-btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+@media (max-width: 560px) { .top-board-btn .lbl { display: none; } .top-board-btn { padding: 0 8px; height: 30px; } }
+
+/* ---- 익명게시판 ---- */
+.bd-notice { background: var(--accent-soft, rgba(20, 33, 61, .05)); border-left: 3px solid var(--accent); }
+.bd-body { white-space: pre-wrap; word-break: break-word; line-height: 1.65; font-size: 14.5px; color: var(--fg); padding: 12px 0 4px; }
+.bd-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.bd-cmt { padding: 10px 0; border-top: 1px solid var(--line2); }
+.bd-cmt:first-child { border-top: 0; }
+.bd-cmt-txt { white-space: pre-wrap; word-break: break-word; font-size: 13.5px; line-height: 1.55; margin-top: 4px; }
+.bd-form { display: flex; flex-direction: column; gap: 10px; }
+.bd-form input, .bd-form textarea { width: 100%; box-sizing: border-box; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.bd-form textarea { min-height: 120px; resize: vertical; }
 
 /* ---- 읽은 글은 흐리게 ---- */
 .item.read .body { opacity: .55; }
@@ -1274,7 +1287,7 @@ a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; te
 .mg-favs b { font-size: 12px; color: #a35b00; margin-right: 4px; }
 .mg-chip { padding: 4px 10px; border-radius: 999px; background: var(--chip); font-size: 12.5px; }
 .mg-chip:hover, .mg-chip.on { background: var(--acc-soft); color: var(--acc-fg); }
-.mg-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 24px; }
+.mg-cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 18px; }
 .mg-col h4 { font-size: 12.5px; color: var(--acc); margin: 0 0 6px; padding: 0 8px; }
 .mg-row { position: relative; }
 .mg-i { display: flex; align-items: center; gap: 6px; padding: 6px 30px 6px 8px; border-radius: 7px; font-size: 13.5px; line-height: 1.35; }
@@ -1315,6 +1328,8 @@ a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; te
 .hm-kpis .tile .nm { color: var(--muted); font-weight: 600; }
 .hm-kpis .tile .px { font-size: 22px; text-align: left; font-weight: 700; }
 .hm-kpis .tile .dl { text-align: left; }
+.hm-kpis .tile { display: flex; flex-direction: column; }
+.hm-kpis .tile .inv { margin-top: auto; padding-top: 8px; }
 .hm-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 12px; margin-top: 12px; align-items: stretch; }
 .hm-right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .hm-card { min-width: 0; }
@@ -1369,9 +1384,9 @@ a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; te
 
 /* v3.3 오늘의 브리핑 재배치: 즐겨찾기 줄 · 증시 지표(더보기) · 통계 둘째 줄 · 2열 카드 */
 .hm-favs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
-.hm-favs > b { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: #b7791f; margin-right: 2px; }
+.hm-favs > b { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: #b7791f; margin-right: 2px; }
 .hm-favs > b .i { width: 15px; height: 15px; }
-.hm-fav { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.hm-fav { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; flex: none; }
 .hm-fav .i { width: 14px; height: 14px; color: var(--acc); }
 .hm-fav:hover { border-color: var(--acc); color: var(--acc-fg); }
 .hm-sh { display: flex; align-items: center; justify-content: space-between; margin: 10px 2px 8px; }
@@ -1391,3 +1406,15 @@ a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; te
 @media (max-width: 1000px) { .hm-two { grid-template-columns: 1fr; } }
 @media (max-width: 860px) { .hm-stats { grid-template-columns: repeat(2, 1fr); gap: 10px; } .hm-sc b { font-size: 17px; } .hm-favs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; } }
 @media (max-width: 1000px) { .hm-grid { grid-template-columns: 1fr; } }
+a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; text-underline-offset: 2px; }
+
+/* ---- 익명게시판 ---- */
+.bd-notice { background: var(--accent-soft, rgba(20, 33, 61, .05)); border-left: 3px solid var(--accent); }
+.bd-body { white-space: pre-wrap; word-break: break-word; line-height: 1.65; font-size: 14.5px; color: var(--fg); padding: 12px 0 4px; }
+.bd-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.bd-cmt { padding: 10px 0; border-top: 1px solid var(--line2); }
+.bd-cmt:first-child { border-top: 0; }
+.bd-cmt-txt { white-space: pre-wrap; word-break: break-word; font-size: 13.5px; line-height: 1.55; margin-top: 4px; }
+.bd-form { display: flex; flex-direction: column; gap: 10px; }
+.bd-form input, .bd-form textarea { width: 100%; box-sizing: border-box; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.bd-form textarea { min-height: 120px; resize: vertical; }
