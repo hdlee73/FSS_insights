@@ -10,7 +10,7 @@
 //  - /board   : 웹 익명게시판(D1 DB 공용). 공지 작성·글/댓글 강제 삭제는 ADMIN_TOKEN 으로 보호한다(board-lib.js).
 // 웹 버전(fss-insights-web)은 앱 토큰을 숨길 수 없어서, 허용 출처(WEB_ORIGINS)에서 온 요청은 토큰 없이 받고 IP별 요청 수를 제한한다.
 import fisisData from "./fisis-data.json";
-import { usagePing, adminApi, adminPage, adminExclude, adminUser } from "./usage-lib.js";
+import { usagePing, adminApi, adminPage, adminExclude, adminUser, adminTag } from "./usage-lib.js";
 import { publicNotices, adminNotices, noticesPage } from "./notices-lib.js";
 import { handleBoard } from "./board-lib.js";
 import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, webSearchCorps, withDartClass } from "./dart-lib.js";
@@ -75,6 +75,13 @@ async function route(request, url, env, ctx, fromWeb) {
         return await adminExclude(request, env);
       } catch (e) {
         return fail(502, `제외 목록 오류: ${e.message}`);
+      }
+    }
+    if (url.pathname === "/admin/tag" && request.method === "POST") {
+      try {
+        return await adminTag(request, env);
+      } catch (e) {
+        return fail(502, `태그 처리 오류: ${e.message}`);
       }
     }
     if (url.pathname === "/admin/notices" && request.method === "GET") return noticesPage();
