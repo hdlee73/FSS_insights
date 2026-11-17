@@ -32,6 +32,7 @@ import io.github.hdlee73.financenewsradar.data.BriefingAlert
 import io.github.hdlee73.financenewsradar.data.KeywordAlertMode
 import io.github.hdlee73.financenewsradar.data.KeywordAlerts
 import io.github.hdlee73.financenewsradar.data.NewMaterialAlerts
+import io.github.hdlee73.financenewsradar.data.SanctionAlerts
 import io.github.hdlee73.financenewsradar.data.SettingsStore
 import io.github.hdlee73.financenewsradar.model.AgencyGroup
 import io.github.hdlee73.financenewsradar.model.AgencyId
@@ -47,6 +48,7 @@ fun AlertSettingsScreen(keywords: List<String>, modifier: Modifier = Modifier) {
     val materials = remember { mutableStateMapOf<AgencyId, Boolean>().also { m -> NewMaterialAlerts.sources.forEach { m[it] = store.materialAlertEnabled(it) } } }
 
     var libraryOn by remember { mutableStateOf(store.libraryAlertEnabled()) }
+    val sanctions = remember { mutableStateMapOf<String, Boolean>().also { m -> SanctionAlerts.kinds.forEach { m[it] = store.sanctionAlertEnabled(it) } } }
 
     // 알림을 처음 켜는 순간 알림 권한이 없으면 먼저 요청하고, 허용되면 하려던 변경을 적용한다.
     var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -79,6 +81,11 @@ fun AlertSettingsScreen(keywords: List<String>, modifier: Modifier = Modifier) {
     fun applyLibrary(on: Boolean) {
         libraryOn = on
         store.setLibraryAlertEnabled(on)
+        KeywordAlerts.reschedule(context)
+    }
+    fun applySanction(kind: String, on: Boolean) {
+        sanctions[kind] = on
+        store.setSanctionAlertEnabled(kind, on)
         KeywordAlerts.reschedule(context)
     }
     fun pickTime() {
@@ -140,6 +147,19 @@ fun AlertSettingsScreen(keywords: List<String>, modifier: Modifier = Modifier) {
                     "참고 자료실 폴더를 1시간 안팎 간격으로 확인해 새 파일을 알려 드립니다. 앱만으로는 안드로이드 제한 때문에 최소 약 15분 간격이며, 즉시 알림은 지원하지 않습니다. 켜기 전에 이미 있던 파일은 알리지 않습니다.",
                     libraryOn
                 ) { on -> if (on) enabling { applyLibrary(true) } else applyLibrary(false) }
+            }
+            SectionBand(6.dp)
+
+            // 3-2) 제재 알림
+            Section("제재 알림") {
+                Note("매일 갱신되는 자료에 새 건이 올라오면 1시간 안팎 간격으로 확인해 알려 드립니다. 금감원 게시 후 반영까지 하루 안팎 걸릴 수 있고, 켜기 전에 이미 있던 건은 알리지 않습니다.")
+                listOf(
+                    SanctionAlerts.SANCTION to "금융회사 제재공시에 새 건이 올라오면",
+                    SanctionAlerts.DISCLOSURE to "공시조사결과 제재에 새 건이 올라오면",
+                    SanctionAlerts.AUDIT to "회계감리결과 제재에 새 건이 올라오면"
+                ).forEach { (kind, title) ->
+                    SwitchRow(title, "", X if (on) enabling { applySanction(kind, true) } else applySanction(kind, false) }
+                }
             }
             SectionBand(6.dp)
 
