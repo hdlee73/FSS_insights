@@ -91,7 +91,10 @@ val DEFAULT_MARKET_STATS: List<String> =
     listOf("base-rate", "ktb-3y", "ktb-10y", "cd-91", "corp-aa", "household-credit", "bank-household-loan", "bank-delinquency", "loan-rate", "fx-reserves")
 
 /** 처음 설치했을 때 오늘의 브리핑에 보이는 통계. */
-val DEFAULT_BRIEFING_STATS: List<String> = listOf("ktb-3y", "corp-aa")
+val DEFAULT_BRIEFING_STATS: List<String> = listOf("ktb-3y", "corp-aa", "household-credit")
+
+/** 처음 설치했을 때 오늘의 브리핑 둘째 줄에 함께 보이는 거시경제 지표(소비자물가 상승률·실업률). */
+val DEFAULT_BRIEFING_MACRO: List<String> = listOf("cpi-yoy", "unemployment")
 
 /** 사용자가 고른 통계: 시장동향 탭에 보일 것과, 그중 오늘의 브리핑에도 보일 것. */
 data class StatSelection(val market: Set<String>, val briefing: Set<String>) {

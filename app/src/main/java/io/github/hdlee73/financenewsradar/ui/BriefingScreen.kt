@@ -1,6 +1,7 @@
 package io.github.hdlee73.financenewsradar.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -60,6 +61,7 @@ import io.github.hdlee73.financenewsradar.data.Instrument
 import io.github.hdlee73.financenewsradar.data.IntradaySeries
 import io.github.hdlee73.financenewsradar.data.Quote
 import io.github.hdlee73.financenewsradar.data.Greeting
+import io.github.hdlee73.financenewsradar.data.MACRO_CATALOG
 import io.github.hdlee73.financenewsradar.data.STAT_CATALOG
 import io.github.hdlee73.financenewsradar.data.StatItem
 import io.github.hdlee73.financenewsradar.data.periodLabel
@@ -89,7 +91,7 @@ private val BRIEFING_PRESS = listOf(AgencyId.FSS, AgencyId.FSC)
 private val BRIEFING_RESEARCH = AgencyId.entries.filter { it.group == AgencyGroup.RESEARCH && it != AgencyId.CUSTOM }
 private const val BRIEFING_PRESS_COUNT = 5
 private const val BRIEFING_ARTICLE_COUNT = 5
-private const val BRIEFING_RESEARCH_PER_AGENCY = 3
+private const val BRIEFING_RESEARCH_COUNT = 10
 private val SEOUL = ZoneId.of("Asia/Seoul")
 private val dateFormat = DateTimeFormatter.ofPattern("M월 d일 EEEE", Locale.KOREAN)
 private val briefingTime = DateTimeFormatter.ofPattern("M월 d일 HH:mm", Locale.KOREAN).withZone(ZoneId.of("Asia/Seoul"))
@@ -101,7 +103,9 @@ fun BriefingScreen(
     releasesViewModel: ReleasesViewModel,
     marketViewModel: MarketViewModel,
     onOpenTab: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenLawNews: (String?) -> Unit = {},
+    favorites: List<Pair<Int, String>> = emptyList()
 ) {
     val news by newsViewModel.state.collectAsStateWithLifecycle()
     val releases by releasesViewModel.state.collectAsStateWithLifecycle()
@@ -118,6 +122,9 @@ fun BriefingScreen(
     // 최근 검사·공시조사·회계감리 결과: 세 자료 중 최근 7일 이내 건을 합친다. 한 곳이 실패해도 나머지는 보여 준다.
     var actions by remember { mutableStateOf<RecentActions?>(null) }
     LaunchedEffect(weatherTick) { actions = loadRecentActions(context.applicationContext) }
+    // 법률·시행령·시행규칙·감독규정·시행세칙의 최신 개정 5건. 못 읽으면 빈 목록으로 두고 안내만 보인다.
+    var lawNews by remember { mutableStateOf<List<LawNewsEntry>?>(null) }
+    LaunchedEffect(Unit) { lawNews = runCatching { loadLawNews(context.applicationContext) }.getOrDefault(emptyList()) }
     LaunchedEffect(releases.institutes) { releases.institutes.forEach(releasesViewModel::ensureCustom) }
     LaunchedEffect(weatherTick) { WeatherClient.fetch()?.let { weather = it } }
 
@@ -131,12 +138,12 @@ fun BriefingScreen(
         .filter { PublisherCatalog.isMajor(it.source, it.link) }
         .sortedByDescending { it.publishedAt }
         .take(BRIEFING_ARTICLE_COUNT)
-    val weekAgo = LocalDate.now(SEOUL).minusDays(7)
-    // 기본 기관마다 최근 7일 자료를 최대 [BRIEFING_RESEARCH_PER_AGENCY]건씩 담아 어느 기관도 빠지지 않게 한다.
-    val researchItems = (BRIEFING_RESEARCH.flatMap { agency -> releases.of(agency).latest.recentWeek(weekAgo) } +
-        releases.institutesOf(AgencyGroup.RESEARCH).flatMap { releases.ofCustom(it.url).latest.recentWeek(weekAgo) })
+    // 기본 연구기관의 최신 자료를 날짜순으로 [BRIEFING_RESEARCH_COUNT]건.
+    val researchItems = (BRIEFING_RESEARCH.flatMap { agency -> releases.of(agency).latest } +
+        releases.institutesOf(AgencyGroup.RESEARCH).flatMap { releases.ofCustom(it.url).latest })
         .distinctBy { it.link }
         .sortedByDescending { it.date }
+        .take(BRIEFING_RESEARCH_COUNT)
 
     // 최신 주요 이슈: 맞춤 뉴스가 보일 때만 만든다(뉴스 탭에서 검색 중이면 결과가 달라 건너뜀).
     val digest = remember(news.articles, news.leaderArticles, news.isHome) {
@@ -177,10 +184,8 @@ fun BriefingScreen(
                 weatherTick++
             }
 
-            if (digest != null) {
-                SectionTitle("최신 주요 이슈", "${digest.label} 기사 ${digest.total}건 기준") { onOpenTab(TAB_NEWS) }
-                IssueCard(digest, aiLines, aiBusy, onWord = { word -> newsViewModel.search(word); onOpenTab(TAB_NEWS) }) { link, title -> ArticleReaderActivity.open(context, link, title) }
-            }
+            // 즐겨찾기: 메뉴를 열지 않고 바로 가도록 맨 위에 둔다.
+            FavoritesRow(favorites, onOpenTab)
 
             SectionTitle("시장 지표", "한눈에 보는 오늘 시장") { onOpenTab(TAB_MARKET) }
             val tiles = market.indexes.briefingItems
@@ -188,21 +193,20 @@ fun BriefingScreen(
             if (tiles.isEmpty()) {
                 Hint(if (market.isRefreshing) "시세 연결 중…" else "시세를 불러오지 못했습니다.")
             } else {
-                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    tiles.chunked(2).forEach { pair ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            pair.forEach { (item, quote) ->
-                                MarketTile(item, quote, market.intraday[item.symbol], market.investors[item.symbol].takeIf { KOREA_INDEXES.any { k -> k.symbol == item.symbol } }, Modifier.weight(1f)) { onOpenTab(TAB_MARKET) }
-                            }
-                            if (pair.size == 1) Spacer(Modifier.weight(1f))
-                        }
+                // 시안 v2-01: 지표 카드를 한 줄로 늘어놓고 옆으로 밀어 본다.
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    tiles.forEach { (item, quote) ->
+                        val korea = KOREA_INDEXES.any { k -> k.symbol == item.symbol }
+                        MarketTile(item, quote, market.intraday[item.symbol], market.investors[item.symbol].takeIf { korea }, Modifier.width(if (korea) 214.dp else 160.dp)) { onOpenTab(TAB_MARKET) }
                     }
                 }
             }
 
-            val keyStats = STAT_CATALOG.mapNotNull { def -> market.stats.firstOrNull { it.id == def.id && def.id in market.statSelection.briefing } }
+            // 주요 금융 통계(한국은행 ECOS)와 거시경제 지표: 고른 것을 증시 지표 바로 아래에 둔다(고르기 전: 국고채 3년·회사채 3년 AA-·가계신용 잔액·소비자물가 상승률·실업률).
+            val keyStats = STAT_CATALOG.mapNotNull { def -> market.stats.firstOrNull { it.id == def.id && def.id in market.statSelection.briefing } } +
+                MACRO_CATALOG.mapNotNull { def -> market.macro.firstOrNull { it.id == def.id && def.id in market.macroBriefing } }
             if (keyStats.isNotEmpty()) {
-                SectionTitle("주요 금융 통계", "한국은행 ECOS") { onOpenTab(TAB_MARKET) }
+                SectionTitle("주요 금융 통계·거시경제 지표", "한국은행 ECOS") { onOpenTab(TAB_MARKET) }
                 Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     keyStats.chunked(2).forEach { pair ->
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -229,7 +233,7 @@ fun BriefingScreen(
                 else -> Hint("30대 언론의 최근 기사가 없습니다.")
             }
 
-            SectionTitle("최근 금융당국 보도자료", if (newLinks.isEmpty()) "금융감독원 · 금융위원회 · 최근 ${BRIEFING_PRESS_COUNT}건" else "최근 ${BRIEFING_PRESS_COUNT}건 · 새 자료 ${newLinks.size}건", accent = newLinks.isNotEmpty()) { onOpenTab(TAB_PRESS) }
+            SectionTitle("최신 보도자료", if (newLinks.isEmpty()) "금융감독원 · 금융위원회 · 최근 ${BRIEFING_PRESS_COUNT}건" else "최근 ${BRIEFING_PRESS_COUNT}건 · 새 자료 ${newLinks.size}건", accent = newLinks.isNotEmpty()) { onOpenTab(TAB_PRESS) }
             when {
                 pressItems.isNotEmpty() -> BriefingCard {
                     pressItems.forEachIndexed { i, item ->
@@ -241,7 +245,14 @@ fun BriefingScreen(
                 else -> Hint("보도자료를 불러오지 못했습니다. 새로고침을 눌러 주세요.")
             }
 
-            SectionTitle("최근 검사·공시조사·회계감리 결과", "제재공시 · 공시조사결과제재 · 회계감리결과제재 · 최근 ${RECENT_ACTION_DAYS}일") { onOpenTab(SCREEN_SANCTION_ID) }
+            SectionTitle(
+                "최근 검사·공시조사·회계감리 제재", "최근 ${RECENT_ACTION_DAYS}일 · 항목을 누르면 해당 목록으로",
+                links = listOf(
+                    "검사" to { onOpenTab(SCREEN_SANCTION_ID) },
+                    "공시조사" to { onOpenTab(SCREEN_DISCLOSURE_ID) },
+                    "회계감리" to { onOpenTab(SCREEN_AUDIT_ID) }
+                )
+            )
             val acts = actions
             when {
                 acts == null -> Hint("불러오는 중…")
@@ -255,8 +266,26 @@ fun BriefingScreen(
             }
             if (acts != null && acts.failed.isNotEmpty()) Hint("${acts.failed.joinToString("·")} 자료는 불러오지 못했습니다.")
 
+            SectionTitle("법령·하위 법규 개정 소식", "법률·시행령·시행규칙·감독규정·시행세칙 · 최신 5건") { onOpenLawNews(null) }
+            val ln = lawNews
+            when {
+                ln == null -> Hint("불러오는 중…")
+                ln.isNotEmpty() -> BriefingCard {
+                    ln.forEachIndexed { i, e ->
+                        if (i > 0) RowDivider(inset = 14.dp)
+                        LawNewsLine(e) { onOpenLawNews(e.route) }
+                    }
+                }
+                else -> Hint("법령 개정 정보를 불러오지 못했습니다. 스마트 법령검색에서 확인하세요.")
+            }
+
+            if (digest != null) {
+                SectionTitle("최신 주요 이슈", "${digest.label} 기사 ${digest.total}건 기준") { onOpenTab(TAB_NEWS) }
+                IssueCard(digest, aiLines, aiBusy, onWord = { word -> newsViewModel.search(word); onOpenTab(TAB_NEWS) }) { link, title -> ArticleReaderActivity.open(context, link, title) }
+            }
+
             if (researchItems.isNotEmpty()) {
-                SectionTitle("이번 주 금융리포트", "기본 연구기관 · 최근 7일 내 업데이트") { onOpenTab(TAB_RESEARCH) }
+                SectionTitle("최근 금융리포트", "기본 연구기관 · 최신 ${BRIEFING_RESEARCH_COUNT}건") { onOpenTab(TAB_RESEARCH) }
                 BriefingCard {
                     researchItems.forEachIndexed { i, item ->
                         if (i > 0) RowDivider(inset = 14.dp)
@@ -303,55 +332,45 @@ private fun IssueCard(digest: IssueDigest, ai: List<String>?, aiBusy: Boolean, o
     }
 }
 
-/** 날짜·요일, 날씨, 인삿말을 얹은 그라데이션 머리말. */
+/** 시안 v2-01 머리말: 큰 제목, 날짜·갱신 시각, 날씨·인삿말 한 줄, 새로고침. */
 @Composable
 private fun BriefingHeader(weather: Weather?, onRefresh: () -> Unit) {
     val now = remember { ZonedDateTime.now(SEOUL) }
     val greeting = remember(weather) { Greeting.pick(now, weather) }
-    Box(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp)).background(Brush.verticalGradient(listOf(AppColors.heroStart, AppColors.heroEnd)))
-            .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 22.dp)
-    ) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("TODAY'S BRIEFING", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = AppColors.onHero.copy(alpha = 0.7f), letterSpacing = 2.sp)
-                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침", tint = AppColors.onHero) }
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("오늘의 브리핑", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("${dateFormat.format(now)} · ${DateTimeFormatter.ofPattern("HH:mm").format(now)} 갱신", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(dateFormat.format(now), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = AppColors.onHero)
-                    Text("오늘의 브리핑", Modifier.padding(top = 2.dp), style = MaterialTheme.typography.titleMedium, color = AppColors.onHero.copy(alpha = 0.8f))
-                }
-                if (weather != null) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(weather.emoji, fontSize = 38.sp)
-                        Text("${weather.temp}°", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = AppColors.onHero)
-                    }
-                }
-            }
-            if (weather != null) {
-                val rain = weather.rainChance?.let { " · 강수 $it%" }.orEmpty()
-                Text(
-                    "서울 ${weather.summary} · ${weather.min}° / ${weather.max}°$rain",
-                    Modifier.padding(top = 10.dp).background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelLarge, color = AppColors.onHero
-                )
-            }
-            Text(greeting, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodyLarge, color = AppColors.onHero.copy(alpha = 0.85f))
+            IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "새로고침") }
         }
+        val weatherText = weather?.let { "${it.emoji} ${it.temp}° ${it.summary} · ${it.min}°/${it.max}°" }
+        Text(
+            listOfNotNull(weatherText, greeting).joinToString("  ·  "),
+            Modifier.padding(top = 6.dp, end = 12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
 /** 색 막대가 붙은 구역 제목과 '더 보기'. */
 @Composable
-private fun SectionTitle(title: String, subtitle: String, accent: Boolean = false, onMore: () -> Unit) {
+private fun SectionTitle(title: String, subtitle: String, accent: Boolean = false, links: List<Pair<String, () -> Unit>>? = null, onMore: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 22.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(4.dp).height(34.dp).background(if (accent) AppColors.accent else MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
         Column(Modifier.weight(1f).padding(start = 10.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(subtitle, style = MaterialTheme.typography.labelMedium, color = if (accent) AppColors.accent else MaterialTheme.colorScheme.onSurfaceVariant)
+            // 유형별 전체 목록으로 가는 링크(예: 검사 · 공시조사 · 회계감리)
+            if (links != null) {
+                Row {
+                    links.forEach { (label, go) ->
+                        TextButton(onClick = go, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text("$label 전체 ›") }
+                    }
+                }
+            }
         }
-        TextButton(onClick = onMore) { Text("더 보기") }
+        if (links == null) TextButton(onClick = onMore) { Text("더 보기") }
     }
 }
 
@@ -440,11 +459,6 @@ private fun ArticleLine(article: NewsArticle, onOpen: () -> Unit) {
     }
 }
 
-private fun List<ReleaseItem>.recentWeek(weekAgo: LocalDate): List<ReleaseItem> =
-    filter { item -> item.date?.let { !it.isBefore(weekAgo) } == true }
-        .sortedByDescending { it.date }
-        .take(BRIEFING_RESEARCH_PER_AGENCY)
-
 /** 브리핑의 '최근 검사·공시조사·회계감리 결과' 한 줄. [screen]은 눌렀을 때 열 화면. */
 private data class ActionEntry(val kind: String, val company: String, val date: LocalDate, val summary: String, val screen: Int)
 private data class RecentActions(val items: List<ActionEntry>, val failed: List<String>)
@@ -478,6 +492,42 @@ private suspend fun loadRecentActions(context: android.content.Context): RecentA
 }
 
 private val actionDateFormat = DateTimeFormatter.ofPattern("yyyy.MM.dd")
+
+/** 즐겨찾기 화면으로 바로 가는 알약 버튼 줄. 없으면 추가 방법을 안내한다. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FavoritesRow(favorites: List<Pair<Int, String>>, onOpen: (Int) -> Unit) {
+    if (favorites.isEmpty()) {
+        Hint("메뉴(≡)에서 ★를 누르면 자주 쓰는 화면이 여기에 모입니다.")
+        return
+    }
+    FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        favorites.forEach { (id, label) ->
+            Surface(
+                Modifier.clickable { onOpen(id) },
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) { Text("★ $label", Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge, maxLines = 1) }
+        }
+    }
+}
+
+@Composable
+private fun LawNewsLine(e: LawNewsEntry, onOpen: () -> Unit) {
+    fun ymd(v: String?) = if (v != null && v.length == 8) "${v.substring(0, 4)}.${v.substring(4, 6)}.${v.substring(6)}" else v ?: "-"
+    Column(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            TagLabel(e.kind, accent = e.kind == "감독규정" || e.kind == "시행세칙")
+            Text(e.type ?: "개정", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text(e.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            "${if (e.route.startsWith("lawdoc?adm=")) "발령" else "공포"} ${ymd(e.promulgation)} · 시행 ${ymd(e.effective)}",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
 
 @Composable
 private fun ActionLine(a: ActionEntry, onOpen: () -> Unit) {

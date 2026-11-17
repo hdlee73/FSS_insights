@@ -86,6 +86,7 @@ import io.github.hdlee73.financenewsradar.data.PANEL_CATALOG
 import io.github.hdlee73.financenewsradar.data.POPULAR_INSTRUMENTS
 import io.github.hdlee73.financenewsradar.data.PriceHistory
 import io.github.hdlee73.financenewsradar.data.Quote
+import io.github.hdlee73.financenewsradar.data.DEFAULT_BRIEFING_MACRO
 import io.github.hdlee73.financenewsradar.data.DEFAULT_BRIEFING_STATS
 import io.github.hdlee73.financenewsradar.data.DEFAULT_MARKET_STATS
 import io.github.hdlee73.financenewsradar.data.DEFAULT_MACRO
@@ -145,6 +146,7 @@ data class MarketUiState(
     /** 거시경제 지표(한국은행 ECOS, 서버 /stats)와 사용자가 고른 지표 id. */
     val macro: List<StatItem> = emptyList(),
     val macroSelection: Set<String> = DEFAULT_MACRO.toSet(),
+    val macroBriefing: Set<String> = DEFAULT_BRIEFING_MACRO.toSet(),
     val macroMissing: Set<String> = emptySet(),
     val macroReasons: Map<String, String> = emptyMap(),
     val macroLoading: Boolean = false,
@@ -169,7 +171,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     private var statsRequest = 0
     private var macroLoadedAt = 0L
     private var macroRequest = 0
-    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection(), macroSelection = store.loadMacroSelection(), kofiaHidden = store.loadKofiaHidden(), watchIntraday = store.loadWatchIntraday(), indexIntraday = store.loadIndexIntraday()))
+    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection(), macroSelection = store.loadMacroSelection(), macroBriefing = store.loadMacroBriefing(), kofiaHidden = store.loadKofiaHidden(), watchIntraday = store.loadWatchIntraday(), indexIntraday = store.loadIndexIntraday()))
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
     private var refreshJob: Job? = null
     private val chartFailedAt = HashMap<String, Long>()
@@ -256,7 +258,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
         if (!force && System.currentTimeMillis() - macroLoadedAt < 1_800_000) return
         macroLoadedAt = System.currentTimeMillis()
         val request = ++macroRequest
-        val ids = MACRO_CATALOG.map { it.id }.filter { it in _state.value.macroSelection }
+        val ids = MACRO_CATALOG.map { it.id }.filter { it in _state.value.macroSelection || it in _state.value.macroBriefing }
         if (ids.isEmpty()) { _state.update { it.copy(macroLoading = false) }; return }
         _state.update { it.copy(macroLoading = true) }
         runCatching { statsApi.load(ids) }
@@ -271,9 +273,10 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /** 거시경제 지표 선택을 저장하고 바로 다시 받아 온다. */
-    fun setMacroSelection(ids: Set<String>) {
+    fun setMacroSelection(ids: Set<String>, briefing: Set<String>) {
         store.saveMacroSelection(ids)
-        _state.update { it.copy(macroSelection = ids) }
+        store.saveMacroBriefing(briefing)
+        _state.update { it.copy(macroSelection = ids, macroBriefing = briefing) }
         viewModelScope.launch { loadMacro(force = true) }
     }
 
@@ -544,7 +547,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
         StatPickerDialog(state.statSelection, onDismiss = { statPicking = false }) { viewModel.setStatSelection(it); statPicking = false }
     }
     if (macroPicking) {
-        MacroPickerDialog(state.macroSelection, onDismiss = { macroPicking = false }) { viewModel.setMacroSelection(it); macroPicking = false }
+        MacroPickerDialog(state.macroSelection, state.macroBriefing, onDismiss = { macroPicking = false }) { market, briefing -> viewModel.setMacroSelection(market, briefing); macroPicking = false }
     }
     if (kofiaPicking) {
         KofiaPickerDialog(state.kofia, state.kofiaHidden, onDismiss = { kofiaPicking = false }) { viewModel.setKofiaHidden(it); kofiaPicking = false }
@@ -814,15 +817,24 @@ private fun MacroPanel(state: MarketUiState, onPick: () -> Unit) {
     }
 }
 
-/** 거시경제 지표 선택: 지표마다 체크해 보일 것을 고른다(추가·삭제). */
+/** 거시경제 지표 선택: 지표마다 "시장동향" / "브리핑" 체크로 어디에 보일지 고른다. */
 @Composable
-private fun MacroPickerDialog(current: Set<String>, onDismiss: () -> Unit, onSave: (Set<String>) -> Unit) {
-    var selected by remember { mutableStateOf(current) }
+private fun MacroPickerDialog(current: Set<String>, currentBriefing: Set<String>, onDismiss: () -> Unit, onSave: (Set<String>, Set<String>) -> Unit) {
+    var market by remember { mutableStateOf(current) }
+    var briefing by remember { mutableStateOf(currentBriefing) }
+    fun toggle(set: Set<String>, id: String) = if (id in set) set - id else set + id
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("표시할 거시경제 지표 선택") },
         text = {
             LazyColumn(Modifier.heightIn(max = 460.dp)) {
+                item {
+                    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.weight(1f))
+                        Text("시장동향", Modifier.width(56.dp), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                        Text("브리핑", Modifier.width(56.dp), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                    }
+                }
                 MACRO_CATALOG.groupBy { it.group }.forEach { (group, defs) ->
                     item(key = "g-$group") {
                         Text(group, Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
@@ -830,16 +842,21 @@ private fun MacroPickerDialog(current: Set<String>, onDismiss: () -> Unit, onSav
                     items(defs, key = { it.id }) { def ->
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(def.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            Checkbox(def.id in selected, { selected = if (def.id in selected) selected - def.id else selected + def.id })
+                            Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) {
+                                Checkbox(def.id in market, { market = toggle(market, def.id) })
+                            }
+                            Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) {
+                                Checkbox(def.id in briefing, { briefing = toggle(briefing, def.id) })
+                            }
                         }
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(selected) }) { Text("저장") } },
+        confirmButton = { TextButton(onClick = { onSave(market, briefing) }) { Text("저장") } },
         dismissButton = {
             Row {
-                TextButton(onClick = { selected = DEFAULT_MACRO.toSet() }) { Text("기본값") }
+                TextButton(onClick = { market = DEFAULT_MACRO.toSet(); briefing = DEFAULT_BRIEFING_MACRO.toSet() }) { Text("기본값") }
                 TextButton(onClick = onDismiss) { Text("취소") }
             }
         }

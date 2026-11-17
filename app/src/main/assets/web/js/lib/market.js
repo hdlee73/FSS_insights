@@ -263,6 +263,7 @@ export const POPULAR = [
 
 const ALIASES = {
   "^IXIC": "nasdaq composite ixic 나스닥 나스닥종합 나스닥지수", "^GSPC": "s&p 500 sp500 snp 에스앤피 gspc",
+  "NQ=F": "nasdaq 100 futures nq 나스닥100선물 나스닥선물 선물",
   "^DJI": "dow jones djia 다우 다우지수", "^NDX": "nasdaq 100 nasdaq100 나스닥100 ndx",
   "^SOX": "philadelphia semiconductor sox 필라델피아 반도체지수", "^VIX": "volatility vix 변동성 공포지수",
   "^KS11": "kospi 코스피", "^KQ11": "kosdaq 코스닥",
@@ -405,7 +406,7 @@ export const signed = (v, digits = 0) => (v > 0 ? "▲" : v < 0 ? "▼" : "") + 
 const ins = (symbol, name, currency, type) => ({ symbol, name, currency, type });
 export const KOREA_INDEXES = [ins("^KS11", "KOSPI", "KRW", "INDEX"), ins("^KQ11", "KOSDAQ", "KRW", "INDEX")];
 export const PANEL_CATALOG = [
-  ins("^GSPC", "S&P 500", "USD", "INDEX"), ins("^IXIC", "Nasdaq", "USD", "INDEX"), ins("KRW=X", "USD/KRW", "KRW", "FX"), ins("CL=F", "WTI", "USD", "EQUITY"),
+  ins("^GSPC", "S&P 500", "USD", "INDEX"), ins("^IXIC", "Nasdaq", "USD", "INDEX"), ins("NQ=F", "Nasdaq 100 Futures (나스닥100선물)", "USD", "INDEX"), ins("KRW=X", "USD/KRW", "KRW", "FX"), ins("CL=F", "WTI", "USD", "EQUITY"),
   ins("^TNX", "US 10Y", "USD", "RATE"), ins("GC=F", "Gold", "USD", "EQUITY"),
   ins("^DJI", "Dow Jones", "USD", "INDEX"), ins("^SOX", "Philadelphia Semiconductor", "USD", "INDEX"), ins("^NDX", "Nasdaq 100", "USD", "INDEX"),
   ins("^RUT", "Russell 2000", "USD", "INDEX"), ins("^VIX", "VIX", "USD", "INDEX"),
@@ -417,14 +418,30 @@ export const PANEL_CATALOG = [
   ins("BTC-USD", "Bitcoin", "USD", "EQUITY"), ins("ETH-USD", "Ethereum", "USD", "EQUITY"),
 ];
 export const INDEX_CHOICES = [...KOREA_INDEXES, ...PANEL_CATALOG];
-const DEFAULT_MARKET_INDEXES = [...KOREA_INDEXES, ...PANEL_CATALOG.slice(0, 6)].map((x) => x.symbol);
-const BRIEFING_EXCLUDED = ["^GSPC", "CL=F", "^TNX", "^SOX"];
+const DEFAULT_MARKET_INDEXES = [...KOREA_INDEXES, ...PANEL_CATALOG.slice(0, 7)].map((x) => x.symbol);
+const BRIEFING_DEFAULT = ["^KS11", "^KQ11", "^IXIC", "^GSPC", "KRW=X"]; // 오늘의 브리핑 첫째 줄 기본: KOSPI·KOSDAQ·Nasdaq·S&P 500·환율(고르기 전). 나스닥100 선물은 지표 선택에서 추가한다.
+const BRIEFING_OLD_DEFAULT = ["^KS11", "^KQ11", "^IXIC", "^GSPC", "NQ=F", "KRW=X"];
 export const DEFAULT_WATCH = [ins("005930.KS", "삼성전자", "KRW", "EQUITY"), ins("000660.KS", "SK하이닉스", "KRW", "EQUITY"), ins("069500.KS", "KODEX 200", "KRW", "ETF")];
 
 /** 증시 지표 선택 { market:[...], briefing:[...] } (이 브라우저에 저장). */
 export function indexSelection() {
-  const market = store.get("market.indexes", DEFAULT_MARKET_INDEXES);
-  const briefing = store.get("briefing.indexes", market.filter((s) => !BRIEFING_EXCLUDED.includes(s)));
+  let market = store.get("market.indexes", DEFAULT_MARKET_INDEXES);
+  let briefing = store.get("briefing.indexes", BRIEFING_DEFAULT);
+  // 나스닥100 선물을 기본에 새로 넣었으므로, 이미 지표를 골라 둔 사용자에게도 한 번만 추가한다(이후 빼면 그대로 유지).
+  if (!store.get("nq.added", false)) {
+    const add = (list, after) => (list.includes("NQ=F") ? list : (() => { const i = list.indexOf(after); const c = list.slice(); c.splice(i < 0 ? c.length : i + 1, 0, "NQ=F"); return c; })());
+    market = add(market, "^IXIC");
+    store.set("market.indexes", market);
+    store.set("nq.added", true);
+  }
+  // v3.3: 브리핑 첫째 줄을 5개로 맞추기 위해, 옛 기본값 그대로인 사용자는 새 기본값으로 한 번만 바꾼다(직접 고른 목록은 그대로).
+  if (!store.get("brief.v33", false)) {
+    if (briefing.length === BRIEFING_OLD_DEFAULT.length && BRIEFING_OLD_DEFAULT.every((x, i) => briefing[i] === x)) {
+      briefing = BRIEFING_DEFAULT.slice();
+      store.set("briefing.indexes", briefing);
+    }
+    store.set("brief.v33", true);
+  }
   return { market, briefing };
 }
 export function saveIndexSelection(sel) {
@@ -462,7 +479,7 @@ export const STAT_CATALOG = [
   sd("bank-delinquency-corp", "은행 기업대출 연체율", "가계·은행 건전성"), sd("fx-reserves", "외환보유액", "대외"),
 ];
 const DEFAULT_MARKET_STATS = ["base-rate", "ktb-3y", "ktb-10y", "cd-91", "corp-aa", "household-credit", "bank-household-loan", "bank-delinquency", "loan-rate", "fx-reserves"];
-const DEFAULT_BRIEFING_STATS = ["ktb-3y", "corp-aa"];
+const DEFAULT_BRIEFING_STATS = ["ktb-3y", "corp-aa", "household-credit"]; // 브리핑 둘째 줄 기본(고르기 전): 국고채 3년·회사채 3년 AA-·가계신용 잔액 + 소비자물가 상승률·실업률(거시경제)
 export function statSelection() {
   return { market: store.get("market.stats", DEFAULT_MARKET_STATS), briefing: store.get("briefing.stats", DEFAULT_BRIEFING_STATS) };
 }
@@ -512,6 +529,9 @@ export const MACRO_CATALOG = [
 export const DEFAULT_MACRO = ["gdp-growth", "cpi-yoy", "unemployment", "current-account"];
 export const macroSelection = () => store.get("market.macro", DEFAULT_MACRO);
 export const saveMacroSelection = (ids) => store.set("market.macro", ids);
+export const DEFAULT_BRIEFING_MACRO = ["cpi-yoy", "unemployment"];
+export const macroBriefingSelection = () => store.get("briefing.macro", DEFAULT_BRIEFING_MACRO);
+export const saveMacroBriefing = (ids) => store.set("briefing.macro", ids);
 
 // ---- 자본시장 통계(금융투자협회 FreeSIS, 키 없음) ----
 const KOFIA_LISTS = { 펀드: ["fundList1", "fundList2", "fundList3", "fundList4", "fundList5"], 자금동향: ["fundTrendList1", "fundTrendList2", "fundTrendList3"] };

@@ -193,6 +193,9 @@ data class AdminRuleSummary(
     val name: String,
     val kind: String?,
     val agency: String?,
+    val promulgationDate: String? = null,
+    val effectiveDate: String? = null,
+    val revisionType: String? = null,
 )
 
 /** 행정규칙 본문 (lawService.do target=admrul). */

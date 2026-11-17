@@ -8,6 +8,8 @@ const ROUTES = {
   finsim: { label: "(베타)제재 양정 시뮬레이터", load: () => import("./screens/finsim.js") },
   crypto: { label: "가상자산 시장 동향", load: () => import("./screens/crypto.js") },
   fisis: { label: "금융회사 주요 현황", load: () => import("./screens/fisis.js") },
+  lawnews: { label: "최근 금융관련 법령개정 소식", load: () => import("./screens/lawnews.js") },
+  lawdoc: { label: "법령 개정 내용", load: () => import("./screens/lawdoc.js") },
 };
 const HOME = "consumer";
 
@@ -92,3 +94,20 @@ function checkVisible(seq) {
 addEventListener("hashchange", render);
 if (!location.hash) history.replaceState(null, "", "#/" + HOME);
 render();
+
+// 법령개정 소식의 법령명은 앱의 스마트 법령검색 화면으로 넘긴다(웹의 #/law 주소는 앱 안에서 쓰지 않는다).
+document.addEventListener("click", (e) => {
+  const a = e.target.closest?.('a[href^="#/law?q="]');
+  if (!a || !window.FssNative?.openLaw) return;
+  e.preventDefault();
+  window.FssNative.openLaw(decodeURIComponent(a.getAttribute("href").slice("#/law?q=".length)));
+});
+
+document.addEventListener("click", (e) => {
+  // 서브 메뉴의 ‘법령 검색’은 앱의 스마트 법령검색 화면으로 돌아간다.
+  const t = e.target.closest?.('a[href="#/law"]');
+  if (t && window.FssNative?.openLaw) {
+    e.preventDefault();
+    window.FssNative.openLaw("");
+  }
+});
