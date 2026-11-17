@@ -568,7 +568,7 @@ export async function adminExclude(request, env) {
  * 메뉴별: 연 횟수(hits)·사용한 날 수(days)·마지막 사용일(last)·일자별 횟수(최근 14일 daily). 시간대·일자별 방문/사용 시간·사용 버전 포함.
  * 메뉴별 '사용 시간'은 수집하지 않으므로(하루 총 사용 시간만 있음) 제공하지 않는다.
  */
-export function userSummary({ menuRows = [], hourRows = [], dailyRows = [], activityRows = [], to }) {
+export function userSummary({ menuRows = [], hourRows = [], dailyRows = [], activityRows = [], envRow = null, to }) {
   const menus = {};
   for (const m of menuRows) {
     const e = (menus[m.menu] ??= { hits: 0, days: 0, last: m.day, first: m.day });
@@ -599,6 +599,8 @@ export function userSummary({ menuRows = [], hourRows = [], dailyRows = [], acti
     menus: list,
     hours,
     days,
+    // 접속 환경(기기·브라우저·OS·화면 폭·설치형 여부): 가장 최근에 받은 값. 환경 전송 기능 이전의 접속자는 null.
+    env: envRow ? { dev: envRow.dev || null, br: envRow.br || null, os: envRow.os || null, sc: envRow.sc || null, inst: envRow.inst || null, day: envRow.day || null } : null,
   };
 }
 
@@ -610,17 +612,18 @@ export async function adminUser(request, url, env) {
   const id = String(url.searchParams.get("id") ?? "").trim().toLowerCase();
   if (!PREFIX.test(id)) return reply({ error: "익명 ID(16진수 4자리 이상)가 필요합니다" }, 400);
   const like = id + "%";
-  const [menu, hour, daily, activity, ids] = await Promise.all([
+  const [menu, hour, daily, activity, ids, envs] = await Promise.all([
     env.DB.prepare("SELECT day, menu, hits FROM usage_menu_user WHERE uid LIKE ?").bind(like).all(),
     env.DB.prepare("SELECT day, hour, hits FROM usage_hour WHERE uid LIKE ?").bind(like).all(),
     env.DB.prepare("SELECT day, version FROM usage_daily WHERE uid LIKE ?").bind(like).all(),
     env.DB.prepare("SELECT day, visits, secs FROM usage_activity WHERE uid LIKE ?").bind(like).all(),
     env.DB.prepare("SELECT DISTINCT uid FROM usage_daily WHERE uid LIKE ? LIMIT 2").bind(like).all(),
+    env.DB.prepare("SELECT day, dev, br, os, sc, inst FROM usage_env WHERE uid LIKE ? ORDER BY day DESC LIMIT 1").bind(like).all(),
   ]);
   const to = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   const matches = (ids.results ?? []).length;
   if (!matches) return reply({ error: "해당 접속자의 기록이 없습니다" }, 404);
-  return reply({ id, ambiguous: matches > 1, ...userSummary({ menuRows: menu.results ?? [], hourRows: hour.results ?? [], dailyRows: daily.results ?? [], activityRows: activity.results ?? [], to }) });
+  return reply({ id, ambiguous: matches > 1, ...userSummary({ menuRows: menu.results ?? [], hourRows: hour.results ?? [], dailyRows: daily.results ?? [], activityRows: activity.results ?? [], envRow: (envs.results ?? [])[0] ?? null, to }) });
 }
 
 export async function adminApi(request, url, env) {
