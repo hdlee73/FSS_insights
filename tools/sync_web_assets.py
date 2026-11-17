@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""웹(fss-insights-web)의 소비자 지킴이·제재 양정 시뮬레이터·가상자산 시장 동향 화면을 앱 assets/web 으로 복사한다.
+"""웹(fss-insights-web)의 소비자 지킴이·제재 양정 시뮬레이터·가상자산 시장 동향·익명게시판 화면을 앱 assets/web 으로 복사한다.
 
 앱은 이 화면들을 WebView(앱에 내장된 파일, 오프라인에서도 열림)로 보여 주므로 웹과 같은 코드를 쓴다.
 웹에서 이 화면들을 고치면 아래처럼 다시 실행하면 앱에도 반영된다.
@@ -14,7 +14,7 @@ import os, re, shutil, sys
 SRC = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "../fss-insights-web")
 DST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "src", "main", "assets", "web")
 DST = os.path.abspath(DST)
-ENTRY = ["js/screens/consumer.js", "js/screens/crypto.js", "js/screens/finsim.js", "js/screens/fisis.js"]
+ENTRY = ["js/screens/consumer.js", "js/screens/crypto.js", "js/screens/finsim.js", "js/screens/fisis.js", "js/screens/board.js"]
 
 def closure():
     seen, todo = set(), list(ENTRY)
