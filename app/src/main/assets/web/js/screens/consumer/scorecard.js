@@ -25,9 +25,6 @@ export async function render(root, params, ctx) {
   if (!companies.length) {
     root.replaceChildren(h("div", { class: "grid2" },
       h("div", { class: "stack" },
-        card("회사별 성적표를 준비하고 있습니다", "info", h("div", { class: "stack" },
-          h("p", null, "회사별 등급·민원 건수·제재 내역을 한 화면에서 비교하는 기능은 만들어 두었지만, 검수한 수치 자료가 아직 수록되지 않았습니다. 틀린 숫자를 보여 드리지 않기 위해 비워 두었습니다."),
-          h("p", { class: "note" }, "실태평가 결과는 아래 공식 발표를 확인하세요. 평가 대상 회사는 해마다 달라 전체 회사가 매년 평가받지는 않습니다."))),
         evalCard),
       h("div", { class: "stack" }, srcCard)));
     return;
