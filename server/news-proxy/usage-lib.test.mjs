@@ -125,3 +125,36 @@ console.log("usage-lib engagement tests passed");
   assert.equal(userSummary({ to: "2026-11-14" }).menus.length, 0);
 }
 console.log("userSummary OK");
+
+// ── 접속자 태그: 검증 + 가짜 D1(node:sqlite)로 저장·수정·삭제·인증 확인 ──
+{
+  const { sanitizeTag, adminTag, adminApi } = await import("./usage-lib.js");
+  const { DatabaseSync } = await import("node:sqlite");
+  assert.equal(sanitizeTag({ id: "zz" }).error !== undefined, true);
+  assert.equal(sanitizeTag({ id: "ABC123", tag: "  내   PC\n<b>", color: "nope" }).tag, "내 PC b");
+  assert.equal(sanitizeTag({ id: "abc123", tag: "가".repeat(50) }).tag.length, 20);
+  assert.equal(sanitizeTag({ id: "abc123", tag: "x", color: "red" }).color, "red");
+  assert.equal(sanitizeTag({ id: "abc123", tag: "x", color: "red" }).id, "abc123");
+
+  const sq = new DatabaseSync(":memory:");
+  const stmt = (sql) => { let b = []; const o = {
+    bind(...a) { b = a; return o; },
+    async run() { sq.prepare(sql).run(...b); return {}; },
+    async all() { return { results: sq.prepare(sql).all(...b) }; },
+    async first() { return sq.prepare(sql).get(...b) ?? null; },
+  }; o.sql = sql; return o; };
+  const db = { prepare: stmt, async batch(list) { for (const s of list) await s.run(); } };
+  const env = { ADMIN_TOKEN: "t0k", DB: db };
+  const post = (body, tok = "t0k") => adminTag(new Request("https://x/admin/tag", { method: "POST", headers: { "X-Admin-Token": tok }, body: JSON.stringify(body) }), env);
+  assert.equal((await post({ id: "abc123", tag: "내 PC" }, "bad")).status, 401);
+  assert.equal((await post({ id: "nothex", tag: "x" })).status, 400);
+  let r = await (await post({ id: "ABC123", tag: "내 PC", color: "blue" })).json();
+  assert.deepEqual(r.tags, { abc123: { t: "내 PC", c: "blue" } });
+  r = await (await post({ id: "abc123", tag: "팀장님", color: "red" })).json(); // 수정
+  assert.deepEqual(r.tags, { abc123: { t: "팀장님", c: "red" } });
+  const api = await (await adminApi(new Request("https://x/admin/api", { headers: { "X-Admin-Token": "t0k" } }), new URL("https://x/admin/api"), env)).json();
+  assert.deepEqual(api.tags, { abc123: { t: "팀장님", c: "red" } });
+  r = await (await post({ id: "abc123", tag: "  " })).json(); // 삭제
+  assert.deepEqual(r.tags, {});
+  console.log("tag tests OK");
+}

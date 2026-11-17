@@ -21,6 +21,8 @@ const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS usage_activity (day TEXT NOT NULL, uid TEXT NOT NULL, visits INTEGER NOT NULL DEFAULT 0, secs INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, uid))",
   // 통계에서 제외할 설치(운영자 본인 기기 등). 익명 ID(설치 해시)의 앞부분(16진수 4~64자리)을 적는다. 새 신호는 저장하지 않고, 이미 쌓인 기록은 조회에서 뺀다.
   "CREATE TABLE IF NOT EXISTS usage_exclude (prefix TEXT PRIMARY KEY, added INTEGER NOT NULL)",
+  // 관리자가 접속자 익명 ID(앞부분)에 붙이는 태그(메모·라벨). 색상은 정해진 목록 중 하나.
+  "CREATE TABLE IF NOT EXISTS usage_tag (prefix TEXT PRIMARY KEY, tag TEXT NOT NULL, color TEXT NOT NULL DEFAULT 'gray', updated INTEGER NOT NULL)",
 ];
 let schemaReady = false;
 
@@ -505,6 +507,45 @@ async function excludedPrefixes(db) {
   return (r.results ?? []).map((x) => x.prefix);
 }
 
+export const TAG_COLORS = ["gray", "red", "orange", "green", "blue", "purple"];
+export const TAG_MAX_LEN = 20;
+export const TAG_MAX_COUNT = 500;
+
+/** 태그 요청 본문 {id, tag, color} 검증. tag 가 비면 삭제. 잘못되면 {error}. 테스트하기 쉽게 따로 둔다. */
+export function sanitizeTag(body) {
+  const id = String(body?.id ?? "").trim().toLowerCase();
+  if (!PREFIX.test(id)) return { error: "익명 ID(16진수 4자리 이상)가 필요합니다" };
+  // 제어문자·줄바꿈 제거, 공백 정리, 글자 수(코드포인트) 제한
+  const tag = Array.from(String(body?.tag ?? "").replace(/[\u0000-\u001f\u007f<>]/g, " ").replace(/\s+/g, " ").trim()).slice(0, TAG_MAX_LEN).join("");
+  const color = TAG_COLORS.includes(body?.color) ? body.color : "gray";
+  return { id, tag, color };
+}
+
+async function tagMap(db) {
+  const r = await db.prepare("SELECT prefix, tag, color FROM usage_tag").all();
+  return Object.fromEntries((r.results ?? []).map((x) => [x.prefix, { t: x.tag, c: x.color }]));
+}
+
+/** POST /admin/tag — 접속자 태그 저장·삭제. 본문 {id, tag, color}; tag 가 비어 있으면 삭제. */
+export async function adminTag(request, env) {
+  if (!env.ADMIN_TOKEN || request.headers.get("X-Admin-Token") !== env.ADMIN_TOKEN) return new Response("Unauthorized", { status: 401 });
+  if (!env.DB) return reply({ error: "통계 저장소(D1)가 연결되지 않았습니다" }, 503);
+  await ensureSchema(env.DB);
+  let body;
+  try { body = await request.json(); } catch { return reply({ error: "bad json" }, 400); }
+  const v = sanitizeTag(body);
+  if (v.error) return reply({ error: v.error }, 400);
+  if (!v.tag) {
+    await env.DB.prepare("DELETE FROM usage_tag WHERE prefix = ?").bind(v.id).run();
+  } else {
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM usage_tag WHERE prefix != ?").bind(v.id).first();
+    if ((n?.n ?? 0) >= TAG_MAX_COUNT) return reply({ error: `태그는 최대 ${TAG_MAX_COUNT}개까지 만들 수 있습니다` }, 400);
+    await env.DB.prepare("INSERT INTO usage_tag (prefix, tag, color, updated) VALUES (?, ?, ?, ?) ON CONFLICT(prefix) DO UPDATE SET tag = excluded.tag, color = excluded.color, updated = excluded.updated")
+      .bind(v.id, v.tag, v.color, Date.now()).run();
+  }
+  return reply({ tags: await tagMap(env.DB) });
+}
+
 /** 제외 목록 추가·삭제. 본문 {add:"abc123"} 또는 {remove:"abc123"}. */
 export async function adminExclude(request, env) {
   if (!env.ADMIN_TOKEN || request.headers.get("X-Admin-Token") !== env.ADMIN_TOKEN) return new Response("Unauthorized", { status: 401 });
@@ -591,6 +632,7 @@ export async function adminApi(request, url, env) {
   const from = dayShift(to, -(span - 1));
   const pf = ["app", "web"].includes(url.searchParams.get("platform")) ? url.searchParams.get("platform") : "all";
   const excluded = await excludedPrefixes(env.DB);
+  const tags = await tagMap(env.DB);
   const isEx = (uid) => excluded.some((p) => String(uid).startsWith(p));
   const exSql = excluded.map(() => " AND uid NOT LIKE ?").join("");
   const exBind = excluded.map((p) => p + "%");
@@ -616,7 +658,7 @@ export async function adminApi(request, url, env) {
   const keep = (rows) => (rows.results ?? []).filter((r) => !isEx(r.uid));
   const allRows = keep(daily), menuUserRows = keep(menuUser);
   return reply({
-    from, to, totalInstalls: total?.n ?? 0, excluded,
+    from, to, totalInstalls: total?.n ?? 0, excluded, tags,
     ...summarize(allRows, menu.results ?? [], from, to, menuUserRows, pf),
     engagement: engagement({ allRows, activityRows: keep(activity), from, to, platform: pf, ufrom, uto }),
     detail: detail({ allRows, menuUserRows, prevMenuUserRows: keep(prevMenuUser), hourRows: keep(hourRows), errorRows: keep(errorRows), envRows: keep(envRows), from, to, span, platform: pf }),
@@ -639,7 +681,7 @@ input,select,button{font:inherit;padding:8px 10px;border-radius:8px;border:1px s
 svg{width:100%;height:200px}.leg{font-size:12px;color:var(--mut)}.leg b{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 4px 0 10px}
 table{width:100%;border-collapse:collapse;font-size:13px}
 dialog{border:1px solid var(--ln);border-radius:14px;background:var(--card);color:var(--fg);max-width:620px;width:calc(100% - 24px);padding:14px}dialog::backdrop{background:rgba(0,0,0,.45)}.exb{cursor:pointer;text-decoration:underline dotted}td,th{padding:4px 6px;border-bottom:1px solid var(--ln);text-align:right}td:first-child,th:first-child{text-align:left}
-.fold{cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}.fold:before{content:'\\25BE';display:inline-block;width:1.1em;color:var(--mut);transition:transform .15s}.fold.off:before{transform:rotate(-90deg)}.fold select{margin-left:6px}
+.tg{display:inline-block;margin-left:6px;padding:0 7px;border-radius:9px;font-size:11px;line-height:18px;font-weight:600;color:#fff;background:#7b8794;vertical-align:1px}.tg-red{background:#d64545}.tg-orange{background:#d9822b}.tg-green{background:#1b8a6b}.tg-blue{background:#4a6fd8}.tg-purple{background:#8a5cd0}.trow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}.trow input{flex:1;min-width:120px}.fold{cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}.fold:before{content:'\\25BE';display:inline-block;width:1.1em;color:var(--mut);transition:transform .15s}.fold.off:before{transform:rotate(-90deg)}.fold select{margin-left:6px}
 </style></head><body><main>
 <h1>FSS Insights 사용 통계 <a class="leg" href="/admin/notices">· 공지사항 관리</a></h1>
 <div class="card"><input id="tok" type="password" placeholder="관리자 토큰" autocomplete="off"> <select id="pf"><option value="all">전체(앱+웹)</option><option value="app">앱만</option><option value="web">웹만</option></select> <select id="span"><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option></select> <button id="go">조회</button> <span id="msg" class="leg"></span></div>
@@ -649,12 +691,13 @@ dialog{border:1px solid var(--ln);border-radius:14px;background:var(--card);colo
 <h2 style="margin-top:10px">일자별 평균 (선: 방문 횟수 <span style="color:var(--a)">●</span> · 사용 시간(분) <span style="color:var(--b)">●</span>, 각자 최대값 기준 비율)</h2><svg id="engc" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
 <h2 style="margin-top:10px">하루 방문 횟수 분포 (사용자·일 기준)</h2><div id="engv"></div><h2 style="margin-top:8px">하루 사용 시간 분포</h2><div id="engt"></div>
 <details style="margin-top:8px"><summary class="leg">일자별 표</summary><table id="engd"></table></details>
-<h2 style="margin-top:10px">날짜별 접속자 상세 <select id="engday"></select></h2><div id="engusum" class="leg"></div><div style="overflow-x:auto"><table id="engu" style="white-space:nowrap;min-width:700px"></table></div><div class="leg">접속자는 익명 ID(설치별 해시의 앞 6자리)로만 표시되며 이름·기기 정보와 연결되지 않습니다. 사용 시간이 긴 순입니다. 누적 접속일은 접속 신호를 받은 모든 날(측정 여부와 무관)을 센 값이고, 누적 방문·시간은 방문·시간이 측정된 날(웹·앱 방문·시간 기록 시작일 이후)만 더한 값이라 실제 사용 이력보다 적을 수 있으며, 접속일보다 측정일이 적으면 방문 옆에 '측정 N일'을 작게 표시합니다(제외한 접속자는 빠집니다). 표가 넓으면 옆으로 밀어 보세요. 버전 = 그날(기간 표는 기간 중 가장 최근 날) 쓴 앱·웹 버전이며 기록이 없으면 -입니다. 최종 접속 = 서버가 마지막으로 그 사용자의 신호(열기·사용 중 전송·닫기)를 받은 시각(한국시간)이며, 오늘 접속분부터 기록됩니다. 미측정 = 그날 접속 신호는 받았지만 방문·사용 시간 기록이 없는 사용자입니다(방문·시간 측정 기능이 들어가기 전 웹·앱 버전을 쓰거나, 새 버전으로 아직 갱신되지 않은 기기). 버전 열로 확인할 수 있으며 갱신되면 측정으로 바뀝니다. 사용 시간 0초는 열자마자 닫는 등으로 시간 전송 전에 끝난 경우입니다(웹 v2.21.2부터 보완).</div>
+<h2 style="margin-top:10px">날짜별 접속자 상세 <select id="engday"></select></h2><div id="engusum" class="leg"></div><div style="margin:6px 0"><input id="tf" type="search" placeholder="ID·태그 검색(아래 두 접속자 표에 적용)" maxlength="40" style="width:100%;box-sizing:border-box"></div><div style="overflow-x:auto"><table id="engu" style="white-space:nowrap;min-width:700px"></table></div><div class="leg">접속자는 익명 ID(설치별 해시의 앞 6자리)로만 표시되며 이름·기기 정보와 연결되지 않습니다. 사용 시간이 긴 순입니다. 누적 접속일은 접속 신호를 받은 모든 날(측정 여부와 무관)을 센 값이고, 누적 방문·시간은 방문·시간이 측정된 날(웹·앱 방문·시간 기록 시작일 이후)만 더한 값이라 실제 사용 이력보다 적을 수 있으며, 접속일보다 측정일이 적으면 방문 옆에 '측정 N일'을 작게 표시합니다(제외한 접속자는 빠집니다). 표가 넓으면 옆으로 밀어 보세요. 버전 = 그날(기간 표는 기간 중 가장 최근 날) 쓴 앱·웹 버전이며 기록이 없으면 -입니다. 최종 접속 = 서버가 마지막으로 그 사용자의 신호(열기·사용 중 전송·닫기)를 받은 시각(한국시간)이며, 오늘 접속분부터 기록됩니다. 미측정 = 그날 접속 신호는 받았지만 방문·사용 시간 기록이 없는 사용자입니다(방문·시간 측정 기능이 들어가기 전 웹·앱 버전을 쓰거나, 새 버전으로 아직 갱신되지 않은 기기). 버전 열로 확인할 수 있으며 갱신되면 측정으로 바뀝니다. 사용 시간 0초는 열자마자 닫는 등으로 시간 전송 전에 끝난 경우입니다(웹 v2.21.2부터 보완).</div>
 <h2 style="margin-top:14px">기간별 접속자 합산</h2>
 <div><select id="uq"><option value="7">최근 7일</option><option value="30">최근 30일</option><option value="all">전체(측정 시작 이후)</option><option value="custom">직접 선택</option></select> <input type="date" id="ufrom"> ~ <input type="date" id="uto"> <button id="ugo">보기</button></div>
 <div id="usum" class="leg" style="margin:6px 0"></div><div style="overflow-x:auto"><table id="uper" style="white-space:nowrap;min-width:620px"></table></div>
 <div class="leg">선택한 기간 안에서 접속자별로 접속한 날 수, 방문 횟수, 사용 시간을 더한 표입니다(위의 "날짜별 접속자 상세"는 하루만 보는 표). 접속일수는 접속 신호를 받은 모든 날을 세며, 방문·사용 시간은 측정이 시작된 날 이후 값만 더합니다(그 이전은 값이 없음). 제외한 접속자는 빠집니다. 사용 시간이 긴 순이며 최대 500명까지 보여 줍니다.</div>
 <div class="leg" style="margin-top:6px">방문 = 앱·웹을 열 때마다 1회(앱은 다시 앞으로 가져올 때, 웹은 처음 열거나 다른 탭·창에서 돌아올 때도 포함). 사용 시간 = 화면이 보이는 동안 1분 단위로 기록(백그라운드·숨김 시간 제외). 이 기능이 들어간 새 앱·웹을 쓴 사용자만 집계되며, 그 이전 날짜는 값이 없습니다. 오늘 값은 사용 중에도 몇 분마다·화면을 닫을 때 올라옵니다.</div></div>
+<div class="card"><h2>접속자 태그</h2><div id="taglist" class="leg"></div><div class="leg" style="margin-top:6px">접속자 표의 ID를 눌러 열리는 창에서 태그(최대 20자)와 색상을 지정·수정·삭제합니다. 태그는 이 관리자 화면에만 보이며 접속자에게 전달되지 않습니다.</div></div>
 <div class="card"><h2>통계에서 제외할 접속자</h2><input id="exid" placeholder="익명 ID(예: 18a57f)" size="12"> <button id="exadd">제외 추가</button><div id="exlist" class="leg" style="margin-top:6px"></div><div class="leg">운영자 본인 기기 등을 제외합니다. 아래 "날짜별 접속자 상세"의 ID를 눌러도 추가됩니다. 제외하면 DAU·WAU·MAU·방문·사용 시간·메뉴·신규/재방문 등 모든 집계에서 빠지고, 이후 신호도 저장하지 않습니다. 앱·웹 정보 화면의 통계 끄기 스위치로 그 기기에서 아예 보내지 않게 할 수도 있습니다.</div></div>
 <div class="card"><h2>일자별 활성사용자</h2><svg id="chart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg><div class="leg"><b style="background:var(--a)"></b>DAU<b style="background:var(--b)"></b>WAU(7일)<b style="background:var(--c)"></b>MAU(30일)</div></div>
 <div class="card"><h2>버전별 분포 (최근 7일 활성)</h2><div id="ver"></div></div>
@@ -669,10 +712,15 @@ dialog{border:1px solid var(--ln);border-radius:14px;background:var(--card);colo
 <div class="card"><h2>오류·실패 현황</h2><table id="errs"></table><div class="leg">api:/경로 = 서버 자료 불러오기 실패, fetch:이름 = 외부 사이트 직접 읽기 실패. 영향 사용자 수와 마지막 발생일을 함께 봅니다. 이 기능 배포 전 기록은 없습니다.</div></div>
 <div class="card"><h2>일자별 표</h2><table id="tbl"></table></div>
 </div></main>
-<dialog id="ud"><div style="display:flex;justify-content:space-between;align-items:center"><h2 id="udt" style="margin:0"></h2><span><button id="udex" style="background:var(--b)">통계에서 제외</button> <button id="udx" style="background:var(--mut)">닫기</button></span></div><div id="udb"></div></dialog>
+<dialog id="ud"><div style="display:flex;justify-content:space-between;align-items:center"><h2 id="udt" style="margin:0"></h2><span><button id="udex" style="background:var(--b)">통계에서 제외</button> <button id="udx" style="background:var(--mut)">닫기</button></span></div><div class="trow"><input id="tgin" maxlength="20" placeholder="태그(예: 내 PC, 팀장님)"><select id="tgc"><option value="gray">회색</option><option value="red">빨강</option><option value="orange">주황</option><option value="green">초록</option><option value="blue">파랑</option><option value="purple">보라</option></select><button id="tgsave">태그 저장</button><button id="tgdel" style="background:var(--mut)">삭제</button></div><div id="udb"></div></dialog>
 <script>
 const $=i=>document.getElementById(i);$("tok").value=sessionStorage.getItem("t")||"";
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let TAGS={};const TC=["gray","red","orange","green","blue","purple"];
+const tagOf=id=>{id=String(id);let b=null;for(const k in TAGS)if((id.startsWith(k)||k.startsWith(id))&&(!b||k.length>b.length))b=k;return b?TAGS[b]:null};
+const chip=id=>{const t=tagOf(id);return t?'<span class="tg tg-'+(TC.includes(t.c)?t.c:"gray")+'">'+esc(t.t)+'</span>':""};
+function renderTags(){const ks=Object.keys(TAGS).sort((a,b)=>TAGS[a].t.localeCompare(TAGS[b].t,"ko"));$("taglist").innerHTML=ks.length?ks.map(k=>"<code class='exb' data-id='"+esc(k)+"'>"+esc(k)+"</code>"+chip(k)).join(" &nbsp; "):"등록된 태그 없음"}
+function applyTF(){const q=$("tf").value.trim().toLowerCase();for(const id of ["engu","uper"])for(const tr of $(id).rows){if(tr.querySelector("th"))continue;tr.style.display=!q||tr.textContent.toLowerCase().includes(q)?"":"none"}}
 function bars(el,obj,keep){const e=Object.entries(obj);if(!keep)e.sort((a,b)=>b[1]-a[1]);const m=Math.max(1,...e.map(x=>x[1]));el.innerHTML=e.length?e.map(([k,v])=>'<div class="bar"><em>'+esc(k)+'</em><i style="width:'+Math.round(v/m*55)+'%"></i>'+v+'</div>').join(""):'<span class="leg">자료 없음</span>'}
 function line(s,key,color,max){const n=s.length;return '<polyline fill="none" stroke="'+color+'" stroke-width="2" points="'+s.map((p,i)=>(n>1?i/(n-1)*580+10:300)+","+(185-p[key]/max*170)).join(" ")+'"/>'}
 async function load(){$("msg").textContent="불러오는 중…";sessionStorage.setItem("t",$("tok").value);
@@ -681,7 +729,7 @@ let uf,ut;if(uq==="custom"){uf=$("ufrom").value||kst(6);ut=$("uto").value||kst(0
 if(uq!=="custom"){$("ufrom").value=uf;$("uto").value=ut}
 const r=await fetch("/admin/api?days="+$("span").value+"&platform="+$("pf").value+"&ufrom="+uf+"&uto="+ut,{headers:{"X-Admin-Token":$("tok").value}});
 if(!r.ok){$("msg").textContent=r.status==401?"토큰이 맞지 않습니다":"오류 "+r.status;return}
-const d=await r.json();$("msg").textContent=d.from+" ~ "+d.to;$("out").hidden=false;const s=d.series,l=s[s.length-1];
+const d=await r.json();TAGS=d.tags||{};renderTags();$("msg").textContent=d.from+" ~ "+d.to;$("out").hidden=false;const s=d.series,l=s[s.length-1];
 $("k1").textContent=l.dau;$("k2").textContent=l.wau;$("k3").textContent=l.mau;$("k4").textContent=d.totalInstalls;const sp=d.split;$("split").textContent="오늘 DAU 앱 "+sp.app.dau+" · 웹 "+sp.web.dau+"  /  7일 앱 "+sp.app.wau+" · 웹 "+sp.web.wau+"  /  30일 앱 "+sp.app.mau+" · 웹 "+sp.web.mau+" (한 사람이 앱과 웹을 모두 쓰면 양쪽에 1명씩 잡힙니다)";
 const max=Math.max(1,...s.map(p=>p.mau));$("chart").innerHTML='<line x1="10" x2="590" y1="185" y2="185" stroke="currentColor" opacity=".2"/>'+line(s,"mau","var(--c)",max)+line(s,"wau","var(--b)",max)+line(s,"dau","var(--a)",max);
 bars($("ver"),d.versions);
@@ -701,12 +749,12 @@ $("engc").innerHTML='<line x1="10" x2="590" y1="178" y2="178" stroke="currentCol
 (function(){const P=E.period;if(!P){$("uper").innerHTML="";$("usum").textContent="";return}
 if($("uq").value==="all")$("ufrom").value=P.from;
 $("usum").textContent=P.from+" ~ "+P.to+" · 측정 접속자 "+P.total+"명"+(P.unmeasured?" + 미측정 "+P.unmeasured+"명":"")+(P.total+P.unmeasured>P.users.length?" (상위 "+P.users.length+"명 표시)":"");
-$("uper").innerHTML="<tr><th>사용자(익명 ID)</th><th>구분</th><th>버전</th><th>접속일수</th><th>방문</th><th>사용 시간</th><th>최종 접속</th></tr>"+(P.users.length?P.users.map(u=>"<tr"+(u.un?" style='opacity:.65'":"")+"><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code></td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+esc(u.ver||"-")+"</td><td>"+u.days+"일</td>"+(u.un?"<td colspan=2>미측정</td>":"<td>"+u.visits+"회"+mn(u.md,u.days)+"</td><td>"+ft(u.secs)+"</td>")+"<td>"+fk(u.at)+"</td></tr>").join(""):"<tr><td colspan=7>자료 없음</td></tr>")})();
+$("uper").innerHTML="<tr><th>사용자(익명 ID)</th><th>구분</th><th>버전</th><th>접속일수</th><th>방문</th><th>사용 시간</th><th>최종 접속</th></tr>"+(P.users.length?P.users.map(u=>"<tr"+(u.un?" style='opacity:.65'":"")+"><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code>"+chip(u.id)+"</td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+esc(u.ver||"-")+"</td><td>"+u.days+"일</td>"+(u.un?"<td colspan=2>미측정</td>":"<td>"+u.visits+"회"+mn(u.md,u.days)+"</td><td>"+ft(u.secs)+"</td>")+"<td>"+fk(u.at)+"</td></tr>").join(""):"<tr><td colspan=7>자료 없음</td></tr>")})();
 (function(){const days=E.series.filter(p=>p.users>0||p.unmeasured>0).map(p=>p.day).reverse(),sel=$("engday");const old=sel.value;
 sel.innerHTML=days.length?days.map(x=>'<option>'+x+'</option>').join(""):'<option value="">측정된 날짜 없음</option>';if(days.includes(old))sel.value=old;
-const show=()=>{const p=E.series.find(x=>x.day===sel.value);$("engu").innerHTML=p?"<tr><th>사용자(익명 ID)</th><th>구분</th><th>버전</th><th>방문</th><th>사용 시간</th><th>최종 접속</th><th>누적 접속일</th><th>누적 방문</th><th>누적 시간</th></tr>"+p.list.map(u=>"<tr><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code></td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+esc(u.ver||"-")+"</td><td>"+u.visits+"회</td><td>"+ft(u.secs)+"</td><td>"+fk(u.at)+"</td><td>"+u.cd+"일</td><td>"+u.cv+"회"+mn(u.cm,u.cd)+"</td><td>"+ft(u.cs)+"</td></tr>").join("")+(p.users>p.list.length?"<tr><td colspan=9>외 "+(p.users-p.list.length)+"명</td></tr>":"")+p.unList.map(u=>"<tr style='opacity:.65'><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code></td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+esc(u.ver||"-")+"</td><td colspan=2>미측정</td><td>"+fk(u.at)+"</td><td>-</td><td>-</td><td>-</td></tr>").join("")+(p.unmeasured>p.unList.length?"<tr><td colspan=9>미측정 외 "+(p.unmeasured-p.unList.length)+"명</td></tr>":""):"";
-$("engusum").textContent=p?"측정 "+p.users+"명"+(p.unmeasured?" + 미측정 "+p.unmeasured+"명":"")+" / 그날 DAU "+p.dau+"명 · 평균 방문 "+fm(p.avgVisits)+"회 · 평균 시간 "+ft(p.avgSecs):""};sel.onchange=show;show()})();
-bars($("engv"),E.visitDist,1);bars($("engt"),E.timeDist,1);
+const show=()=>{const p=E.series.find(x=>x.day===sel.value);$("engu").innerHTML=p?"<tr><th>사용자(익명 ID)</th><th>구분</th><th>버전</th><th>방문</th><th>사용 시간</th><th>최종 접속</th><th>누적 접속일</th><th>누적 방문</th><th>누적 시간</th></tr>"+p.list.map(u=>"<tr><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code>"+chip(u.id)+"</td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+esc(u.ver||"-")+"</td><td>"+u.visits+"회</td><td>"+ft(u.secs)+"</td><td>"+fk(u.at)+"</td><td>"+u.cd+"일</td><td>"+u.cv+"회"+mn(u.cm,u.cd)+"</td><td>"+ft(u.cs)+"</td></tr>").join("")+(p.users>p.list.length?"<tr><td colspan=9>외 "+(p.users-p.list.length)+"명</td></tr>":"")+p.unList.map(u=>"<tr style='opacity:.65'><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code>"+chip(u.id)+"</td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+esc(u.ver||"-")+"</td><td colspan=2>미측정</td><td>"+fk(u.at)+"</td><td>-</td><td>-</td><td>-</td></tr>").join("")+(p.unmeasured>p.unList.length?"<tr><td colspan=9>미측정 외 "+(p.unmeasured-p.unList.length)+"명</td></tr>":""):"";
+$("engusum").textContent=p?"측정 "+p.users+"명"+(p.unmeasured?" + 미측정 "+p.unmeasured+"명":"")+" / 그날 DAU "+p.dau+"명 · 평균 방문 "+fm(p.avgVisits)+"회 · 평균 시간 "+ft(p.avgSecs):""};sel.onchange=show;show();applyTF()})();
+applyTF();bars($("engv"),E.visitDist,1);bars($("engt"),E.timeDist,1);
 $("engd").innerHTML="<tr><th>날짜</th><th>DAU</th><th>측정</th><th>평균 방문</th><th>최대 방문</th><th>평균 시간</th><th>최대 시간</th></tr>"+E.series.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.users+"</td><td>"+fm(p.avgVisits)+"</td><td>"+(p.users?p.maxVisits:"-")+"</td><td>"+ft(p.avgSecs)+"</td><td>"+(p.users?ft(p.maxSecs):"-")+"</td></tr>").join("");
 
 const D=d.detail;
@@ -735,7 +783,12 @@ $("tbl").innerHTML="<tr><th>날짜</th><th>DAU</th><th>WAU</th><th>MAU</th></tr>
 async function exApi(body){const r=await fetch("/admin/exclude",{method:"POST",headers:{"X-Admin-Token":$("tok").value,"Content-Type":"application/json"},body:JSON.stringify(body)});if(!r.ok){alert(r.status==400?(await r.json()).error:"오류 "+r.status);return}load()}
 $("exadd").onclick=()=>{const v=$("exid").value.trim();if(v){$("exid").value="";exApi({add:v})}};
 let udId="";
-async function openUser(id){udId=id;$("udt").textContent="접속자 "+id;$("udb").innerHTML='<p class="leg">불러오는 중…</p>';const dg=$("ud");if(!dg.open)dg.showModal();
+$("tf").oninput=applyTF;
+function fillTagBox(){const t=tagOf(udId);$("tgin").value=t?t.t:"";$("tgc").value=t&&TC.includes(t.c)?t.c:"gray";$("udt").innerHTML="접속자 "+esc(udId)+chip(udId)}
+async function tagApi(id,tag,color){const r=await fetch("/admin/tag",{method:"POST",headers:{"X-Admin-Token":$("tok").value,"Content-Type":"application/json"},body:JSON.stringify({id,tag,color})});if(!r.ok){alert(r.status==400?(await r.json()).error:"오류 "+r.status);return false}TAGS=(await r.json()).tags||{};return true}
+$("tgsave").onclick=async()=>{if(udId&&await tagApi(udId,$("tgin").value,$("tgc").value)){fillTagBox();load()}};
+$("tgdel").onclick=async()=>{if(udId&&await tagApi(udId,"","gray")){fillTagBox();load()}};
+async function openUser(id){udId=id;fillTagBox();$("udb").innerHTML='<p class="leg">불러오는 중…</p>';const dg=$("ud");if(!dg.open)dg.showModal();
 const r=await fetch("/admin/user?id="+encodeURIComponent(id),{headers:{"X-Admin-Token":$("tok").value}});
 if(!r.ok){$("udb").innerHTML='<p class="leg">'+(r.status==404?"이 접속자의 기록이 없습니다":"오류 "+r.status)+'</p>';return}
 const u=await r.json(),ft=v=>{if(v==null)return"-";v=Math.round(v);return v<60?v+"초":Math.floor(v/60)+"분"},mx=Math.max(1,...u.menus.map(m=>m.hits)),hm=Math.max(1,...u.hours);
