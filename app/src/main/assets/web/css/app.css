@@ -24,7 +24,7 @@
   --warn-fg: #a35b00;
   --danger: #d14343;
   --r: 10px;
-  --side-w: 264px;
+  --side-w: var(--side-user, 264px);
   color-scheme: light;
 }
 
@@ -262,6 +262,16 @@ select.sel { padding: 6px 8px; font-size: 13px; }
 .prose { line-height: 1.75; }
 .prose h4 { margin: 14px 0 4px; font-size: 14px; }
 .prose ul, .prose ol { margin: 4px 0; padding-left: 20px; }
+
+/* ---- 메뉴 폭 조절 손잡이(PC) ---- */
+.side-resizer { position: fixed; top: 0; bottom: 0; left: calc(var(--side-w) - 3px); width: 7px; cursor: col-resize; z-index: 31; touch-action: none; transition: left .18s ease; }
+.side-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .15s; }
+.side-resizer:hover::after, .side-resizer:focus-visible::after, body.resizing .side-resizer::after { background: var(--side-accent); }
+.side-resizer:focus-visible { outline: none; }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing .side, body.resizing .side-resizer { transition: none; }
+body.collapsed .side-resizer { display: none; }
+@media (max-width: 860px) { .side-resizer { display: none; } }
 
 /* ---- 휴대폰: 메뉴는 서랍(☰ 또는 왼쪽 가장자리 밀기) ---- */
 @media (max-width: 860px) {
@@ -1026,3 +1036,94 @@ textarea.facts { width: 100%; padding: 10px; border: 1px solid var(--line); bord
 .cr-basis.stack { flex-direction: column; align-items: flex-start; }
 .cr-basis div { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .cr-live.off i { background: #c0392b; animation: none; }
+
+/* 공지 회전 배너(맨 위) */
+.notice-bar { padding: 8px 24px 0; }
+.nb { background: var(--acc-soft); color: var(--acc-fg); border-radius: 20px; padding: 2px 6px 2px 14px; font-size: 13.5px; }
+.nb.urgent { background: var(--urgent-soft); color: var(--danger); }
+.nb-row { display: flex; align-items: center; gap: 6px; min-height: 34px; }
+.nb-t { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 6px 0; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nb-nav, .nb-hide { background: none; border: 0; color: inherit; font: inherit; cursor: pointer; padding: 6px 8px; border-radius: 12px; }
+.nb-hide { font-size: 12px; opacity: .85; }
+.nb-cnt { font-size: 12px; opacity: .8; }
+.nb-body { padding: 0 8px 10px 0; white-space: pre-wrap; font-size: 13px; line-height: 1.55; }
+@media (max-width: 860px) { .notice-bar { padding: 8px 14px 0; } }
+
+/* ---- 금융사 리스크 대시보드 ---- */
+.rk-banner { display: flex; gap: 10px; align-items: flex-start; background: var(--warn-soft); color: var(--warn-fg); border: 1px solid #f3d9aa; border-radius: var(--r); padding: 10px 14px; margin-bottom: 12px; }
+.rk-banner.live { background: var(--ok-soft); color: var(--ok-fg); border-color: #bfe3d0; }
+.rk-banner .note { color: inherit; opacity: .85; }
+.rk-banner .i { margin-top: 2px; flex: none; }
+.rk-sec { margin-top: 14px; }
+.rk-sh { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.rk-sh b { font-size: 15px; }
+.rk-sh2 { font-weight: 700; margin: 14px 0 8px; font-size: 13px; }
+.rk-head { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+.rk-head .avatar.big { width: 48px; height: 48px; font-size: 20px; }
+.rk-name { font-size: 20px; font-weight: 800; }
+.rk-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.kpi.rk-warn { border-color: #f1c7c7; background: #fff8f8; }
+.rk-sig { display: flex; flex-direction: column; gap: 8px; }
+.rk-sg { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; }
+.rk-sg .tag { flex: none; margin-top: 1px; }
+.rk-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 10px; }
+.rk-chartcard { border: 1px solid var(--line2); border-radius: var(--r); padding: 10px 12px; }
+.rk-ct { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.rk-legend, .rk-legend2 { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+.rk-legend2 { margin-bottom: 4px; gap: 12px; }
+.rk-legend i, .rk-legend2 i { display: inline-block; width: 12px; height: 4px; border-radius: 2px; }
+.rk-legend2 i { height: 10px; width: 10px; border-radius: 3px; margin-right: 4px; }
+.rk-legend i.d { background: none; border-top: 2px dashed var(--muted); height: 0; margin-left: 8px; }
+.rk-box { width: 100%; }
+.rk-box.quad { max-width: 680px; margin: 6px auto; }
+.rk-chart { width: 100%; height: auto; display: block; }
+.rk-chart .rk-t { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.rk-chart .rk-b { fill: var(--fg); font-weight: 700; }
+.rk-chart .rk-ax { font-weight: 600; font-size: 11.5px; }
+.rk-chart .rk-grid { stroke: var(--line2); stroke-width: 1; }
+.rk-chart .rk-plot { fill: #fbfcfe; stroke: var(--line); }
+.rk-chart .rk-danger { fill: #e5484d; opacity: .07; }
+.rk-chart .rk-corner { fill: var(--danger); font-weight: 700; }
+.rk-chart .rk-mean { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 5 4; }
+.rk-chart .rk-pt { cursor: pointer; outline: none; }
+.rk-chart .rk-pt circle:first-child { fill: var(--acc); fill-opacity: .72; stroke: #fff; stroke-width: 1.2; }
+.rk-chart .rk-pt circle.rk-out { fill: #fff; stroke: var(--acc); stroke-width: 2; }
+.rk-chart .rk-pt.self circle:first-child { fill: var(--danger); fill-opacity: 1; stroke: #fff; stroke-width: 2; }
+.rk-chart .rk-pt:hover circle:first-child, .rk-chart .rk-pt:focus circle:first-child { fill-opacity: 1; stroke: var(--fg); }
+.rk-chart .rk-nm { fill: var(--fg); font-size: 11px; pointer-events: none; }
+.rk-chart .rk-nm.self { font-weight: 800; fill: var(--danger); font-size: 12px; }
+.rk-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 16px; }
+.rk-kv small { display: block; color: var(--muted); font-size: 11.5px; }
+.rk-kv span { word-break: break-all; }
+.rk-rel { background: var(--chip); border-radius: 8px; padding: 6px 10px; margin: 0 0 10px; }
+.rk-hrow { display: grid; grid-template-columns: minmax(110px, 190px) 1fr 58px; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line2); }
+.rk-hrow .rb { height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; }
+.rk-hrow .rb span { display: block; height: 100%; background: var(--acc); }
+.rk-hrow .pc { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+.rk-tl { margin: 10px 0 8px; }
+.rk-ti { display: flex; gap: 10px; padding: 0 0 12px; position: relative; }
+.rk-ti::before { content: ""; position: absolute; left: 5px; top: 14px; bottom: 0; width: 2px; background: var(--line); }
+.rk-ti:last-child::before { display: none; }
+.rk-dot { width: 12px; height: 12px; border-radius: 50%; margin-top: 4px; flex: none; background: #9fb0cb; z-index: 1; }
+.rk-dot.s3 { background: var(--danger); } .rk-dot.s2 { background: var(--warm); }
+.rk-tb { flex: 1; min-width: 0; }
+.rk-tt { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rk-tt .btn { margin-left: auto; }
+.rk-ci { font-size: 12.5px; margin-top: 3px; color: var(--fg); }
+@media (max-width: 720px) {
+  .rk-hrow { grid-template-columns: 1fr 50px; }
+  .rk-hrow .rb { grid-column: 1 / -1; grid-row: 2; }
+  .rk-name { font-size: 18px; }
+}
+.rk-chart .rk-bar { fill: var(--acc); fill-opacity: .75; }
+.rk-chart .rk-iqr { fill: var(--acc-soft); opacity: .7; }
+.rk-chart .rk-hl { fill: var(--danger); }
+.rk-rank { display: grid; grid-template-columns: 28px minmax(100px, 200px) 1fr 96px; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line2); font-size: 13px; }
+.rk-rank.click { cursor: pointer; } .rk-rank.click:hover { background: #f6f9ff; }
+.rk-rank .n { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.rk-rank .rb { height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; }
+.rk-rank .rb span { display: block; height: 100%; background: var(--acc); }
+.rk-rank .v { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+.rk-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.rk-stats b { color: var(--fg); }
+@media (max-width: 720px) { .rk-rank { grid-template-columns: 24px 1fr 110px; } .rk-rank .rb { grid-column: 2 / -1; grid-row: 2; } }

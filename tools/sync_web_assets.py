@@ -14,7 +14,7 @@ import os, re, shutil, sys
 SRC = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "../fss-insights-web")
 DST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "src", "main", "assets", "web")
 DST = os.path.abspath(DST)
-ENTRY = ["js/screens/consumer.js", "js/screens/crypto.js", "js/screens/finsim.js"]
+ENTRY = ["js/screens/consumer.js", "js/screens/crypto.js", "js/screens/finsim.js", "js/screens/risk.js"]
 
 def closure():
     seen, todo = set(), list(ENTRY)
@@ -56,7 +56,7 @@ def patch_crypto(s):
             sys.exit("crypto.js 패턴을 찾지 못했습니다(웹 crypto.js가 바뀐 듯합니다): " + old[:60])
         s = s.replace(old, new, 1)
     # 일보 HTML 저장은 앱에서는 파일 저장 창으로, 인쇄(PDF) 단추는 WebView에서 동작하지 않으므로 숨긴다.
-    sub('import { card, errorText, h, icon, loading, message, tabs } from "../core.js";', 'import { card, download as coreDownload, errorText, h, icon, loading, message, tabs } from "../core.js";')
+    sub('import { card, errorText, h, icon, loading, message, reportError, tabs } from "../core.js";', 'import { card, download as coreDownload, errorText, h, icon, loading, message, reportError, tabs } from "../core.js";')
     sub('    const a = h("a", { href: URL.createObjectURL(blob), download: `가상자산시장일보_${data.snapshot.date}.html` });\n    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);\n', '    coreDownload(blob, `가상자산시장일보_${data.snapshot.date}.html`);\n')
     sub('h("button", { type: "button", class: "btn ghost sm", onclick: pr }, "PDF로 저장(인쇄)")', 'window.FssNative ? null : h("button", { type: "button", class: "btn ghost sm", onclick: pr }, "PDF로 저장(인쇄)")')
     return s
