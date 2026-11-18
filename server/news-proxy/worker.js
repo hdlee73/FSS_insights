@@ -13,6 +13,8 @@ import fisisData from "./fisis-data.json";
 import { usagePing, adminApi, adminPage, adminExclude, adminUser, adminTag } from "./usage-lib.js";
 import { publicNotices, adminNotices, noticesPage } from "./notices-lib.js";
 import { handleBoard } from "./board-lib.js";
+import { adminCalls, recordCall } from "./calls-lib.js";
+import { cacheControl, shared, snapOf, toResponse } from "./cache-lib.js";
 import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, webSearchCorps, withDartClass } from "./dart-lib.js";
 import { corsPreflight, proxyFetch, webAccess, withCors } from "./web-lib.js";
 import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos, statementOf } from "./fisis-lib.js";
@@ -40,6 +42,7 @@ const ID = /^[A-Za-z0-9_-]{10,100}$/;
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    recordCall(env, ctx, request, url); // 경로별 호출 수 집계(calls-lib.js)
     // 웹 버전: 허용 출처의 요청만 토큰 없이 받고, 응답에 CORS 머리글을 붙인다.
     const web = webAccess(request, url, env);
     if (web) {
@@ -84,6 +87,13 @@ async function route(request, url, env, ctx, fromWeb) {
         return fail(502, `태그 처리 오류: ${e.message}`);
       }
     }
+    if (url.pathname === "/admin/calls" && request.method === "GET") {
+      try {
+        return await adminCalls(request, url, env);
+      } catch (e) {
+        return fail(502, `호출 수 조회 오류: ${e.message}`);
+      }
+    }
     if (url.pathname === "/admin/notices" && request.method === "GET") return noticesPage();
     if (url.pathname === "/admin/notices/api") {
       try {
@@ -113,7 +123,8 @@ async function route(request, url, env, ctx, fromWeb) {
     }
     if (url.pathname === "/notices" && request.method === "GET") {
       try {
-        return await publicNotices(env);
+        // 모든 사용자에게 같은 공용 자료: 30초 동안 인스턴스 안에서 공유한다(관리자가 공지를 바꿔도 곧 반영).
+        return toResponse(await shared("notices", 30000, async () => snapOf(await publicNotices(env))));
       } catch (e) {
         return json({ notices: [] });
       }
@@ -177,16 +188,16 @@ async function law(url, env, ctx) {
   params.set("OC", env.LAW_OC);
   const cacheKey = new Request(`${LAW_ORIGIN}${path}?${[...params].filter(([k]) => k !== "OC").map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&")}`);
   const cache = caches.default;
-  const hit = await cache.match(cacheKey);
-  if (hit) return hit;
-  const res = await fetch(`${LAW_ORIGIN}${path}?${params}`);
-  const body = await res.text();
-  const out = new Response(body, {
-    status: res.status,
-    headers: { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" },
+  // 같은 조회는 인스턴스 메모리에서 합치고(1시간), 데이터센터 캐시를 거쳐, 없을 때만 국가법령정보로 간다.
+  const snap = await shared(cacheKey.url, 3600000, async () => {
+    const hit = await cache.match(cacheKey);
+    if (hit) return snapOf(hit);
+    const res = await fetch(`${LAW_ORIGIN}${path}?${params}`);
+    const fresh = { status: res.status, headers: { "content-type": "application/xml; charset=utf-8", "cache-control": cacheControl(3600, 3600) }, body: await res.arrayBuffer() };
+    if (res.ok) ctx.waitUntil(cache.put(cacheKey, toResponse(fresh)));
+    return fresh;
   });
-  if (res.ok) ctx.waitUntil(cache.put(cacheKey, out.clone()));
-  return out;
+  return toResponse(snap);
 }
 
 // 옛 웹 주소(hdlee73.github.io)는 새 주소로 301 이동해 서비스 워커를 갱신할 수 없다. 그 출처에서 온 뉴스 요청의 첫 쪽 맨 위에 이동 안내 항목을 끼워 넣는다.
@@ -219,17 +230,18 @@ async function news(url, env, ctx) {
   const target = `${NAVER}?query=${encodeURIComponent(query)}&display=${display}&start=${start}&sort=date`;
   const cacheKey = new Request(target);
   const cache = caches.default;
-  const hit = await cache.match(cacheKey);
-  if (hit) return hit;
-  const upstream = await fetch(target, {
-    headers: { "X-Naver-Client-Id": env.NAVER_CLIENT_ID, "X-Naver-Client-Secret": env.NAVER_CLIENT_SECRET },
+  // 같은 검색어는 인스턴스 메모리에서 합치고(2분), 데이터센터 캐시를 거쳐, 없을 때만 네이버로 간다.
+  const snap = await shared(cacheKey.url, 120000, async () => {
+    const hit = await cache.match(cacheKey);
+    if (hit) return snapOf(hit);
+    const upstream = await fetch(target, {
+      headers: { "X-Naver-Client-Id": env.NAVER_CLIENT_ID, "X-Naver-Client-Secret": env.NAVER_CLIENT_SECRET },
+    });
+    const fresh = { status: upstream.status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": cacheControl(120, 120) }, body: await upstream.arrayBuffer() };
+    if (upstream.ok) ctx.waitUntil(cache.put(cacheKey, toResponse(fresh)));
+    return fresh;
   });
-  const response = new Response(upstream.body, {
-    status: upstream.status,
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=120" },
-  });
-  if (upstream.ok) ctx.waitUntil(cache.put(cacheKey, response.clone()));
-  return response;
+  return toResponse(snap);
 }
 
 async function drive(path, env, params) {
@@ -550,21 +562,22 @@ async function stats(url, env, ctx) {
   const specs = selectSpecs(url.searchParams.get("ids"));
   const cacheKey = new Request(`https://stats.cache/ecos-v5/${specs.map((s) => s.id).sort().join(",")}`);
   const cache = caches.default;
-  const hit = await cache.match(cacheKey);
-  if (hit) return hit;
-  if (specs.some((s) => !s.tableCode) && (!tableCache.rows || Date.now() - tableCache.at > 86400000)) {
-    tableCache = { at: Date.now(), rows: (await ecos(env, "StatisticTableList/{key}/json/kr/1/5000/")).StatisticTableList.row };
-  }
-  const settled = await Promise.allSettled(specs.map((s) => statOne(s, env, tableCache.rows)));
-  const items = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
-  const missing = specs.filter((_, i) => settled[i].status === "rejected").map((s) => s.id);
-  // 못 받은 통계마다 사유(ECOS 오류 코드, 통계표·항목 없음, 값 없음 등)를 남긴다.
-  const reasons = Object.fromEntries(specs.flatMap((s, i) => (settled[i].status === "rejected" ? [[s.id, String(settled[i].reason?.message || settled[i].reason).slice(0, 160)]] : [])));
-  const response = new Response(JSON.stringify({ items, missing, reasons }), {
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=3600" },
+  const snap = await shared(cacheKey.url, 3600000, async () => {
+    const hit = await cache.match(cacheKey);
+    if (hit) return snapOf(hit);
+    if (specs.some((s) => !s.tableCode) && (!tableCache.rows || Date.now() - tableCache.at > 86400000)) {
+      tableCache = { at: Date.now(), rows: (await ecos(env, "StatisticTableList/{key}/json/kr/1/5000/")).StatisticTableList.row };
+    }
+    const settled = await Promise.allSettled(specs.map((s) => statOne(s, env, tableCache.rows)));
+    const items = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
+    const missing = specs.filter((_, i) => settled[i].status === "rejected").map((s) => s.id);
+    // 못 받은 통계마다 사유(ECOS 오류 코드, 통계표·항목 없음, 값 없음 등)를 남긴다.
+    const reasons = Object.fromEntries(specs.flatMap((s, i) => (settled[i].status === "rejected" ? [[s.id, String(settled[i].reason?.message || settled[i].reason).slice(0, 160)]] : [])));
+    const fresh = { status: 200, headers: { "content-type": "application/json; charset=utf-8", "cache-control": cacheControl(3600, 3600) }, body: new TextEncoder().encode(JSON.stringify({ items, missing, reasons })).buffer };
+    if (items.length) ctx.waitUntil(cache.put(cacheKey, toResponse(fresh)));
+    return items.length ? fresh : { ...fresh, volatile: true }; // 하나도 못 받은 응답은 메모리에 두지 않는다
   });
-  if (items.length) ctx.waitUntil(cache.put(cacheKey, response.clone()));
-  return response;
+  return toResponse(snap);
 }
 
 // ---- FISIS (금융통계정보시스템) ----
@@ -581,11 +594,20 @@ const fisisMemo = new Map();
 async function memo(key, ttl, build) {
   const hot = fisisMemo.get(key);
   if (hot && Date.now() - hot.at < ttl * 1000) return hot.value;
-  const value = await build();
-  fisisMemo.set(key, { at: Date.now(), value });
-  if (fisisMemo.size > 400) fisisMemo.delete(fisisMemo.keys().next().value);
-  return value;
+  const pending = memoInflight.get(key);
+  if (pending) return pending; // 같은 요청이 동시에 오면 상류 호출을 하나로 합친다
+  const p = build();
+  memoInflight.set(key, p);
+  try {
+    const value = await p;
+    fisisMemo.set(key, { at: Date.now(), value });
+    if (fisisMemo.size > 400) fisisMemo.delete(fisisMemo.keys().next().value);
+    return value;
+  } finally {
+    memoInflight.delete(key);
+  }
 }
+const memoInflight = new Map();
 
 const fisisCall = (env, name, params) => fisisFetch(env.FISIS_API_KEY, name, params);
 
