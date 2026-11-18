@@ -127,7 +127,7 @@ const r=await bapi("POST","",{title:t,body:b,author:"관리자",is_notice:true})
 $("blist").onclick=async e=>{const id=e.target.dataset.bd;if(id&&confirm("이 게시판 공지를 삭제할까요?")){const r=await bapi("DELETE","/"+id);if(!r.ok)alert("삭제하지 못했습니다");bload()}};
 let pg=1,ptotal=0;
 const idtag=u=>'<code>'+(u?esc(u):"알 수 없음")+'</code>';
-async function pload(){const r=fetch("/board/admin/list?page="+pg,{headers:{"X-Admin-Token":$("tok").value}});if(!r.ok){$("plist").innerHTML='<span class="leg">불러오지 못했습니다 ('+r.status+')</span>';return}
+async function pload(){const r=await fetch("/board/admin/list?page="+pg,{headers:{"X-Admin-Token":$("tok").value}});if(!r.ok){$("plist").innerHTML='<span class="leg">불러오지 못했습니다 ('+r.status+')</span>';return}
 const d=await r.json();ptotal=d.total;
 $("plist").innerHTML=d.posts.length?d.posts.map(p=>'<div class="n"><div class="t">#'+p.id+' '+esc(p.title)+'</div><div class="m">'+esc(p.author)+' · ID '+idtag(p.uid6)+' · '+esc(String(p.created_at||"").replace("T"," ").slice(0,16))+' UTC</div><div class="m" style="white-space:pre-wrap;color:var(--fg)">'+esc(p.body).slice(0,500)+'</div>'+p.comments.map(c=>'<div class="m" style="margin:6px 0 0 14px;white-space:pre-wrap">↳ '+esc(c.author)+' · ID '+idtag(c.uid6)+' · '+esc(String(c.created_at||"").replace("T"," ").slice(0,16))+' UTC<br><span style="color:var(--fg)">'+esc(c.body).slice(0,300)+'</span> <button class="d" data-pc="'+c.id+'">댓글 삭제</button></div>').join("")+'<p><button class="d" data-pd="'+p.id+'">글 삭제</button></p></div>').join(""):'<span class="leg">글이 없습니다</span>';
 $("pinfo").textContent=pg+" / "+Math.max(1,Math.ceil(ptotal/20))+" 쪽 · 총 "+ptotal+"건"}
