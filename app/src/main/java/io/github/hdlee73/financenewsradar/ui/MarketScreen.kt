@@ -682,7 +682,7 @@ private fun IndexTile(
                     Text(price, Modifier.padding(top = 2.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
                 }
                 if (showIntraday) IntradayChart(series, color, Modifier.weight(0.8f).height(30.dp))
-                else YearChart(item, history, Modifier.weight(0.8f).height(54.dp))
+                else YearChart(item, history, Modifier.weight(0.8f).height(86.dp))
             }
             // 등락률 괄호까지 들어가도록 차트 아래 칸 전체 폭을 쓴다(차트 옆 좁은 칸에서는 잘림).
             Text(delta, Modifier.padding(top = 2.dp), style = deltaStyle, color = color, maxLines = 1)
@@ -696,7 +696,7 @@ private fun IndexTile(
             Text(price, Modifier.fillMaxWidth().padding(top = 1.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
             Text(delta, Modifier.fillMaxWidth().padding(top = 1.dp), style = deltaStyle, color = color, maxLines = 1, textAlign = TextAlign.End)
             if (showIntraday) IntradayChart(series, color, Modifier.fillMaxWidth().padding(top = 4.dp).height(26.dp))
-            else YearChart(item, history, Modifier.fillMaxWidth().padding(top = 2.dp).height(54.dp))
+            else YearChart(item, history, Modifier.fillMaxWidth().padding(top = 2.dp).height(86.dp))
         }
     }
 }
@@ -1125,12 +1125,12 @@ private fun WatchCell(
                 Modifier.weight(1f), style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp), color = color, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             if (showIntraday) IntradayChart(intraday, color, Modifier.width(44.dp).height(18.dp), compare = false)
-            else if (history != null) Sparkline(history.closes, Modifier.width(44.dp).height(18.dp))
         }
         Text(
             quote?.let { deltaText(item, it) } ?: "—",
             style = TextStyle(fontSize = 9.5.sp, fontWeight = FontWeight.Medium), color = color, maxLines = 1, overflow = TextOverflow.Ellipsis
         )
+        if (!showIntraday && history != null) YearChart(item, history, Modifier.fillMaxWidth().padding(top = 2.dp).height(86.dp))
         if (editing) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 IconButton(onClick = onUp, enabled = canUp, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.ArrowUpward, contentDescription = "앞으로", Modifier.size(16.dp)) }
@@ -1175,7 +1175,7 @@ private fun YearChart(item: Instrument, history: PriceHistory?, modifier: Modifi
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Canvas(modifier) {
         if (closes.size < 2) return@Canvas
-        val band = 12.dp.toPx()
+        val band = 22.dp.toPx()
         val pad = 3.dp.toPx()
         val chartH = size.height - 2 * band
         val lo = closes.min()
@@ -1208,7 +1208,7 @@ private fun YearChart(item: Instrument, history: PriceHistory?, modifier: Modifi
             Mark(i, names, if (up) UpColor else if (down) DownColor else muted, if (up) true else if (down) false else y < band + chartH / 2, up || down)
         }.sortedByDescending { it.fixed }
         val bold = TextStyle(fontSize = 8.5.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
-        val regular = TextStyle(fontSize = 8.5.sp, letterSpacing = (-0.2).sp)
+        val regular = TextStyle(fontSize = 8.5.sp, letterSpacing = (-0.2).sp, lineHeight = 10.sp, textAlign = TextAlign.Center)
         val placed = mapOf(true to mutableListOf<ClosedFloatingPointRange<Float>>(), false to mutableListOf<ClosedFloatingPointRange<Float>>())
         fun clash(top: Boolean, l: Float, w: Float) = placed.getValue(top).firstOrNull { l < it.endInclusive + 3f && l + w + 3f > it.start }
         for (m in marks) {
@@ -1217,7 +1217,10 @@ private fun YearChart(item: Instrument, history: PriceHistory?, modifier: Modifi
             for (withDate in if (date.isEmpty()) listOf(false) else listOf(true, false)) {
                 val text = buildAnnotatedString {
                     withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(head) }
-                    if (withDate) append(" $date")
+                    if (withDate) {
+                        append("\n")
+                        withStyle(SpanStyle(fontSize = 7.5.sp)) { append("($date)") }
+                    }
                 }
                 val layout = measurer.measure(text, regular.copy(color = m.color))
                 val w = layout.size.width.toFloat()
