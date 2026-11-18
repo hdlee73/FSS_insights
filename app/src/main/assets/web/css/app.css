@@ -1236,3 +1236,8 @@ body.rp-view .print-doc.rp-law { display: block; box-sizing: border-box; max-wid
 body.rp-view .print-doc.rp-law.land { max-width: 297mm; }
 @media print { body.rp-view .print-doc.rp-law { margin: 0; padding: 0; max-width: none; box-shadow: none; } }
 a.lawlink { color: var(--acc-fg, inherit); text-decoration: underline dotted; text-underline-offset: 2px; }
+
+/* 코인·티커 검색 */
+.cr-searchbar { display: flex; gap: 8px; }
+.cr-search { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--line, #d8dee8); border-radius: 8px; font-size: 14px; background: var(--card, #fff); color: inherit; }
+.cr-alts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
