@@ -82,6 +82,10 @@ async function ensure(db) {
     try {
       await db.prepare(`ALTER TABLE ${t} ADD COLUMN edited_at TEXT`).run();
     } catch {}
+    // 작성자 접속자 ID(해시). 운영자(관리자 토큰)에게만 앞 6자리를 보여 준다. 이전 글은 NULL(알 수 없음).
+    try {
+      await db.prepare(`ALTER TABLE ${t} ADD COLUMN uid TEXT`).run();
+    } catch {}
   }
   ready = true;
 }
@@ -90,6 +94,20 @@ async function ensure(db) {
 function cleanVoter(v) {
   const s = String(v || "");
   return /^[A-Za-z0-9_-]{8,64}$/.test(s) ? s : null;
+}
+
+// 설치 ID(웹·앱이 /usage/ping 에 보내는 무작위 값). 형식이 아니면 null.
+function cleanInstallId(v) {
+  const s = String(v || "");
+  return /^[A-Za-z0-9-]{16,64}$/.test(s) ? s : null;
+}
+
+// /admin 접속자 표와 같은 방식: SHA-256(설치ID:APP_TOKEN) 16진수. 표에는 앞 6자리가 나온다.
+async function authorUid(installId, env) {
+  const id = cleanInstallId(installId);
+  if (!id) return null;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${id}:${env.APP_TOKEN}`));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function hashPassword(pw) {
@@ -203,10 +221,11 @@ export async function handleBoard(request, env, corsHeaders) {
     if (password && password.length < 4) return json({ error: "비밀번호는 4자 이상이어야 합니다." }, 400, cors);
 
     const pwHash = wantNotice ? null : await hashPassword(password);
+    const uid = wantNotice ? null : await authorUid(bodyJson.uid, env);
     const now = new Date().toISOString();
     const res = await db.prepare(
-      `INSERT INTO board_posts (is_notice, title, body, author, pw_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(wantNotice ? 1 : 0, title, body, author, pwHash, now).run();
+      `INSERT INTO board_posts (is_notice, title, body, author, pw_hash, created_at, uid) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(wantNotice ? 1 : 0, title, body, author, pwHash, now, uid).run();
 
     return json({ id: res.meta.last_row_id, ok: true }, 201, cors);
   }
@@ -216,17 +235,21 @@ export async function handleBoard(request, env, corsHeaders) {
   if (postMatch) {
     const id = Number(postMatch[1]);
     if (request.method === "GET") {
+      // 작성자 접속자 ID(author_uid)는 관리자 토큰이 있을 때만 응답에 넣는다. 일반 응답에는 절대 포함하지 않는다.
+      const admin = isAdmin(request, env);
+      const uidCol = admin ? ", substr(uid, 1, 6) AS author_uid" : "";
       const post = await db.prepare(
-        `SELECT id, is_notice, title, body, author, created_at, edited_at, (pw_hash IS NOT NULL) AS has_pw FROM board_posts WHERE id = ?`
+        `SELECT id, is_notice, title, body, author, created_at, edited_at, (pw_hash IS NOT NULL) AS has_pw${uidCol} FROM board_posts WHERE id = ?`
       ).bind(id).first();
       if (!post) return json({ error: "글을 찾을 수 없습니다." }, 404, cors);
       const comments = await db.prepare(
-        `SELECT id, post_id, author, body, created_at, edited_at, (pw_hash IS NOT NULL) AS has_pw FROM board_comments WHERE post_id = ? ORDER BY id ASC`
+        `SELECT id, post_id, author, body, created_at, edited_at, (pw_hash IS NOT NULL) AS has_pw${uidCol} FROM board_comments WHERE post_id = ? ORDER BY id ASC`
       ).bind(id).all();
       const counts = await db.prepare(
         `SELECT COALESCE(SUM(vote = 1), 0) AS likes, COALESCE(SUM(vote = -1), 0) AS dislikes FROM board_votes WHERE post_id = ?`
       ).bind(id).first();
       post.has_pw = !!post.has_pw;
+      if (admin) post.author_uid = post.author_uid || null; // null = 알 수 없음(이전 글·공지)
       post.likes = counts?.likes || 0;
       post.dislikes = counts?.dislikes || 0;
       const voter = cleanVoter(url.searchParams.get("voter"));
@@ -235,7 +258,7 @@ export async function handleBoard(request, env, corsHeaders) {
         const mine = await db.prepare(`SELECT vote FROM board_votes WHERE post_id = ? AND voter = ?`).bind(id, voter).first();
         post.my_vote = mine?.vote || 0;
       }
-      const list = (comments.results || []).map((c) => ({ ...c, has_pw: !!c.has_pw }));
+      const list = (comments.results || []).map((c) => ({ ...c, has_pw: !!c.has_pw, ...(admin ? { author_uid: c.author_uid || null } : {}) }));
       return json({ post, comments: list }, 200, cors);
     }
     if (request.method === "PUT") {
@@ -292,10 +315,11 @@ export async function handleBoard(request, env, corsHeaders) {
     if (password && password.length < 4) return json({ error: "비밀번호는 4자 이상이어야 합니다." }, 400, cors);
 
     const pwHash = await hashPassword(password);
+    const uid = await authorUid(bodyJson.uid, env);
     const now = new Date().toISOString();
     const res = await db.prepare(
-      `INSERT INTO board_comments (post_id, author, body, pw_hash, created_at) VALUES (?, ?, ?, ?, ?)`
-    ).bind(postId, author, body, pwHash, now).run();
+      `INSERT INTO board_comments (post_id, author, body, pw_hash, created_at, uid) VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(postId, author, body, pwHash, now, uid).run();
     return json({ id: res.meta.last_row_id, ok: true }, 201, cors);
   }
 
