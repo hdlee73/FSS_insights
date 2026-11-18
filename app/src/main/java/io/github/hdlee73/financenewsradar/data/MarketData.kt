@@ -56,27 +56,46 @@ data class IntradaySeries(
     val live: Boolean = true
 )
 
+/** 아시아 거래소 점심 휴장(현지시각 hhmm 시작·끝)과 하루 분봉 수. */
+private val ASIA_LUNCH = mapOf("Asia/Tokyo" to (1130 to 1230), "Asia/Hong_Kong" to (1200 to 1300), "Asia/Shanghai" to (1130 to 1300))
+private val ASIA_BARS = mapOf("Asia/Tokyo" to 300, "Asia/Hong_Kong" to 330, "Asia/Shanghai" to 240, "Asia/Taipei" to 270)
+
 /** 전일 비교 그래프 자료와 상황 배지를 만든다. [nowSec]는 테스트에서 시각을 고정하려는 용도. */
 internal fun buildCompare(
     days: List<SessionDay>, zone: ZoneId, lastEpoch: Long, bars: Int, h24: Boolean, kr: Boolean,
-    fallbackPrevious: Double?, price: Double?, nowSec: Long = System.currentTimeMillis() / 1000
+    fallbackPrevious: Double?, price: Double?, nowSec: Long = System.currentTimeMillis() / 1000,
+    sessionStart: Long? = null, sessionEnd: Long? = null
 ): IntradaySeries {
     val last = days.last()
     val prev = days[days.size - 2]
     val now = java.time.Instant.ofEpochSecond(nowSec).atZone(zone)
     val today = now.toLocalDate()
-    val live = h24 || (last.date == today && (nowSec - lastEpoch) <= 15 * 60)
+    val nowTime = now.toLocalTime()
+    val hhmm = nowTime.hour * 100 + nowTime.minute
+    val weekday = today.dayOfWeek.value in 1..5
+    // 해외 지수는 Yahoo가 15~20분 지연되므로 "마지막 분봉 15분 이내"로 보면 장중에도 마감으로 나온다 → 거래소 정규장 시간으로 판정.
+    val hasSession = !kr && sessionStart != null && sessionEnd != null
+    val inSession = hasSession && last.date == today && nowSec >= sessionStart!! && nowSec <= sessionEnd!! + 600
+    val lunch = ASIA_LUNCH[zone.id]
+    val onLunch = lunch != null && inSession && hhmm >= lunch.first && hhmm < lunch.second
+    val live = h24 || (if (hasSession) inSession else last.date == today && (nowSec - lastEpoch) <= 15 * 60)
     val points = last.closes.toMutableList()
     if (live && price != null && price.isFinite() && price > 0) points[points.lastIndex] = price
     fun md(d: java.time.LocalDate) = "${d.monthValue}/${d.dayOfMonth}"
-    val weekday = today.dayOfWeek.value in 1..5
+    val beforeOpen = hasSession && weekday && java.time.Instant.ofEpochSecond(sessionStart!!).atZone(zone).toLocalTime().let {
+        hhmm < it.hour * 100 + it.minute + 20
+    }
     val status = when {
         h24 -> null
+        onLunch -> "점심 휴장"
         live -> "장중"
         last.date == today -> "마감"
-        kr && weekday && now.toLocalTime() < java.time.LocalTime.of(9, 10) -> "개장 전"
+        kr && weekday && nowTime < java.time.LocalTime.of(9, 10) -> "개장 전"
         kr -> "휴장 · ${md(last.date)} 마감"
-        else -> "마감 ${md(last.date)}(미국)"
+        !hasSession -> "마감 ${md(last.date)}(미국)"
+        beforeOpen -> "개장 전"
+        zone.id.startsWith("America/") -> "마감 ${md(last.date)}(미국)"
+        else -> "휴장 · ${md(last.date)} 마감"
     }
     return IntradaySeries(
         points, fallbackPrevious ?: prev.closes.last(), prev.closes,
@@ -545,12 +564,17 @@ class MarketClient(private val context: Context) {
         val bars: Int
         val h24 = symbol.endsWith("=X") || symbol.endsWith("=F")
         val kr: Boolean
+        var sStart: Long? = null
+        var sEnd: Long? = null
         if (naver != null) {
             zone = kst; days = naver.first; lastEpoch = naver.second; bars = 391; kr = true
         } else {
             val interval = if (h24) "5m" else "1m"
             val chart = yahooChart(symbol, if (h24) "3d" else "5d", interval)
-            zone = ZoneId.of(chart.getJSONObject("meta").optString("exchangeTimezoneName", "UTC"))
+            val meta = chart.getJSONObject("meta")
+            zone = ZoneId.of(meta.optString("exchangeTimezoneName", "UTC"))
+            val reg = meta.optJSONObject("currentTradingPeriod")?.optJSONObject("regular")
+            if (reg != null && reg.optLong("start") > 0 && reg.optLong("end") > 0) { sStart = reg.getLong("start"); sEnd = reg.getLong("end") }
             val ts = chart.optJSONArray("timestamp") ?: return null
             val quote = chart.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0)
             val cl = quote.getJSONArray("close")
@@ -568,10 +592,10 @@ class MarketClient(private val context: Context) {
                 last = ts.getLong(i)
             }
             days = closes.entries.filter { it.value.size >= 2 }.map { SessionDay(it.key, it.value, opens[it.key]) }
-            lastEpoch = last; bars = if (h24) 288 else 390; kr = false
+            lastEpoch = last; bars = if (h24) 288 else ASIA_BARS[zone.id] ?: 390; kr = false
         }
         if (days.size < 2) return null
-        return buildCompare(days, zone, lastEpoch, bars, h24, kr, fallbackPrevious, price)
+        return buildCompare(days, zone, lastEpoch, bars, h24, kr, fallbackPrevious, price, sessionStart = sStart, sessionEnd = sEnd)
     }
 
     /** NAVER 1분봉(09:00~15:30)을 최근 거래일별로 묶어 최소 2거래일을 돌려준다. 국내 지수·종목이 아니면 null. */

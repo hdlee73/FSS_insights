@@ -100,4 +100,20 @@ class MarketDataTest {
         assertEquals(null, fx.status)
         assertTrue(fx.live)
     }
+
+    @Test
+    fun compareSeriesAsianIndexUsesSessionHoursDespiteDelayedQuotes() {
+        val hk = java.time.ZoneId.of("Asia/Hong_Kong")
+        fun at(d: String) = java.time.LocalDateTime.parse(d).atZone(hk).toEpochSecond()
+        val days = listOf(day("2026-11-17", 1.0, 2.0), day("2026-11-18", 3.0, 4.0))
+        // 15분 넘게 지연된 시세여도 정규장 중이면 장중
+        val open = buildCompare(days, hk, at("2026-11-18T10:20:00"), 330, false, false, 2.0, 4.0, at("2026-11-18T10:36:00"), at("2026-11-18T09:30:00"), at("2026-11-18T16:10:00"))
+        assertEquals("장중", open.status)
+        val lunch = buildCompare(days, hk, at("2026-11-18T11:59:00"), 330, false, false, 2.0, 4.0, at("2026-11-18T12:30:00"), at("2026-11-18T09:30:00"), at("2026-11-18T16:10:00"))
+        assertEquals("점심 휴장", lunch.status)
+        val closed = buildCompare(days, hk, at("2026-11-18T16:00:00"), 330, false, false, 2.0, 4.0, at("2026-11-18T17:00:00"), at("2026-11-18T09:30:00"), at("2026-11-18T16:10:00"))
+        assertEquals("마감", closed.status)
+        val holiday = buildCompare(listOf(day("2026-11-16", 1.0, 2.0), day("2026-11-17", 3.0, 4.0)), hk, at("2026-11-17T16:00:00"), 330, false, false, 2.0, 4.0, at("2026-11-18T11:00:00"), at("2026-11-18T09:30:00"), at("2026-11-18T16:10:00"))
+        assertEquals("휴장 · 11/17 마감", holiday.status)
+    }
 }
