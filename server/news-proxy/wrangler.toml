@@ -2,6 +2,12 @@ name = "news-proxy"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 
+# Workers Logs(관측 가능성): 요청마다 경로·상태·소요시간이 로그로 남아 Cloudflare 대시보드에서 경로별로 걸러 볼 수 있다.
+# 무료 요금제 한도는 하루 20만 건이라 절반만 기록한다(하루 8만 요청 기준 약 4만 건). 한도를 넘으면 그날은 기록이 멈출 뿐 요금은 없다.
+[observability]
+enabled = true
+head_sampling_rate = 0.5
+
 # 웹 버전(fss-insights-web)에서 앱 토큰 없이 받아 줄 출처. 쉼표로 여러 개.
 [vars]
 WEB_ORIGINS = "https://hdlee73.github.io,https://www.fssinsights.com,https://fssinsights.com"

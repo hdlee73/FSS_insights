@@ -102,3 +102,10 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 - Origin 머리글은 브라우저 밖에서 꾸며 보낼 수 있으므로 완전한 차단은 아닙니다. 남용의 상한은 위 요청 수 제한과 각 Open API의 일일 한도입니다.
 
 설정을 바꾼 뒤에는 Actions → **Deploy news proxy**를 다시 실행해야 웹에서 동작합니다.
+
+## 호출 수 집계·캐시·로그 (무료 요금제 하루 10만 건 관리)
+- **경로별 호출 수**: 모든 요청을 경로 종류(시세·뉴스·사용 통계 신호·관리자 화면 등)와 출처(웹/앱)별로 세어 D1 `call_count` 표에 시간 단위(UTC)로 쌓습니다(`calls-lib.js`). `/admin` 맨 위쪽 「서버 호출 수」 카드에서 한국시간·UTC 날짜별로 봅니다. 인스턴스 메모리에 모았다가 3분마다 한 번에 기록하므로 D1 쓰기는 하루 수천 행 수준입니다.
+- **익명게시판 작성자 확인(운영자 전용)**: 글·댓글 작성 요청의 설치 ID(`uid`)를 `SHA-256(설치ID:APP_TOKEN)`으로 해시해 `board_posts.uid`·`board_comments.uid`에 저장합니다(/admin 접속자 표와 같은 값, 앞 6자리가 표의 ID). `X-Admin-Token`이 맞을 때만 글 조회 응답에 `author_uid`(6자리, 이전 글은 `null`)가 붙고, 일반 응답에는 들어가지 않습니다. 배포 시 열이 자동으로 추가됩니다.
+- **공용 자료 캐시**(`cache-lib.js`): 시세·기관 사이트(`/fetch`)·뉴스·법령·거시 통계·공지·DART는 같은 요청이 동시에 와도 상류 호출을 한 번으로 합치고, 인스턴스 메모리 → 데이터센터 캐시 → 상류 순으로 찾습니다. 실시간 시세는 3초, 뉴스 2분, 목록 10분, 법령·통계 1시간. 사용자별·관리자 응답(`/usage`, `/board`, `/admin*`)은 캐시하지 않습니다.
+  - 주의: 서버 캐시는 **외부 사이트 호출**을 줄일 뿐, Worker 요청 수(10만 건 한도)는 줄이지 못합니다. 요청 수는 브라우저·앱이 덜 부를 때만 줄어듭니다(`Cache-Control`의 max-age·stale-while-revalidate는 브라우저 캐시용).
+- **Workers Logs**(`wrangler.toml`의 `[observability]`, 절반 표본): 배포하면 Cloudflare 대시보드 → Workers & Pages → news-proxy → **Observability**(Logs)에서 요청별 경로·상태·소요시간을 걸러 볼 수 있습니다. 무료 한도는 하루 20만 건이며 넘으면 그날은 기록만 멈춥니다. 끄려면 `enabled = false`, 표본을 줄이려면 `head_sampling_rate`를 낮춥니다.
