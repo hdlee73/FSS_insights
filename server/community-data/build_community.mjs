@@ -322,13 +322,33 @@ async function ytGet(endpoint, params) {
     return { err: e?.name === "AbortError" ? "timeout" : "error" };
   } finally { clearTimeout(timer); }
 }
+// 점수(절대 기준): 반응량 = 조회 + 좋아요×3 + 댓글×5 를 시간당으로 환산(올라온 뒤 시간^0.8)하고, 시간당 1,000회 = 100점(로그 눈금)이다.
+// 감독·금융사 키워드가 맞으면 +10점. 조회 1,000회 미만 영상은 보여 주지 않는다. 그래서 이번에 모은 영상 중 최고라도 반응이 작으면 낮은 점수가 나온다.
+const YT_MIN_VIEWS = 1000;
+const ytScore = (v) => {
+  const ageH = v.ts ? Math.max(1, (now - new Date(v.ts)) / 3600000) : 24;
+  const weighted = v.v + 3 * v.l + 5 * v.c;
+  const rate = weighted / Math.pow(ageH, 0.8);
+  return Math.min(100, Math.round((100 * Math.log1p(rate)) / Math.log1p(1000)) + (v.sup ? 10 : 0));
+};
+function ytItem(f, st) {
+  const text = { title: f.title, prior: null };
+  const cl = classify(text);
+  if (!cl) return null; // 금융 키워드가 맞는 영상만
+  const views = Number(st?.viewCount ?? 0);
+  if (views < YT_MIN_VIEWS) return null;
+  const x = { id: `yt:${f.id}`, t: f.title, u: `https://www.youtube.com/watch?v=${f.id}`, s: "유튜브", sk: "youtube", b: f.ch, ts: f.ts, v: views, c: Number(st?.commentCount ?? 0), l: Number(st?.likeCount ?? 0), cat: cl.cat, sup: cl.sup || undefined };
+  x.score = ytScore(x);
+  return x;
+}
 async function collectYoutube() {
   const cfg = KW.youtube || {};
   const st = { key: "youtube", name: "유튜브", board: "영상(조회·댓글 수 포함)", ok: false, count: 0, checkedAt: now.toISOString() };
   if (!YT_KEY) { st.pending = true; st.error = "키 없음"; return { st, items: [] }; }
-  // 직전에 호출했다면 쿼터 절약을 위해 이전 결과를 그대로 쓴다.
+  // 직전에 호출했다면 쿼터 절약을 위해 이전 결과를 그대로 쓴다(점수 방식이 바뀐 이전 버전 결과는 쓰지 않는다).
   let prevYt = null;
   try { prevYt = PREV ? JSON.parse(fs.readFileSync(path.join(PREV, "hot.json"), "utf8")).youtube : null; } catch { /* 없음 */ }
+  if (prevYt?.ver !== 2) prevYt = null;
   if (prevYt?.checkedAt && now - new Date(prevYt.checkedAt) < (cfg.minIntervalMin ?? 50) * 60000 && prevYt.items?.length) {
     st.ok = true; st.count = prevYt.items.length; st.checkedAt = prevYt.checkedAt; st.cached = true;
     return { st, items: prevYt.items };
@@ -344,29 +364,33 @@ async function collectYoutube() {
     }
     await sleep(300);
   }
-  if (!found.size) { if (prevYt?.items?.length) { st.ok = true; st.stale = true; st.count = prevYt.items.length; return { st, items: prevYt.items }; } return { st, items: [] }; }
-  const ids = [...found.keys()].slice(0, 50);
-  const v = await ytGet("videos", { part: "statistics", id: ids.join(",") });
-  if (v.err) { st.error = v.err; }
-  const out = [];
-  for (const it of v.json?.items || []) {
-    const f = found.get(it.id);
-    if (!f) continue;
-    const s = it.statistics || {};
-    const text = { title: f.title, prior: null };
-    const cl = classify(text);
-    if (!cl) continue; // 금융 키워드가 맞는 영상만
-    const ageH = f.ts ? Math.max(1, (now - new Date(f.ts)) / 3600000) : 24;
-    const views = Number(s.viewCount ?? 0);
-    out.push({ id: `yt:${f.id}`, t: f.title, u: `https://www.youtube.com/watch?v=${f.id}`, s: "유튜브", sk: "youtube", b: f.ch, ts: f.ts, v: views, c: Number(s.commentCount ?? 0), l: Number(s.likeCount ?? 0), cat: cl.cat, sup: cl.sup || undefined, vph: Math.round(views / Math.pow(ageH, 0.6)) });
+  const out = new Map();
+  if (found.size) {
+    const v = await ytGet("videos", { part: "statistics", id: [...found.keys()].slice(0, 50).join(",") });
+    if (v.err) st.error = v.err;
+    for (const it of v.json?.items || []) {
+      const f = found.get(it.id);
+      const x = f && ytItem(f, it.statistics);
+      if (x) out.set(x.id, x);
+    }
   }
-  const mx = Math.max(1, ...out.map((x) => Math.log1p(x.vph)));
-  for (const x of out) x.score = Math.round((100 * Math.log1p(x.vph)) / mx);
-  out.sort((a, b) => b.score - a.score);
-  st.ok = out.length > 0 || !st.error;
-  st.count = out.length;
-  if (st.ok && st.error && st.error !== "quota") delete st.error;
-  return { st, items: out.slice(0, 30) };
+  // 보충: 유튜브 '인기 급상승' 뉴스·정치 범주(1쿼터). 금융 키워드가 맞고 조회 1,000회 이상인 영상만 쓴다.
+  if (cfg.trending !== false && st.error !== "quota") {
+    const m = await ytGet("videos", { part: "snippet,statistics", chart: "mostPopular", regionCode: "KR", videoCategoryId: String(cfg.trendingCategory ?? 25), maxResults: "50" });
+    if (!m.err) {
+      for (const it of m.json.items || []) {
+        const f = { id: it.id, title: decode(it.snippet?.title || ""), ch: decode(it.snippet?.channelTitle || ""), ts: it.snippet?.publishedAt || null };
+        const x = ytItem(f, it.statistics);
+        if (x && !out.has(x.id)) out.set(x.id, x);
+      }
+    }
+  }
+  const items = [...out.values()].sort((a, b) => b.score - a.score).slice(0, 30);
+  st.ok = !st.error || st.error !== "quota" || items.length > 0;
+  st.count = items.length;
+  if (st.error && st.error !== "quota") delete st.error;
+  if (!items.length && st.error === "quota" && prevYt?.items?.length) { st.stale = true; return { st, items: prevYt.items }; }
+  return { st, items };
 }
 
 async function run() {
@@ -477,7 +501,7 @@ async function run() {
     stats: { collected: raw.length, finance: kept.length, supervision: kept.filter((c) => c.sup).length, sourcesOk: okCount, sourcesTotal: status.filter((x) => !x.pending).length, sourcesPending: status.filter((x) => x.pending).length },
     items: top, keywords,
     naver: { checkedAt: nv.st.checkedAt, terms: nv.terms },
-    youtube: { checkedAt: yt.st.checkedAt, items: yt.items },
+    youtube: { ver: 2, checkedAt: yt.st.checkedAt, items: yt.items },
   };
 
   // 모든 출처가 실패하면 이전 hot.json을 그대로 두고(화면이 비지 않게) 상태만 갱신한다
