@@ -145,6 +145,28 @@ export async function handleBoard(request, env, corsHeaders) {
     return json({ ok: true }, 200, cors);
   }
 
+  // GET /board/admin/list?page=N  (관리자 전용) 일반 글 최신순 + 각 글의 댓글. 작성자 접속자 ID 앞 6자리(uid6, 없으면 null).
+  if (path === "/board/admin/list" && request.method === "GET") {
+    if (!isAdmin(request, env)) return json({ error: "관리자 토큰이 올바르지 않습니다." }, 403, cors);
+    const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+    const pageSize = 20;
+    const total = (await db.prepare(`SELECT COUNT(*) AS cnt FROM board_posts WHERE is_notice = 0`).first())?.cnt || 0;
+    const posts = (await db.prepare(
+      `SELECT id, title, body, author, created_at, edited_at, substr(uid, 1, 6) AS uid6 FROM board_posts
+       WHERE is_notice = 0 ORDER BY id DESC LIMIT ? OFFSET ?`
+    ).bind(pageSize, (page - 1) * pageSize).all()).results || [];
+    let comments = [];
+    if (posts.length) {
+      const ids = posts.map((p) => p.id);
+      comments = (await db.prepare(
+        `SELECT id, post_id, author, body, created_at, substr(uid, 1, 6) AS uid6 FROM board_comments
+         WHERE post_id IN (${ids.map(() => "?").join(",")}) ORDER BY id ASC`
+      ).bind(...ids).all()).results || [];
+    }
+    for (const p of posts) p.comments = comments.filter((c) => c.post_id === p.id);
+    return json({ posts, total, page, pageSize }, 200, { ...cors, "Cache-Control": "no-store" });
+  }
+
   // GET /board/posts
   if (path === "/board/posts" && request.method === "GET") {
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
