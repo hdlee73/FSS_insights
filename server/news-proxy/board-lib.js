@@ -294,6 +294,7 @@ export async function handleBoard(request, env, corsHeaders) {
         if (!ok) return json({ error: "비밀번호가 일치하지 않습니다." }, 403, cors);
       }
       await db.prepare(`DELETE FROM board_comments WHERE post_id = ?`).bind(id).run();
+      await db.prepare(`DELETE FROM board_votes WHERE post_id = ?`).bind(id).run();
       await db.prepare(`DELETE FROM board_posts WHERE id = ?`).bind(id).run();
       return json({ ok: true }, 200, cors);
     }
