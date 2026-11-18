@@ -31,6 +31,8 @@ object UsageStats {
     private const val KEEP_DAYS = 14L
     private const val MAX_GAP_MS = 90_000L // 절전·지연으로 한 번에 크게 늘어나는 것을 막는다
     const val TICK_MS = 60_000L
+    /** 통계 날짜는 기기 시간대와 관계없이 한국시간 기준(서버·관리자 화면이 한국시간 하루로 집계). */
+    private val KST = java.time.ZoneId.of("Asia/Seoul")
     private val lock = Any()
     @Volatile private var appContext: Context? = null
     @Volatile private var lastTick = 0L
@@ -59,8 +61,8 @@ object UsageStats {
             synchronized(lock) {
                 val p = prefs(context)
                 val stat = UsageLog.parse(p.getString(KEY_STAT, null))
-                if (skipNextVisit) skipNextVisit = false else UsageLog.addVisit(stat, LocalDate.now().toString())
-                UsageLog.prune(stat, LocalDate.now().minusDays(KEEP_DAYS).toString())
+                if (skipNextVisit) skipNextVisit = false else UsageLog.addVisit(stat, LocalDate.now(KST).toString())
+                UsageLog.prune(stat, LocalDate.now(KST).minusDays(KEEP_DAYS).toString())
                 p.edit().putString(KEY_STAT, stat.toString()).apply()
                 lastTick = System.currentTimeMillis()
             }
@@ -78,7 +80,7 @@ object UsageStats {
                 if (gap <= 0) return
                 val p = prefs(context)
                 val stat = UsageLog.parse(p.getString(KEY_STAT, null))
-                UsageLog.addSeconds(stat, LocalDate.now().toString(), (gap / 1000).toInt())
+                UsageLog.addSeconds(stat, LocalDate.now(KST).toString(), (gap / 1000).toInt())
                 p.edit().putString(KEY_STAT, stat.toString()).apply()
             }
         }
@@ -96,7 +98,7 @@ object UsageStats {
         synchronized(lock) {
             val p = prefs(context)
             val pending = UsageLog.parse(p.getString(KEY_PENDING, null))
-            val day = LocalDate.now().toString()
+            val day = LocalDate.now(KST).toString()
             UsageLog.add(pending, day, label)
             UsageLog.add(pending, day, "~h:" + java.time.LocalTime.now().hour) // 이용 시간대(기기 시계 기준 '시')
             p.edit().putString(KEY_PENDING, pending.toString()).apply()
@@ -113,7 +115,7 @@ object UsageStats {
             synchronized(lock) {
                 val p = prefs(context)
                 val pending = UsageLog.parse(p.getString(KEY_PENDING, null))
-                val day = LocalDate.now().toString()
+                val day = LocalDate.now(KST).toString()
                 val menus = pending.optJSONObject(day) ?: JSONObject().also { pending.put(day, it) }
                 val key = "~e:$clean"
                 menus.put(key, minOf(1000, menus.optInt(key, 0) + 1))
@@ -139,12 +141,12 @@ object UsageStats {
         runCatching {
             if (!isEnabled(context) || !NewsProxy.isConfigured) return@runCatching
             val p = prefs(context)
-            val today = LocalDate.now().toString()
+            val today = LocalDate.now(KST).toString()
             var sigs = emptyMap<String, String>()
             val (body, sentDays) = synchronized(lock) {
                 val id = p.getString(KEY_ID, null) ?: UUID.randomUUID().toString().also { p.edit().putString(KEY_ID, it).apply() }
                 val pending = UsageLog.parse(p.getString(KEY_PENDING, null))
-                UsageLog.prune(pending, LocalDate.now().minusDays(14).toString())
+                UsageLog.prune(pending, LocalDate.now(KST).minusDays(14).toString())
                 val stat = UsageLog.parse(p.getString(KEY_STAT, null))
                 val acked = UsageLog.parse(p.getString(KEY_ACKED, null))
                 val result = UsageLog.payload(
@@ -174,7 +176,7 @@ object UsageStats {
                         if (live) {
                             val acked = UsageLog.parse(p.getString(KEY_ACKED, null))
                             sigs.forEach { (d, sg) -> acked.put(d, sg) }
-                            UsageLog.prune(acked, LocalDate.now().minusDays(KEEP_DAYS).toString())
+                            UsageLog.prune(acked, LocalDate.now(KST).minusDays(KEEP_DAYS).toString())
                             editor.putBoolean(KEY_LIVE, true).putString(KEY_ACKED, acked.toString())
                         }
                         editor.apply()
