@@ -167,7 +167,7 @@ private val appScreens = listOf(
     AppScreen("(베타)제재 양정 시뮬레이터", Icons.Filled.Calculate),
     AppScreen("가상자산 시장 동향", Icons.Filled.CurrencyBitcoin),
     AppScreen("금융사 리스크 대시보드", Icons.Filled.Analytics),
-    AppScreen("커뮤니티 핫이슈(금융관련)", Icons.Filled.LocalFireDepartment)
+    AppScreen("(베타) 커뮤니티 핫이슈(금융관련)", Icons.Filled.LocalFireDepartment)
 )
 
 /** 서랍 메뉴의 묶음. [title]이 없으면 맨 위의 낱개 메뉴, 있으면 접고 펼 수 있는 묶음이다. */

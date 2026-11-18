@@ -8,7 +8,7 @@ const ROUTES = {
   finsim: { label: "(베타)제재 양정 시뮬레이터", load: () => import("./screens/finsim.js") },
   crypto: { label: "가상자산 시장 동향", load: () => import("./screens/crypto.js") },
   fisis: { label: "금융회사 주요 현황", load: () => import("./screens/fisis.js") },
-  community: { label: "커뮤니티 핫이슈(금융관련)", load: () => import("./screens/community.js") },
+  community: { label: "(베타) 커뮤니티 핫이슈(금융관련)", load: () => import("./screens/community.js") },
 };
 const HOME = "consumer";
 

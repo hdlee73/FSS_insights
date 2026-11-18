@@ -138,7 +138,7 @@ function pendingBox(st) {
 
 export async function render(root, params, ctx) {
   const tab = TAB_IDS.includes(params.t) ? params.t : "all";
-  setHeader("커뮤니티 핫이슈(금융관련)", "공개 게시글 제목·지표·원문 링크만 표시 · 약 30분 주기", [iconButton("refresh-cw", "새로고침", () => ctx.go(params, { replace: true }))]);
+  setHeader("(베타) 커뮤니티 핫이슈(금융관련)", "공개 게시글 제목·지표·원문 링크만 표시 · 약 30분 주기", [iconButton("refresh-cw", "새로고침", () => ctx.go(params, { replace: true }))]);
   const body = h("div", { class: "cm" }, loading());
   root.append(body);
   let data;
