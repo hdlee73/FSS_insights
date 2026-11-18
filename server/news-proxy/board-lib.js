@@ -87,6 +87,10 @@ async function ensure(db) {
       await db.prepare(`ALTER TABLE ${t} ADD COLUMN uid TEXT`).run();
     } catch {}
   }
+  // 투표자의 접속자 ID(해시). 운영자에게만 앞 6자리를 보여 준다. 이전 표는 NULL(알 수 없음).
+  try {
+    await db.prepare(`ALTER TABLE board_votes ADD COLUMN uid TEXT`).run();
+  } catch {}
   ready = true;
 }
 
@@ -163,7 +167,18 @@ export async function handleBoard(request, env, corsHeaders) {
          WHERE post_id IN (${ids.map(() => "?").join(",")}) ORDER BY id ASC`
       ).bind(...ids).all()).results || [];
     }
-    for (const p of posts) p.comments = comments.filter((c) => c.post_id === p.id);
+    let votes = [];
+    if (posts.length) {
+      const ids = posts.map((p) => p.id);
+      votes = (await db.prepare(
+        `SELECT post_id, vote, substr(uid, 1, 6) AS uid6 FROM board_votes
+         WHERE post_id IN (${ids.map(() => "?").join(",")}) ORDER BY created_at ASC`
+      ).bind(...ids).all()).results || [];
+    }
+    for (const p of posts) {
+      p.comments = comments.filter((c) => c.post_id === p.id);
+      p.votes = votes.filter((v) => v.post_id === p.id).map((v) => ({ vote: v.vote, uid6: v.uid6 || null }));
+    }
     return json({ posts, total, page, pageSize }, 200, { ...cors, "Cache-Control": "no-store" });
   }
 
@@ -355,15 +370,16 @@ export async function handleBoard(request, env, corsHeaders) {
     const bodyJson = await request.json().catch(() => null);
     const voter = cleanVoter(bodyJson?.voter);
     const vote = Number(bodyJson?.vote);
+    const uid = await authorUid(bodyJson?.uid, env);
     if (!voter) return json({ error: "투표자 정보가 올바르지 않습니다." }, 400, cors);
     if (![1, -1, 0].includes(vote)) return json({ error: "잘못된 투표 값입니다." }, 400, cors);
     if (vote === 0) {
       await db.prepare(`DELETE FROM board_votes WHERE post_id = ? AND voter = ?`).bind(postId, voter).run();
     } else {
       await db.prepare(
-        `INSERT INTO board_votes (post_id, voter, vote, created_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(post_id, voter) DO UPDATE SET vote = excluded.vote`
-      ).bind(postId, voter, vote, new Date().toISOString()).run();
+        `INSERT INTO board_votes (post_id, voter, vote, created_at, uid) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(post_id, voter) DO UPDATE SET vote = excluded.vote, uid = COALESCE(excluded.uid, board_votes.uid)`
+      ).bind(postId, voter, vote, new Date().toISOString(), uid).run();
     }
     const counts = await db.prepare(
       `SELECT COALESCE(SUM(vote = 1), 0) AS likes, COALESCE(SUM(vote = -1), 0) AS dislikes FROM board_votes WHERE post_id = ?`
