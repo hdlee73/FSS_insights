@@ -4,6 +4,8 @@
 //  - GET  /admin/api   : 일자별 활성사용자(DAU/WAU/MAU)·버전 분포·메뉴별 이용량(관리자 토큰 필요).
 // 설치ID는 저장 전에 (설치ID + 서버 비밀값)으로 SHA-256 해시해서 원래 값을 복원할 수 없게 한다. IP·기기정보는 저장하지 않는다.
 
+import { CALLS_CARD, CALLS_SCRIPT } from "./calls-lib.js";
+
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const INSTALL_ID = /^[A-Za-z0-9-]{16,64}$/;
 const SCHEMA = [
@@ -687,6 +689,7 @@ dialog{border:1px solid var(--ln);border-radius:14px;background:var(--card);colo
 <div class="card"><input id="tok" type="password" placeholder="관리자 토큰" autocomplete="off"> <select id="pf"><option value="all">전체(앱+웹)</option><option value="app">앱만</option><option value="web">웹만</option></select> <select id="span"><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option></select> <button id="go">조회</button> <span id="msg" class="leg"></span></div>
 <div id="out" hidden>
 <div class="card"><div class="kpi"><div><b id="k1"></b><span>오늘 DAU</span></div><div><b id="k2"></b><span>최근 7일 WAU</span></div><div><b id="k3"></b><span>최근 30일 MAU</span></div><div><b id="k4"></b><span>누적 설치(고유)</span></div></div><div id="split" class="leg" style="margin-top:8px;text-align:center"></div></div>
+${CALLS_CARD}
 <div class="card"><h2>사용자별 일일 방문 횟수·사용 시간</h2><div id="eng" class="kpi"></div><div id="engnote" class="leg" style="margin-top:6px"></div>
 <h2 style="margin-top:10px">일자별 평균 (선: 방문 횟수 <span style="color:var(--a)">●</span> · 사용 시간(분) <span style="color:var(--b)">●</span>, 각자 최대값 기준 비율)</h2><svg id="engc" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
 <h2 style="margin-top:10px">하루 방문 횟수 분포 (사용자·일 기준)</h2><div id="engv"></div><h2 style="margin-top:8px">하루 사용 시간 분포</h2><div id="engt"></div>
@@ -801,7 +804,7 @@ $("udb").innerHTML=(u.ambiguous?'<p class="leg">⚠ 같은 앞부분을 가진 �
 $("udx").onclick=()=>$("ud").close();$("udex").onclick=()=>{if(udId&&confirm(udId+" 접속자를 통계에서 제외할까요?")){$("ud").close();exApi({add:udId})}};
 document.addEventListener("click",e=>{const t=e.target;if(t.classList&&t.classList.contains("exb"))openUser(t.dataset.id);if(t.dataset&&t.dataset.rm)exApi({remove:t.dataset.rm})});
 $("go").onclick=load;$("ugo").onclick=load;$("uq").onchange=()=>{if($("uq").value!=="custom")load()};if($("tok").value)load();
-</script><script>
+</script>${CALLS_SCRIPT}<script>
 // 각 구역 제목(h2)을 눌러 그 아래 내용을 접고 펼친다. 접힘 상태는 이 기기(브라우저)에 기억한다.
 (function(){let st={};try{st=JSON.parse(localStorage.getItem("fold")||"{}")}catch(e){}
 const save=()=>{try{localStorage.setItem("fold",JSON.stringify(st))}catch(e){}};
