@@ -182,6 +182,23 @@ export function forget(prefix) {
   };
 }
 
+/** 외부 데이터(JSON·RSS 등)에서 온 주소를 http:/https: 로만 허용한다. 아니면 "" (javascript:, data: 등 차단). */
+export function safeHttpUrl(url, base) {
+  if (typeof url !== "string" || !url.trim()) return "";
+  try {
+    const u = new URL(url.trim(), base || undefined);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : "";
+  } catch {
+    return "";
+  }
+}
+// href 로 허용하는 방식: http(s)·mailto·tel·blob, 그리고 방식이 없는 상대 주소(#/화면 등)
+const HREF_OK = /^(https?|mailto|tel|blob):/i;
+function safeHref(v) {
+  const s = String(v).replace(/[\u0000-\u001f\u007f\s]+/g, "");
+  return /^[a-z][a-z0-9+.-]*:/i.test(s) && !HREF_OK.test(s) ? null : v;
+}
+
 export function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
   if (attrs) {
@@ -191,6 +208,7 @@ export function h(tag, attrs, ...children) {
       else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
       else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2).toLowerCase(), v);
       else if (k === "html") el.innerHTML = v;
+      else if (k === "href" && safeHref(v) == null) continue;
       else if (v === true) el.setAttribute(k, "");
       else el.setAttribute(k, v);
     }
@@ -261,8 +279,10 @@ export function toast(text) {
 }
 
 export function openUrl(url) {
-  if (window.FssNative) return window.FssNative.openUrl(String(url));
-  window.open(url, "_blank", "noopener");
+  const safe = safeHttpUrl(url);
+  if (!safe) return toast("열 수 없는 주소입니다.");
+  if (window.FssNative) return window.FssNative.openUrl(safe);
+  window.open(safe, "_blank", "noopener");
 }
 
 export async function share(title, url) {
