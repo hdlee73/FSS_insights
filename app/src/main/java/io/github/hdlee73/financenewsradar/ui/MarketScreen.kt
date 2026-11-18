@@ -70,7 +70,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.ADR_PLACEHOLDER
 import io.github.hdlee73.financenewsradar.data.BRIEFING_EXCLUDED_DEFAULT
@@ -464,14 +467,17 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
     var macroPicking by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    // 화면이 보이는 동안만 갱신한다(탭을 벗어나면 중단): 지수 5초, 전체 20초.
-    LaunchedEffect(Unit) {
-        viewModel.refresh()
-        var tick = 0
-        while (true) {
-            delay(5_000)
-            tick++
-            if (tick % 4 == 0) viewModel.refresh() else viewModel.refreshPanel()
+    // 화면이 보이는 동안만 갱신한다(탭을 벗어나거나 앱이 백그라운드로 가면 중단, 돌아오면 바로 한 번 갱신): 지수 5초, 전체 20초.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.refresh()
+            var tick = 0
+            while (true) {
+                delay(5_000)
+                tick++
+                if (tick % 4 == 0) viewModel.refresh() else viewModel.refreshPanel()
+            }
         }
     }
 
