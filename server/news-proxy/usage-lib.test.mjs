@@ -89,7 +89,7 @@ e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", uf
 const d12u = e.series.find((x) => x.day === "2026-11-12");
 assert.equal(d12u.unmeasured, 1);
 assert.equal(d12u.users + d12u.unmeasured, d12u.dau); // 측정 + 미측정 = DAU
-assert.deepEqual(d12u.unList, [{ id: "u3", p: "web", ver: "2.19.0", at: null }]);
+assert.deepEqual(d12u.unList, [{ id: "u3", p: "web", ver: "2.19.0", at: null, fa: null, fd: "2026-11-12" }]);
 assert.equal(e.series.find((x) => x.day === "2026-11-13").unmeasured, 0);
 assert.equal(e.period.unmeasured, 1);
 assert.deepEqual(e.period.users.map((x) => [x.id, !!x.un]), [["u2", false], ["u1", false], ["u3", true]]);
@@ -177,3 +177,54 @@ console.log("userSummary OK");
   // 조회 기간 시작 전에 이미 설치된 ID도 누계에 포함
   assert.equal(summarize(rows, [], "2026-11-12", "2026-11-12", [], "all").series[0].installs, 3);
 }
+
+// 최초 접속: 기록된 시각 → fa, 없으면(기능 이전 사용자) 가장 이른 접속일 → fd, 시각과 기록이 어긋나면 날짜만
+{
+  const allRows = [
+    { day: "2026-11-10", uid: "old", version: "2.6.0" },
+    { day: "2026-11-11", uid: "old", version: "2.6.0" },
+    { day: "2026-11-11", uid: "new", version: "web-1.0" },
+    { day: "2026-11-11", uid: "late", version: "2.6.0" },
+    { day: "2026-11-09", uid: "late", version: "2.6.0" },
+  ];
+  const activityRows = ["old", "new", "late"].map((uid) => ({ day: "2026-11-11", uid, visits: 1, secs: 10, last_at: 1763000000000 }));
+  const t = Date.UTC(2026, 10, 11, 5, 1); // KST 11/11 14:01
+  const firstRows = [{ uid: "new", first_at: t }, { uid: "late", first_at: t }, { uid: "bad", first_at: null }];
+  const e = engagement({ allRows, activityRows, firstRows, from: "2026-11-11", to: "2026-11-11", ufrom: "2000-01-01", uto: "2026-11-11" });
+  const byId = (list) => Object.fromEntries(list.map((x) => [x.id, [x.fa, x.fd]]));
+  assert.deepEqual(byId(e.series[0].list), { old: [null, "2026-11-10"], new: [t, null], late: [null, "2026-11-09"] });
+  assert.deepEqual(byId(e.period.users), { old: [null, "2026-11-10"], new: [t, null], late: [null, "2026-11-09"] });
+  // 최초 접속 없음(null)·미측정 사용자도 필드가 항상 있다
+  const un = engagement({ allRows, activityRows: [], firstRows, from: "2026-11-11", to: "2026-11-11", ufrom: "2000-01-01", uto: "2026-11-11" });
+  assert.deepEqual(byId(un.series[0].unList), { old: [null, "2026-11-10"], new: [t, null], late: [null, "2026-11-09"] });
+  assert.equal(engagement({ allRows: [], activityRows: [], from: "2026-11-11", to: "2026-11-11" }).period, null);
+}
+console.log("first-visit OK");
+
+// 최초 접속 기록(usagePing): 새 설치만 시각을 적고, 기존 설치·재접속은 바뀌지 않는다
+{
+  const { usagePing } = await import("./usage-lib.js?fresh"); // 새 모듈 인스턴스(스키마 준비 플래그 초기화)
+  const { DatabaseSync } = await import("node:sqlite");
+  const sq = new DatabaseSync(":memory:");
+  const stmt = (sql) => { let b = []; const o = {
+    bind(...a) { b = a; return o; },
+    async run() { sq.prepare(sql).run(...b); return {}; },
+    async all() { return { results: sq.prepare(sql).all(...b) }; },
+    async first() { return sq.prepare(sql).get(...b) ?? null; },
+  }; return o; };
+  const env = { APP_TOKEN: "t", DB: { prepare: stmt, async batch(l) { for (const s of l) await s.run(); } } };
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const ping = (id) => usagePing(new Request("https://x/usage/ping", { method: "POST", headers: { "User-Agent": "x" }, body: JSON.stringify({ id, v: "web-1.0", days: [{ d: today, m: { 홈: 1 }, vis: 1, sec: 5 }] }) }), env);
+  assert.equal((await ping("0123456789abcdef0123")).status, 200);
+  const a = sq.prepare("SELECT uid, first_at FROM usage_first").all();
+  assert.equal(a.length, 1);
+  assert.ok(Math.abs(a[0].first_at - Date.now()) < 10000);
+  await new Promise((r) => setTimeout(r, 15));
+  await ping("0123456789abcdef0123"); // 재접속: 변하지 않음
+  assert.equal(sq.prepare("SELECT first_at FROM usage_first").get().first_at, a[0].first_at);
+  // 기능 배포 전부터 있던 설치(usage_daily 에만 기록): usage_first 에 만들지 않는다
+  sq.prepare("DELETE FROM usage_first").run();
+  await ping("0123456789abcdef0123");
+  assert.equal(sq.prepare("SELECT COUNT(*) n FROM usage_first").get().n, 0);
+}
+console.log("first-visit ping OK");
