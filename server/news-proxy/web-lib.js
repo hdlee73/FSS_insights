@@ -3,6 +3,8 @@
 // 토큰 없이 받고, 남용을 막으려고 IP별 요청 수를 제한한다(WEB_LIMIT 바인딩, wrangler.toml).
 // 네이버 뉴스(/news)도 웹 뉴스검색에서 쓴다(네이버 키는 서버 비밀값에만 있다).
 
+import { cacheControl, shared, snapOf, toResponse } from "./cache-lib.js";
+
 const WEB_PATHS = /^\/(news|law|dart|fisis|stats|library|fetch|notices|usage\/ping)(\/|$)/;
 
 // /fetch 가 대신 읽어 줄 수 있는 사이트(앱이 기기에서 직접 읽던 곳). 이 밖의 주소는 거절한다.
@@ -83,45 +85,57 @@ export async function proxyFetch(request, url, ctx) {
   } catch {
     /* 잘못된 ref는 무시 */
   }
-  const cache = caches.default;
   const ttl = cacheSeconds(target);
-  const cacheKey = new Request(`https://fetch-cache.invalid/?u=${encodeURIComponent(target.href)}&r=${encodeURIComponent(referer || "")}`);
-  if (!isPost) {
-    const hit = await cache.match(cacheKey);
-    if (hit) return hit;
-  }
-  const init = {
-    method: isPost ? "POST" : "GET",
-    redirect: "follow",
-    headers: {
-      "User-Agent": UA,
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.5",
-      "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.5",
-    },
+  const build = async () => {
+    const init = {
+      method: isPost ? "POST" : "GET",
+      redirect: "follow",
+      headers: {
+        "User-Agent": UA,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.5",
+        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.5",
+      },
+    };
+    if (referer) init.headers.Referer = referer;
+    if (isPost) {
+      init.body = postBody;
+      init.headers["Content-Type"] = request.headers.get("Content-Type") || "application/x-www-form-urlencoded";
+    }
+    const upstream = await fetch(target.href, init);
+    const finalUrl = upstream.url || target.href;
+    if (!allowedHost(new URL(finalUrl).hostname)) return { status: 403, headers: { "content-type": "text/plain; charset=utf-8" }, body: new TextEncoder().encode("허용되지 않은 사이트로 이동했습니다.").buffer };
+    const bytes = await upstream.arrayBuffer();
+    if (bytes.byteLength > MAX_BYTES) return { status: 413, headers: { "content-type": "text/plain; charset=utf-8" }, body: new TextEncoder().encode("응답이 너무 큽니다.").buffer };
+    return {
+      status: upstream.status,
+      headers: {
+        "content-type": upstream.headers.get("Content-Type") || "application/octet-stream",
+        // 실시간 시세(현재가·분봉)는 3초, 그 밖의 시세는 1분, 목록은 10분 동안 캐시한다. 느린 자료는 지난 뒤에도 잠시 낡은 값을 먼저 보여 주고 뒤에서 갱신한다.
+        "cache-control": ttl <= 3 ? cacheControl(ttl) : cacheControl(ttl, ttl),
+        "x-final-url": finalUrl,
+      },
+      body: bytes,
+    };
   };
-  if (referer) init.headers.Referer = referer;
+  let postBody = null;
   if (isPost) {
-    const body = await request.arrayBuffer();
-    if (body.byteLength > 32 * 1024) return new Response("body too large", { status: 413 });
-    init.body = body;
-    init.headers["Content-Type"] = request.headers.get("Content-Type") || "application/x-www-form-urlencoded";
+    postBody = await request.arrayBuffer();
+    if (postBody.byteLength > 32 * 1024) return new Response("body too large", { status: 413 });
+    return toResponse(await build());
   }
-  const upstream = await fetch(target.href, init);
-  const finalUrl = upstream.url || target.href;
-  if (!allowedHost(new URL(finalUrl).hostname)) return new Response("허용되지 않은 사이트로 이동했습니다.", { status: 403 });
-  const bytes = await upstream.arrayBuffer();
-  if (bytes.byteLength > MAX_BYTES) return new Response("응답이 너무 큽니다.", { status: 413 });
-  const out = new Response(bytes, {
-    status: upstream.status,
-    headers: {
-      "Content-Type": upstream.headers.get("Content-Type") || "application/octet-stream",
-      // 실시간 시세(현재가·분봉)는 3초, 그 밖의 시세는 1분, 목록은 10분 동안 캐시한다.
-      "Cache-Control": `public, max-age=${cacheSeconds(target)}`,
-      "X-Final-Url": finalUrl,
-    },
+  // GET: 인스턴스 메모리 → 같은 요청 합치기 → 데이터센터 캐시(Cache API) → 상류 순서로 찾는다.
+  // 같은 시세·목록을 여러 사용자가 열어도 상류 사이트에는 한 번만 간다.
+  const cache = caches.default;
+  const cacheKey = new Request(`https://fetch-cache.invalid/?u=${encodeURIComponent(target.href)}&r=${encodeURIComponent(referer || "")}`);
+  const snap = await shared(cacheKey.url, ttl * 1000, async () => {
+    const hit = await cache.match(cacheKey);
+    if (hit) return snapOf(hit);
+    const fresh = await build();
+    const ok = fresh.status >= 200 && fresh.status < 300;
+    if (ok && ttl > 0) ctx.waitUntil(cache.put(cacheKey, toResponse(fresh)));
+    return fresh;
   });
-  if (!isPost && upstream.ok && ttl > 0) ctx.waitUntil(cache.put(cacheKey, out.clone()));
-  return out;
+  return toResponse(snap);
 }
 
 /** 실시간 시세(NAVER 현재가·분봉, Yahoo 차트)는 짧게, 그 밖의 시세는 1분, 나머지는 10분 캐시한다. */

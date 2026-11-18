@@ -1,6 +1,6 @@
 // node server/news-proxy/usage-lib.test.mjs  — 방문·사용 시간 집계 검증
 import assert from "node:assert/strict";
-import { sanitizePing, engagement } from "./usage-lib.js";
+import { sanitizePing, engagement, summarize } from "./usage-lib.js";
 
 const now = Date.parse("2026-11-13T03:00:00Z");
 const id = "a".repeat(20);
@@ -122,6 +122,9 @@ console.log("usage-lib engagement tests passed");
   assert.equal(u.hours[9], 4);
   assert.equal(u.days.length, 14);
   assert.equal(u.days.find((d) => d.day === "2026-11-13").secs, 300);
+  assert.equal(u.env, null);
+  const ue = userSummary({ envRow: { day: "2026-11-13", dev: "휴대폰", br: "Samsung", os: "Android", sc: "480 미만", inst: "브라우저" }, to: "2026-11-14" });
+  assert.deepEqual(ue.env, { dev: "휴대폰", br: "Samsung", os: "Android", sc: "480 미만", inst: "브라우저", day: "2026-11-13" });
   assert.equal(userSummary({ to: "2026-11-14" }).menus.length, 0);
 }
 console.log("userSummary OK");
@@ -157,4 +160,20 @@ console.log("userSummary OK");
   r = await (await post({ id: "abc123", tag: "  " })).json(); // 삭제
   assert.deepEqual(r.tags, {});
   console.log("tag tests OK");
+}
+
+// 누적 설치(일자별 표): 처음 관측된 날 기준 고유 ID 누계, 앱/웹 구분 반영
+{
+  const rows = [
+    { day: "2026-11-10", uid: "a", version: "2.6.0" },
+    { day: "2026-11-11", uid: "a", version: "2.6.0" },
+    { day: "2026-11-11", uid: "b", version: "web-1.0" },
+    { day: "2026-11-12", uid: "c", version: "2.6.0" },
+  ];
+  const inst = (pf) => summarize(rows, [], "2026-11-09", "2026-11-12", [], pf).series.map((x) => x.installs);
+  assert.deepEqual(inst("all"), [0, 1, 2, 3]);
+  assert.deepEqual(inst("app"), [0, 1, 1, 2]);
+  assert.deepEqual(inst("web"), [0, 0, 1, 1]);
+  // 조회 기간 시작 전에 이미 설치된 ID도 누계에 포함
+  assert.equal(summarize(rows, [], "2026-11-12", "2026-11-12", [], "all").series[0].installs, 3);
 }

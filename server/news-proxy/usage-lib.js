@@ -4,6 +4,8 @@
 //  - GET  /admin/api   : 일자별 활성사용자(DAU/WAU/MAU)·버전 분포·메뉴별 이용량(관리자 토큰 필요).
 // 설치ID는 저장 전에 (설치ID + 서버 비밀값)으로 SHA-256 해시해서 원래 값을 복원할 수 없게 한다. IP·기기정보는 저장하지 않는다.
 
+import { CALLS_CARD, CALLS_SCRIPT } from "./calls-lib.js";
+
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const INSTALL_ID = /^[A-Za-z0-9-]{16,64}$/;
 const SCHEMA = [
@@ -190,9 +192,17 @@ export function summarize(allRows, menuRows, from, to, menuUserRows = [], platfo
     for (let i = 0; i < len; i++) for (const u of byDay.get(dayShift(end, -i)) ?? []) set.add(u);
     return set.size;
   };
+  // 누적 설치: 각 ID가 처음 관측된 날 기준으로 그 날짜까지의 고유 ID 누계(기록 시작 전은 0)
+  const firstDay = new Map();
+  for (const r of rows) if (!firstDay.has(r.uid) || r.day < firstDay.get(r.uid)) firstDay.set(r.uid, r.day);
+  const firstCount = new Map();
+  for (const day of firstDay.values()) firstCount.set(day, (firstCount.get(day) ?? 0) + 1);
+  let installs = 0;
+  for (const [day, n] of firstCount) if (day < from) installs += n;
   const series = [];
   for (let d = from; d <= to; d = dayShift(d, 1)) {
-    series.push({ day: d, dau: byDay.get(d)?.size ?? 0, wau: window(d, 7), mau: window(d, 30) });
+    installs += firstCount.get(d) ?? 0;
+    series.push({ day: d, dau: byDay.get(d)?.size ?? 0, wau: window(d, 7), mau: window(d, 30), installs });
   }
   const weekStart = dayShift(to, -6);
   for (const r of [...rows].sort((a, b) => (a.day < b.day ? -1 : 1))) {
@@ -568,7 +578,7 @@ export async function adminExclude(request, env) {
  * 메뉴별: 연 횟수(hits)·사용한 날 수(days)·마지막 사용일(last)·일자별 횟수(최근 14일 daily). 시간대·일자별 방문/사용 시간·사용 버전 포함.
  * 메뉴별 '사용 시간'은 수집하지 않으므로(하루 총 사용 시간만 있음) 제공하지 않는다.
  */
-export function userSummary({ menuRows = [], hourRows = [], dailyRows = [], activityRows = [], to }) {
+export function userSummary({ menuRows = [], hourRows = [], dailyRows = [], activityRows = [], envRow = null, to }) {
   const menus = {};
   for (const m of menuRows) {
     const e = (menus[m.menu] ??= { hits: 0, days: 0, last: m.day, first: m.day });
@@ -599,6 +609,8 @@ export function userSummary({ menuRows = [], hourRows = [], dailyRows = [], acti
     menus: list,
     hours,
     days,
+    // 접속 환경(기기·브라우저·OS·화면 폭·설치형 여부): 가장 최근에 받은 값. 환경 전송 기능 이전의 접속자는 null.
+    env: envRow ? { dev: envRow.dev || null, br: envRow.br || null, os: envRow.os || null, sc: envRow.sc || null, inst: envRow.inst || null, day: envRow.day || null } : null,
   };
 }
 
@@ -610,17 +622,18 @@ export async function adminUser(request, url, env) {
   const id = String(url.searchParams.get("id") ?? "").trim().toLowerCase();
   if (!PREFIX.test(id)) return reply({ error: "익명 ID(16진수 4자리 이상)가 필요합니다" }, 400);
   const like = id + "%";
-  const [menu, hour, daily, activity, ids] = await Promise.all([
+  const [menu, hour, daily, activity, ids, envs] = await Promise.all([
     env.DB.prepare("SELECT day, menu, hits FROM usage_menu_user WHERE uid LIKE ?").bind(like).all(),
     env.DB.prepare("SELECT day, hour, hits FROM usage_hour WHERE uid LIKE ?").bind(like).all(),
     env.DB.prepare("SELECT day, version FROM usage_daily WHERE uid LIKE ?").bind(like).all(),
     env.DB.prepare("SELECT day, visits, secs FROM usage_activity WHERE uid LIKE ?").bind(like).all(),
     env.DB.prepare("SELECT DISTINCT uid FROM usage_daily WHERE uid LIKE ? LIMIT 2").bind(like).all(),
+    env.DB.prepare("SELECT day, dev, br, os, sc, inst FROM usage_env WHERE uid LIKE ? ORDER BY day DESC LIMIT 1").bind(like).all(),
   ]);
   const to = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   const matches = (ids.results ?? []).length;
   if (!matches) return reply({ error: "해당 접속자의 기록이 없습니다" }, 404);
-  return reply({ id, ambiguous: matches > 1, ...userSummary({ menuRows: menu.results ?? [], hourRows: hour.results ?? [], dailyRows: daily.results ?? [], activityRows: activity.results ?? [], to }) });
+  return reply({ id, ambiguous: matches > 1, ...userSummary({ menuRows: menu.results ?? [], hourRows: hour.results ?? [], dailyRows: daily.results ?? [], activityRows: activity.results ?? [], envRow: (envs.results ?? [])[0] ?? null, to }) });
 }
 
 export async function adminApi(request, url, env) {
@@ -687,6 +700,7 @@ dialog{border:1px solid var(--ln);border-radius:14px;background:var(--card);colo
 <div class="card"><input id="tok" type="password" placeholder="관리자 토큰" autocomplete="off"> <select id="pf"><option value="all">전체(앱+웹)</option><option value="app">앱만</option><option value="web">웹만</option></select> <select id="span"><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option></select> <button id="go">조회</button> <span id="msg" class="leg"></span></div>
 <div id="out" hidden>
 <div class="card"><div class="kpi"><div><b id="k1"></b><span>오늘 DAU</span></div><div><b id="k2"></b><span>최근 7일 WAU</span></div><div><b id="k3"></b><span>최근 30일 MAU</span></div><div><b id="k4"></b><span>누적 설치(고유)</span></div></div><div id="split" class="leg" style="margin-top:8px;text-align:center"></div></div>
+${CALLS_CARD}
 <div class="card"><h2>사용자별 일일 방문 횟수·사용 시간</h2><div id="eng" class="kpi"></div><div id="engnote" class="leg" style="margin-top:6px"></div>
 <h2 style="margin-top:10px">일자별 평균 (선: 방문 횟수 <span style="color:var(--a)">●</span> · 사용 시간(분) <span style="color:var(--b)">●</span>, 각자 최대값 기준 비율)</h2><svg id="engc" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
 <h2 style="margin-top:10px">하루 방문 횟수 분포 (사용자·일 기준)</h2><div id="engv"></div><h2 style="margin-top:8px">하루 사용 시간 분포</h2><div id="engt"></div>
@@ -779,7 +793,7 @@ const hm=Math.max(1,...D.hours.map(x=>x.hits));$("hrs").innerHTML=D.hours.map((x
 const wm=Math.max(1,...D.weekday.map(x=>x.avg));$("wdy").innerHTML=D.weekday.map(x=>'<div class="bar"><em>'+x.label+'요일</em><i style="width:'+Math.round(x.avg/wm*55)+'%"></i>'+x.avg.toFixed(1)+'</div>').join("");
 const er=Object.entries(D.errors).sort((a,b)=>b[1].hits-a[1].hits);
 $("errs").innerHTML="<tr><th>이름</th><th>횟수</th><th>영향 사용자</th><th>마지막</th></tr>"+(er.length?er.map(([k,v])=>"<tr><td>"+esc(k)+"</td><td>"+v.hits+"</td><td>"+v.users+"</td><td>"+v.last.slice(5)+"</td></tr>").join(""):"<tr><td colspan=4>기록 없음</td></tr>");
-$("tbl").innerHTML="<tr><th>날짜</th><th>DAU</th><th>WAU</th><th>MAU</th></tr>"+s.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.wau+"</td><td>"+p.mau+"</td></tr>").join("")}
+$("tbl").innerHTML="<tr><th>날짜</th><th>DAU</th><th>WAU</th><th>MAU</th><th>누적 설치</th></tr>"+s.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.wau+"</td><td>"+p.mau+"</td><td>"+p.installs+"</td></tr>").join("")}
 async function exApi(body){const r=await fetch("/admin/exclude",{method:"POST",headers:{"X-Admin-Token":$("tok").value,"Content-Type":"application/json"},body:JSON.stringify(body)});if(!r.ok){alert(r.status==400?(await r.json()).error:"오류 "+r.status);return}load()}
 $("exadd").onclick=()=>{const v=$("exid").value.trim();if(v){$("exid").value="";exApi({add:v})}};
 let udId="";
@@ -801,7 +815,7 @@ $("udb").innerHTML=(u.ambiguous?'<p class="leg">⚠ 같은 앞부분을 가진 �
 $("udx").onclick=()=>$("ud").close();$("udex").onclick=()=>{if(udId&&confirm(udId+" 접속자를 통계에서 제외할까요?")){$("ud").close();exApi({add:udId})}};
 document.addEventListener("click",e=>{const t=e.target;if(t.classList&&t.classList.contains("exb"))openUser(t.dataset.id);if(t.dataset&&t.dataset.rm)exApi({remove:t.dataset.rm})});
 $("go").onclick=load;$("ugo").onclick=load;$("uq").onchange=()=>{if($("uq").value!=="custom")load()};if($("tok").value)load();
-</script><script>
+</script>${CALLS_SCRIPT}<script>
 // 각 구역 제목(h2)을 눌러 그 아래 내용을 접고 펼친다. 접힘 상태는 이 기기(브라우저)에 기억한다.
 (function(){let st={};try{st=JSON.parse(localStorage.getItem("fold")||"{}")}catch(e){}
 const save=()=>{try{localStorage.setItem("fold",JSON.stringify(st))}catch(e){}};
