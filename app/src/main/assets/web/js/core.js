@@ -79,15 +79,51 @@ export function reportError(name) {
 }
 const errName = (path, status) => "api:/" + (path.split("?")[0].split("/")[1] || "") + ":" + (status || "net");
 
+/** 화면이 보이고 인터넷이 연결되어 있을 때만 서버를 주기적으로 읽는다(숨은 탭·오프라인에서는 멈춘다). */
+export const canPoll = () => document.visibilityState === "visible" && navigator.onLine !== false;
+/** 숨었던 화면이 다시 보이거나 인터넷이 다시 연결되면 cb를 한 번 부른다. 반환값은 해제 함수. */
+export function onResume(cb) {
+  const f = () => canPoll() && cb();
+  document.addEventListener("visibilitychange", f);
+  addEventListener("online", f);
+  return () => {
+    document.removeEventListener("visibilitychange", f);
+    removeEventListener("online", f);
+  };
+}
+
+// 같은 주소가 계속 실패하면 서버를 두드리지 않도록 지수 백오프(4초부터 2배씩, 최대 2분, 지터 ±20%)로 쉰다. 성공하면 즉시 풀린다.
+const BACKOFF_BASE = 4000;
+const BACKOFF_CAP = 2 * 60 * 1000;
+const backoff = new Map(); // key → { n, until }
+export function backoffDelay(n, rnd = Math.random()) {
+  return Math.min(BACKOFF_CAP, BACKOFF_BASE * 2 ** n) * (0.8 + rnd * 0.4);
+}
+function noteFailure(path) {
+  const n = backoff.get(path)?.n ?? 0;
+  if (backoff.size > 300) backoff.clear();
+  backoff.set(path, { n: n + 1, until: Date.now() + backoffDelay(n) });
+}
+
 async function request(path, init = {}) {
+  const gate = (init.method || "GET") === "GET" && !path.startsWith("/usage/");
+  if (gate) {
+    if (navigator.onLine === false) throw new ApiError("인터넷에 연결되어 있지 않습니다.", 0);
+    const b = backoff.get(path);
+    if (b && Date.now() < b.until) throw new ApiError("서버가 응답하지 않아 잠시 쉬고 있습니다. 잠시 뒤 다시 시도해 주세요.", 503);
+  }
   let res;
   try {
     res = await fetch(SERVER + path, init);
   } catch {
+    if (gate) noteFailure(path);
     if (!path.startsWith("/usage/")) reportError(errName(path, 0));
     throw new ApiError("서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.", 0);
   }
-  if (res.ok) markFresh();
+  if (res.ok) {
+    markFresh();
+    if (gate) backoff.delete(path);
+  } else if (gate && (res.status === 429 || res.status >= 500)) noteFailure(path);
   if (!res.ok && !path.startsWith("/usage/")) reportError(errName(path, res.status));
   if (res.status === 429) throw new ApiError("요청이 많아 잠시 쉬고 있습니다. 1분 뒤 다시 시도해 주세요.", 429);
   if (!res.ok) {
