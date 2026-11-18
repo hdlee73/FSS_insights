@@ -259,7 +259,7 @@ async function collectNaver(snaps) {
   const ymd = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
   const today = ymd(kd), yday = ymd(new Date(kd - 86400000));
   const terms = [];
-  const baseSnaps = snaps.filter((x) => now - new Date(x.at) <= 24 * 3600 * 1000 && x.nv);
+  const baseSnaps = snaps.filter((x) => now - new Date(x.at) <= 24 * 3600 * 1000 && (x.nv || x.nvTotal));
   for (const word of KW.naver?.watch || []) {
     const b = await naverGet("blog", word, 100);
     await sleep(200);
@@ -276,15 +276,30 @@ async function collectNaver(snaps) {
       t.blog = arr.filter((x) => x.postdate === today).slice(0, 3).map((x) => ({ t: decode(x.title), u: x.link }));
     }
     if (c.json) t.cafe = (c.json.items || []).slice(0, 4).map((x) => ({ t: decode(x.title), u: x.link, c: decode(x.cafename || "") }));
-    const hist = baseSnaps.map((x) => x.nv[word]).filter((n) => Number.isFinite(n));
+    // 인기 검색어는 최근 100건이 모두 오늘 글이라 '오늘 글 수'만으로는 구분이 안 된다. 그래서 검색 결과 총건수(total)의 회차 간 증가량을 시간당 건수로 환산해 함께 본다.
+    const prevS = snaps.length ? snaps[snaps.length - 1] : null;
+    const pt = prevS?.nvTotal?.[word];
+    if (t.total != null && Number.isFinite(pt)) {
+      const dtH = Math.max(0.25, (now - new Date(prevS.at)) / 3600000);
+      t.rate = Math.round(Math.max(0, t.total - pt) / dtH);
+    }
+    const rates = [];
+    for (let i = 1; i < baseSnaps.length; i++) {
+      const a = baseSnaps[i - 1].nvTotal?.[word], b = baseSnaps[i].nvTotal?.[word];
+      if (Number.isFinite(a) && Number.isFinite(b)) rates.push(Math.max(0, b - a) / Math.max(0.25, (new Date(baseSnaps[i].at) - new Date(baseSnaps[i - 1].at)) / 3600000));
+    }
+    const avgRate = rates.length ? rates.reduce((x, y) => x + y, 0) / rates.length : null;
+    const hist = baseSnaps.map((x) => x.nv?.[word]).filter((n) => Number.isFinite(n));
     const avg = hist.length ? hist.reduce((a, n) => a + n, 0) / hist.length : null;
-    t.trend = avg == null || t.today == null ? 0 : t.today >= avg * 2 + 5 ? 2 : t.today > avg * 1.3 + 2 ? 1 : 0;
+    t.trend = 0;
+    if (t.rate != null && avgRate != null) t.trend = t.rate >= avgRate * 2 + 10 ? 2 : t.rate > avgRate * 1.3 + 3 ? 1 : 0;
+    else if (!t.sat && avg != null && t.today != null) t.trend = t.today >= avg * 2 + 5 ? 2 : t.today > avg * 1.3 + 2 ? 1 : 0;
     terms.push(t);
     st.count += (b.json?.items?.length || 0);
     st.ok = true;
   }
   if (st.ok && st.error && !/auth|rate/.test(st.error)) delete st.error;
-  terms.sort((a, b) => b.trend - a.trend || (b.today ?? 0) - (a.today ?? 0));
+  terms.sort((a, b) => b.trend - a.trend || (b.rate ?? b.today ?? 0) - (a.rate ?? a.today ?? 0));
   return { st, terms };
 }
 
@@ -401,7 +416,7 @@ async function run() {
   // 후보 선별: 키워드로 금융 관련이 확인됐거나, 금융 게시판 글이면서 점수가 높은 것만
   let list = cand.filter((c) => !c.priorOnly || c.pop || c.score >= 30);
   if (process.env.COMMUNITY_DEBUG) for (const c of cand.sort((a, b) => b.score - a.score).slice(0, 60)) console.log(c.score, c.src, c.priorOnly ? "P" : "K", c.pop ? "pop" : "", c.views, c.comments, c.title.slice(0, 40));
-  list = list.filter((c) => c.ageH <= 48 && c.score >= 12);
+  list = list.filter((c) => c.ageH <= 48 && (c.score >= 12 || !c.priorOnly)); // 키워드가 맞은 글은 점수가 낮아도 남긴다(보배드림처럼 일반 게시판이 비지 않게)
 
   // 중복 묶기(제목 정규화 + 바이그램 유사도)
   const key = (t) => t.toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
@@ -444,6 +459,17 @@ async function run() {
     return { k, n, d: r, trend };
   }).sort((a, b) => b.trend - a.trend || b.d - a.d || b.n - a.n).slice(0, 12);
 
+  // 검색용 보관본: 최근 72시간 안에 본 금융 관련 글의 제목·지표(본문 없음). 이전 보관본과 합쳐 점수가 낮아 목록에서 빠진 글도 검색되게 한다.
+  const arch = new Map();
+  try {
+    const old = PREV ? JSON.parse(fs.readFileSync(path.join(PREV, "archive.json"), "utf8")).items : [];
+    for (const x of old) if (now - new Date(x.seen) <= SNAP_KEEP_MS) arch.set(x.id, x);
+  } catch { /* 없음 */ }
+  const addArch = (x) => arch.set(x.id, { id: x.id, t: x.t, u: x.u, s: x.s, sk: x.sk, b: x.b, ts: x.ts, v: x.v, c: x.c, l: x.l, score: x.score, cat: x.cat, sup: x.sup || undefined, seen: now.toISOString() });
+  for (const c of list) addArch({ id: c.id, t: c.title, u: c.url, s: c.source, sk: c.src, b: c.board, ts: c.ts, v: c.views, c: c.comments, l: c.likes, score: c.score, cat: c.cat, sup: c.sup });
+  for (const y of yt.items) addArch(y);
+  const archive = [...arch.values()].sort((a, b) => b.score - a.score).slice(0, 800);
+
   const hot = {
     v: 1, updated: now.toISOString(), updatedKst: kstIso(now), warm: haveHist,
     note: "공개 게시글의 제목·출처·시간·조회·댓글 수와 원문 링크만 담습니다. 본문·닉네임은 수집하지 않습니다.",
@@ -459,23 +485,25 @@ async function run() {
     const old = JSON.parse(fs.readFileSync(path.join(PREV, "hot.json"), "utf8"));
     old.sources = status; old.stale = true; old.checkedAt = now.toISOString();
     fs.writeFileSync(path.join(OUT, "hot.json"), JSON.stringify(old));
+    if (fs.existsSync(path.join(PREV, "archive.json"))) fs.copyFileSync(path.join(PREV, "archive.json"), path.join(OUT, "archive.json"));
     copySnaps(snaps);
     console.log("모든 출처 실패 — 이전 데이터를 유지합니다.", JSON.stringify(status));
     return;
   }
   fs.writeFileSync(path.join(OUT, "hot.json"), JSON.stringify(hot));
+  fs.writeFileSync(path.join(OUT, "archive.json"), JSON.stringify({ v: 1, updated: now.toISOString(), items: archive }));
 
   // 스냅샷 저장: 후보로 본 글의 [조회, 댓글, 추천]만(제목 없음). 72시간 지난 스냅샷은 버린다.
   const items = {};
   for (const it of raw) items[it.id] = [it.views ?? 0, it.comments, it.likes];
   const nvSnap = Object.fromEntries(nv.terms.filter((t) => t.today != null).map((t) => [t.k, t.today]));
-  fs.writeFileSync(path.join(OUT, "snap", `${stamp(now)}.json`), JSON.stringify({ at: now.toISOString(), items, kwNew, nv: nvSnap }));
+  fs.writeFileSync(path.join(OUT, "snap", `${stamp(now)}.json`), JSON.stringify({ at: now.toISOString(), items, kwNew, nv: nvSnap, nvTotal: Object.fromEntries(nv.terms.filter((t) => t.total != null).map((t) => [t.k, t.total])) }));
   copySnaps(snaps);
   console.log(`수집 ${raw.length}건 → 금융 관련 ${kept.length}건(감독 ${hot.stats.supervision}), 출처 ${okCount}/${status.length} 정상, 스냅샷 ${snaps.length + 1}개`);
   for (const s of status) console.log(" -", s.key, s.ok ? "ok" : "FAIL", s.count, s.error || "");
 }
 function copySnaps(snaps) {
-  for (const s of snaps) fs.writeFileSync(path.join(OUT, "snap", s.file), JSON.stringify({ at: s.at, items: s.items, kwNew: s.kwNew, nv: s.nv }));
+  for (const s of snaps) fs.writeFileSync(path.join(OUT, "snap", s.file), JSON.stringify({ at: s.at, items: s.items, kwNew: s.kwNew, nv: s.nv, nvTotal: s.nvTotal }));
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

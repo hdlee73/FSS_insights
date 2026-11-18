@@ -67,6 +67,6 @@ jobs:
           git checkout --orphan community-data
           git rm -rf . >/dev/null 2>&1 || true
           cp -r /tmp/pub/* .
-          git add hot.json snap
+          git add hot.json archive.json snap
           git commit -m "data: $(date -u +%FT%H:%MZ)"
           git push -f origin community-data

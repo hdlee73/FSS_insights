@@ -2,7 +2,7 @@
 // 자료는 FSS_insights 레포 community-data 브랜치(GitHub Actions community-data.yml이 평일 업무시간 30분·그 밖 2시간마다 갱신하는 hot.json). 별도 서버 없음.
 // 제목·출처·시간·조회/댓글 수와 원문 링크만 담으며 본문·닉네임은 수집하지 않는다. 출처가 서로 다른 지표를 가지므로 하나의 순위표에 섞지 않고, 각 칸 안에서만 순위를 매긴다.
 import { setHeader } from "../app.js";
-import { errorText, h, icon, iconButton, loading, message, openUrl, tabs } from "../core.js";
+import { errorText, h, icon, iconButton, loading, message, openUrl, searchBox, tabs } from "../core.js";
 
 // 앱(WebView)에 내장된 core.js가 웹보다 오래된 경우에도 같은 파일이 동작하도록 작은 도우미는 여기서 정의한다.
 const canPoll = () => document.visibilityState === "visible" && navigator.onLine !== false;
@@ -25,6 +25,7 @@ function safeHttpUrl(url) {
 }
 
 const URL_HOT = "https://raw.githubusercontent.com/hdlee73/FSS_insights/community-data/hot.json";
+const URL_ARCHIVE = "https://raw.githubusercontent.com/hdlee73/FSS_insights/community-data/archive.json";
 const GROUPS = [
   ["dc", "디시인사이드", "주식·미국주식·비트코인 갤러리의 개념글과 최신 글"],
   ["clien", "클리앙", "주식한당·모두의공원 최신 글(사이트가 인기 목록 수집을 허용하지 않음)"],
@@ -44,6 +45,7 @@ export const LIMITS = [
   "네이버는 조회·댓글 수가 없어 ‘오늘 올라온 블로그 글 수(최근 100건 기준)’ 같은 언급량 신호만 제공합니다.",
   "커뮤니티 글은 검증되지 않은 의견·루머일 수 있으며 투자·감독 판단의 근거가 아닙니다.",
   "사이트 차단·점검·구조 변경 시 일시적으로 비거나 지연될 수 있습니다(아래 ‘출처 상태’ 참고). 키 등록 전 출처는 ‘준비 중’으로 표시됩니다.",
+  "키워드 검색은 수집해 둔 최근 72시간 안의 금융 관련 글 제목만 대상으로 합니다. 수집 범위 밖의 글이나 본문 내용은 검색되지 않으며, 네이버 언급 신호는 관찰어(예: 금융감독원·공매도)에 대해서만 나옵니다.",
   "키워드·금융 관련 판정에는 오탐(관련 없는 글)과 누락이 있을 수 있으며, 비속어가 든 제목은 표시하지 않습니다.",
 ];
 
@@ -79,6 +81,18 @@ async function load() {
   }
 }
 
+async function loadArchive() {
+  try {
+    const res = await fetch(URL_ARCHIVE, { cache: "no-cache" });
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j.items) ? j.items : [];
+  } catch {
+    return [];
+  }
+}
+const squash = (t) => String(t).toLowerCase().replace(/\s+/g, "");
+
 function link(url, label, cls = "") {
   const safe = safeHttpUrl(url);
   if (!safe) return h("span", { class: cls }, label);
@@ -105,11 +119,12 @@ function naverRows(terms, limit) {
   return list.map((t) => {
     const arrow = t.trend === 2 ? "▲▲" : t.trend === 1 ? "▲" : "";
     const cnt = t.today == null ? "-" : t.sat ? "100건+" : `${t.today}건`;
+    const rate = t.rate != null ? `시간당 약 ${num(t.rate)}건 증가` : `오늘 블로그 ${cnt}`;
     const detail = h("div", { class: "cm-nvd" },
       ...(t.blog || []).map((b) => h("div", null, h("span", { class: "tag" }, "블로그"), link(b.u, b.t))),
       ...(t.cafe || []).map((c) => h("div", null, h("span", { class: "tag green" }, c.c || "카페"), link(c.u, c.t))));
     const row = h("details", { class: "cm-nv" },
-      h("summary", null, h("b", null, t.k), h("span", { class: "cm-nvc" }, `오늘 블로그 ${cnt}`, t.yday != null ? h("small", null, ` · 어제 ${t.yday}건`) : null, arrow ? h("em", { class: "cm-up" }, " " + arrow) : null)),
+      h("summary", null, h("b", null, t.k), h("span", { class: "cm-nvc" }, rate, t.rate != null ? h("small", null, ` · 오늘 블로그 ${cnt}`) : t.yday != null ? h("small", null, ` · 어제 ${t.yday}건`) : null, arrow ? h("em", { class: "cm-up" }, " " + arrow) : null)),
       detail);
     return row;
   });
@@ -145,12 +160,18 @@ export async function render(root, params, ctx) {
   }, 5 * 60 * 1000);
 
   const items = data.items || [];
-  const kw = (params.k || "").trim();
+  const kw = (params.q || "").trim();
+  const needle = squash(kw);
   const onlySup = params.sup === "1";
-  const apply = (arr) => arr.filter((it) => (!onlySup || it.sup) && (!kw || it.t.includes(kw)));
+  const apply = (arr) => arr.filter((it) => (!onlySup || it.sup) && (!kw || squash(it.t).includes(needle)));
   const groups = Object.fromEntries(GROUPS.map(([id]) => [id, []]));
-  for (const it of items) groups[groupOf(it.sk)]?.push(it);
-  for (const it of data.youtube?.items || []) groups.yt.push(it);
+  const seen = new Set();
+  const pushIt = (it) => { if (!seen.has(it.id)) { seen.add(it.id); groups[groupOf(it.sk)]?.push(it); } };
+  for (const it of items) pushIt(it);
+  for (const it of data.youtube?.items || []) pushIt(it);
+  // 검색할 때는 최근 72시간 보관본(목록에서 밀려난 글 포함)을 합친다.
+  if (kw) for (const it of await loadArchive()) pushIt(it);
+  if (!ctx.alive()) return;
   for (const g of Object.values(groups)) g.sort((a, b) => b.score - a.score);
   const status = Object.fromEntries((data.sources || []).map((s) => [groupOf(s.key), []]));
   for (const s of data.sources || []) status[groupOf(s.key)].push(s);
@@ -178,12 +199,14 @@ export async function render(root, params, ctx) {
 
   // 급상승 키워드(칩): 누르면 제목 필터
   const kws = (data.keywords || []).slice(0, 10);
-  const mk = (extra) => ({ ...params, ...extra, t: tab });
+  const mk = (extra) => ({ ...params, ...extra, t: tab === "all" ? "" : tab });
+  const box = searchBox({ placeholder: "키워드 검색 (수집된 최근 72시간 글 제목 · 예: 저축은행, 공매도)", value: kw, onSearch: (v) => ctx.go(mk({ q: v, sup: "" })) });
+  box.input.addEventListener("input", () => !box.input.value && kw && ctx.go(mk({ q: "" }), { replace: true }));
   const chips = h("div", { class: "cm-chips" },
     h("b", null, "급상승 키워드"),
-    h("button", { type: "button", class: "pill" + (!kw && !onlySup ? " on" : ""), onclick: () => ctx.go({ t: tab }) }, "전체"),
-    h("button", { type: "button", class: "pill" + (onlySup ? " on" : ""), onclick: () => ctx.go(mk({ sup: onlySup ? "" : "1", k: "" })) }, "감독·금융사만"),
-    kws.map((k) => h("button", { type: "button", class: "pill" + (kw === k.k ? " on" : ""), title: `이번 목록 ${k.n}건`, onclick: () => ctx.go(mk({ k: kw === k.k ? "" : k.k, sup: "" })) }, k.k, k.trend ? h("em", { class: "cm-up" }, k.trend === 2 ? " ▲▲" : " ▲") : null)),
+    h("button", { type: "button", class: "pill" + (!kw && !onlySup ? " on" : ""), onclick: () => ctx.go({ t: tab === "all" ? "" : tab }) }, "전체"),
+    h("button", { type: "button", class: "pill" + (onlySup ? " on" : ""), onclick: () => ctx.go(mk({ sup: onlySup ? "" : "1", q: "" })) }, "감독·금융사만"),
+    kws.map((k) => h("button", { type: "button", class: "pill" + (kw === k.k ? " on" : ""), title: `이번 목록 ${k.n}건`, onclick: () => ctx.go(mk({ q: kw === k.k ? "" : k.k, sup: "" })) }, k.k, k.trend ? h("em", { class: "cm-up" }, k.trend === 2 ? " ▲▲" : " ▲") : null)),
     !data.warm ? h("small", { class: "cm-note" }, "수집 기록이 쌓이는 중이라 급상승 판정은 잠시 후 정확해집니다.") : null);
 
   const tabBar = tabs(TAB_LABELS, TAB_IDS.indexOf(tab), (i) => ctx.go({ t: TAB_IDS[i] === "all" ? "" : TAB_IDS[i] }), "seg");
@@ -199,15 +222,19 @@ export async function render(root, params, ctx) {
       rows = st?.pending || (!terms.length && st) ? [pendingBox(st)] : naverRows(kw ? terms.filter((t) => t.k.includes(kw)) : terms, limit);
     } else {
       const arr = apply(groups[id]);
-      rows = arr.length ? (limit ? arr.slice(0, limit) : arr.slice(0, 50)).map((it, i) => itemRow(it, i + 1)) : [pendingBox(id === "yt" || id === "dc" || id === "clien" || id === "bobae" ? st : null)];
+      rows = arr.length ? (limit ? arr.slice(0, limit) : arr.slice(0, 50)).map((it, i) => itemRow(it, i + 1)) : [kw ? h("div", { class: "cm-empty" }, "수집 범위 안에서 일치하는 글이 없습니다.") : pendingBox(st)];
     }
-    const more = limit && tab === "all" ? h("a", { class: "cm-more", href: `#/community?t=${id}` }, "이 출처 전체 보기 ›") : null;
+    const more = limit && tab === "all" ? h("a", { class: "cm-more", href: `#/community?t=${id}${kw ? "&q=" + encodeURIComponent(kw) : ""}` }, "이 출처 전체 보기 ›") : null;
     return h("section", { class: "card cm-card" },
       h("div", { class: "ch" }, h("h3", null, name), h("div", { class: "ch-acts" }, st?.pending ? h("span", { class: "tag" }, "준비 중") : st && !st.ok ? h("span", { class: "tag orange" }, "일시 중단") : null)),
       h("div", { class: "cm-sub" }, sub), rows, more);
   };
 
-  if (tab === "all") {
+  if (kw) {
+    const total = GROUPS.reduce((n, [id]) => n + (id === "naver" ? 0 : apply(groups[id]).length), 0);
+    panel.append(h("div", { class: "cm-q" }, icon("search"), h("b", null, `‘${kw}’ 검색 결과 ${total}건`), h("span", null, " · 수집해 둔 최근 72시간 글 제목 기준, 출처별로 나눠 보여 줍니다"), h("button", { type: "button", class: "btn ghost sm", onclick: () => ctx.go(mk({ q: "" })) }, "검색 해제")));
+  }
+  if (tab === "all" && !kw) {
     // 전체 급상승: 출처별 최대 2건, 같은 출처 안 순위로만 뽑는다(출처 간 점수 직접 비교 없음)
     const top = [];
     for (let r = 0; r < 2; r++) for (const id of ["dc", "clien", "bobae", "yt"]) { const it = apply(groups[id])[r]; if (it) top.push(it); }
@@ -217,6 +244,8 @@ export async function render(root, params, ctx) {
       h("div", { class: "cm-sub" }, "각 출처에서 상위 2건씩만 모았습니다(점수는 출처 안에서만 비교됩니다)"),
       top.length ? top.slice(0, 8).map((it, i) => itemRow(it, i + 1)) : h("div", { class: "cm-empty" }, "조건에 맞는 글이 없습니다."));
     panel.append(topCard, h("div", { class: "cm-grid" }, GROUPS.map(([id]) => groupCard(id, 5))));
+  } else if (tab === "all") {
+    panel.append(h("div", { class: "cm-grid" }, GROUPS.map(([id]) => groupCard(id, 8))));
   } else {
     panel.append(groupCard(tab, 0));
   }
@@ -227,5 +256,5 @@ export async function render(root, params, ctx) {
     h("div", { class: "cm-sts" }, h("b", null, "출처 상태"), stRows, h("small", null, ` · 마지막 갱신 ${hhmm(data.updated)}`, stale ? " (오래됨: 수집이 지연되고 있습니다)" : "")),
     h("div", { class: "cm-disc" }, icon("info"), " 일부 커뮤니티만 약 30분 주기로 수집하며 지연·누락이 있을 수 있습니다. 제목·지표·원문 링크만 제공하고, 커뮤니티 글은 검증되지 않은 의견으로 투자·감독 판단의 근거가 아닙니다."));
 
-  body.replaceChildren(h("div", { class: "cm-head" }, infoBtn), info, kpis, chips, tabBar, panel, foot);
+  body.replaceChildren(h("div", { class: "cm-head" }, infoBtn), info, box, kpis, chips, tabBar, panel, foot);
 }
