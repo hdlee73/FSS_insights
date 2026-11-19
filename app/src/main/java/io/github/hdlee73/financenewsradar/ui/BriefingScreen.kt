@@ -372,10 +372,7 @@ private fun MarketTile(item: Instrument, quote: Quote, series: IntradaySeries?, 
     val color = changeColor(quote.change)
     Surface(modifier.clickable(onClick = onClick), shape = RoundedCornerShape(16.dp), color = color.copy(alpha = 0.09f)) {
         Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(item.name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false)
-                StatusTag(series?.status)
-            }
+            NameWithTag(item.name, series?.status, MaterialTheme.typography.labelLarge, MaterialTheme.colorScheme.onSurfaceVariant, gap = 6.dp)
             ValueWithDelta(priceText(item, quote.price), quote.changePercent?.let { arrowPercent(it) }, color, Modifier.padding(top = 2.dp))
             IntradayChart(series, color, Modifier.fillMaxWidth().padding(top = 6.dp).height(34.dp))
             // 코스피·코스닥은 투자자별 순매수(억원)를 같은 칸 안에 함께 보여 준다.
