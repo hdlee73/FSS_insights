@@ -192,7 +192,7 @@ function hbars(items, fmt = pct) {
 
 // ---------- 실시간 시세(브라우저에서 직접 연결: 업비트·빗썸 웹소켓, 끊기면 폴링) ----------
 const usd = (v) => (v == null ? "-" : "$" + (v >= 100 ? num(v) : v >= 1 ? num(v, 3) : num(v, 4)));
-const MODE_TEXT = { ws: "실시간(웹소켓)", poll: "3초 간격 조회", down: "연결 끊김" };
+const MODE_TEXT = { ws: "실시간(웹소켓)", poll: "3초 간격 조회", down: "수신중" };
 /** 실시간 시세표: 코인 · 업비트 현재가 · 전일대비 · 빗썸 · 해외가 · 김치 프리미엄. */
 function liveTable(ctx, snap, syms, { full = innerWidth >= 560 } = {}) {
   const g = snap.global || {}, cp = snap.coin_premium || {};
@@ -218,7 +218,6 @@ function liveTable(ctx, snap, syms, { full = innerWidth >= 560 } = {}) {
       c.k.className = "num " + cls(pr);
     }
     const m = st.mode.upbit || "down";
-    stamp.classList.toggle("off", m === "down");
     stamp.lastChild.textContent = `${MODE_TEXT[m]} · ${new Date(st.at).toTimeString().slice(0, 8)} 수신` + (m === "ws" && st.mode.bithumb !== "ws" ? " (빗썸은 " + MODE_TEXT[st.mode.bithumb || "down"] + ")" : "");
   });
   return h("div", { class: "stack" }, stamp,
@@ -560,7 +559,6 @@ function coinChartCard(ctx, cs, coin, year, params) {
     const q = st.up[sym];
     if (q && Number.isFinite(q.price)) live = q;
     const m = st.mode.upbit || "down";
-    stampEl.classList.toggle("off", m === "down");
     stampEl.lastChild.textContent = `${MODE_TEXT[m]} · ${new Date(st.at).toTimeString().slice(0, 8)} 수신`;
     if (ctx.alive()) draw();
   });
