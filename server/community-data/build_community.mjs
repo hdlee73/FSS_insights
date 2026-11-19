@@ -234,6 +234,39 @@ const median = (arr) => {
 };
 
 
+// ---------- 키워드 기준선(4주) ----------
+// 키워드별 '새 글 언급 수'를 KST 1시간 단위로 28일 보관(kwhist.json)해, 같은 시간대 최근 2주 평균 대비 얼마나 튀었는지(z값)로 급상승을 판정한다.
+// 커뮤니티 활동은 시간대 편차가 커서 '지난 며칠의 같은 6시간'과 비교한다. 같은 파일에 글별 첫 관측 시각(first)도 72시간 보관한다.
+const HIST_KEEP_MS = 28 * 24 * 3600 * 1000;
+const hourKey = (d) => KST(d).toISOString().slice(0, 13).replace(/[-T]/g, "");
+function loadHist() {
+  try { if (PREV) { const j = JSON.parse(fs.readFileSync(path.join(PREV, "kwhist.json"), "utf8")); if (j?.v === 1) return { buckets: j.buckets || {}, first: j.first || {} }; } } catch { /* 없음 */ }
+  return { buckets: {}, first: {} };
+}
+function windowSum(buckets, endMs, hours, k) {
+  let sum = 0, seen = false;
+  for (let i = 0; i < hours; i++) {
+    const b = buckets[hourKey(new Date(endMs - i * 3600000))];
+    if (b) { seen = true; sum += b[k] || 0; }
+  }
+  return { sum, seen };
+}
+// 반환: { z, recent, mean, days } 기준선 일수가 3일 미만이면 null
+function kwZ(buckets, k) {
+  const W = 6;
+  const recent = windowSum(buckets, now.getTime(), W, k).sum;
+  const vals = [];
+  for (let d = 1; d <= 14; d++) {
+    const w = windowSum(buckets, now.getTime() - d * 86400000, W, k);
+    if (w.seen) vals.push(w.sum);
+  }
+  if (vals.length < 3) return null;
+  const mean = vals.reduce((a, x) => a + x, 0) / vals.length;
+  const sd = Math.sqrt(vals.reduce((a, x) => a + (x - mean) ** 2, 0) / vals.length);
+  const z = (recent - mean) / Math.max(sd, Math.sqrt(mean + 1), 1);
+  return { z: Math.round(z * 10) / 10, recent, mean: Math.round(mean * 10) / 10, days: vals.length };
+}
+
 // ---------- 네이버(검색 API: 블로그·카페글) — 순위가 아니라 '언급 신호' ----------
 // 응답에 조회·댓글 수가 없다. 관찰어별로 최신 블로그 글 100건 중 오늘 올라온 글 수(포화되면 100+)와 최신 카페글 제목을 보여 준다.
 // 블로거 이름·본문 요약(description)은 저장하지 않는다. 호출: 관찰어당 2건(블로그 1, 카페 1).
@@ -396,6 +429,7 @@ async function collectYoutube() {
 async function run() {
   fs.mkdirSync(path.join(OUT, "snap"), { recursive: true });
   const snaps = loadSnaps();
+  const hist = loadHist();
   const { items: raw, status } = await collect();
   const nv = await collectNaver(snaps);
   const yt = await collectYoutube();
@@ -412,6 +446,10 @@ async function run() {
   const prevIds = new Set(Object.keys(prevMap));
   const kwNew = {}; // 이번 회차에 처음 본 글의 키워드(급상승 키워드 집계용)
 
+  // 1~4시간 전 스냅샷 중 2시간 전에 가장 가까운 것에서 해당 글의 기록을 찾는다
+  const refPool = snaps.filter((x) => { const h = (now - new Date(x.at)) / 3600000; return h >= 1 && h <= 4; }).sort((a, b) => Math.abs((now - new Date(a.at)) / 3600000 - 2) - Math.abs((now - new Date(b.at)) / 3600000 - 2));
+  const refSnap = (id) => { for (const sn of refPool) if (sn.items?.[id]) return { at: sn.at, e: sn.items[id] }; return null; };
+
   const cand = [];
   for (const it of raw) {
     const cl = classify(it);
@@ -427,13 +465,29 @@ async function run() {
       dc = Math.max(0, it.comments - p[1]);
       it.dvh = dv / dtH;
     }
-    let raw_ = 0.35 * Math.log(1 + v / m.v) + 0.3 * Math.log(1 + it.comments / m.c) + 0.15 * Math.log(1 + it.likes / m.l);
-    if (it.dvh != null) raw_ += 0.5 * Math.log(1 + it.dvh / m.v) + 0.2 * Math.log(1 + (dc ?? 0) / Math.max(1, m.c) * 2);
-    if (it.pop) raw_ += 0.3;
-    raw_ *= Math.pow(0.5, ageH / 8);
+    // 증가 속도: 1~4시간 전(약 2시간 전에 가장 가까운) 스냅샷과 비교한 시간당 증가량. 30분 간격 값은 잡음이 커서 긴 창을 우선 쓴다.
+    const ref = refSnap(it.id);
+    let rv = null, rc = null, implied = false;
+    if (ref) {
+      const dtH = Math.max(0.5, (now - new Date(ref.at)) / 3600000);
+      rv = Math.max(0, v - ref.e[0]) / dtH;
+      rc = Math.max(0, it.comments - ref.e[1]) / dtH;
+    } else if (it.dvh != null) { rv = it.dvh; rc = (dc ?? 0) / Math.max(0.25, (now - new Date(prev.at)) / 3600000); }
+    else if (ageH <= 6 && snaps.length) { rv = (v / Math.max(ageH, 0.5)) * 0.6; rc = (it.comments / Math.max(ageH, 0.5)) * 0.6; implied = true; } // 새로 뜬 글은 올라온 뒤 평균 속도로 가늠한다
+    // 순위의 중심은 '지금 얼마나 빨리 늘고 있나'. 누적 조회·댓글은 보조(가중치 절반 이하)
+    let raw_ = 0.18 * Math.log(1 + v / m.v) + 0.15 * Math.log(1 + it.comments / m.c) + 0.07 * Math.log(1 + it.likes / m.l);
+    if (rv != null) raw_ += 0.9 * Math.log(1 + rv / m.v) + 0.5 * Math.log(1 + (rc / Math.max(1, m.c)) * 2);
+    if (it.pop) raw_ += 0.2;
+    raw_ *= Math.pow(0.5, ageH / 6);
+    // 이미 오래 보여 준 글은 점수를 깎는다(24시간 넘게 목록에 머문 글: 하루마다 ×0.75)
+    const firstAt = hist.first[it.id] || (p ? prev.at : now.toISOString());
+    if (!hist.first[it.id]) hist.first[it.id] = firstAt;
+    const heldH = (now - new Date(firstAt)) / 3600000;
+    if (heldH > 24) raw_ *= Math.pow(0.75, (heldH - 24) / 24);
+    const isNew = heldH <= 3;
     if (cl.sup) raw_ += KW.supervision.bonus * Math.pow(0.5, ageH / 24);
     const score = Math.round(100 * raw_ / (raw_ + 1.2));
-    cand.push({ ...it, ...cl, score, dv, dc, ageH });
+    cand.push({ ...it, ...cl, score, dv, dc, ageH, rvh: rv != null && !implied ? Math.round(rv) : undefined, isNew });
     if (!prevIds.has(it.id)) for (const l of cl.labels) kwNew[l] = (kwNew[l] || 0) + 1;
   }
 
@@ -462,7 +516,7 @@ async function run() {
   const top = kept.slice(0, 100).map((c) => ({
     id: c.id, t: c.title, u: c.url, s: c.source, sk: c.src, b: c.board, ts: c.ts,
     v: c.views, c: c.comments, l: c.likes, score: c.score, cat: c.cat, sup: c.sup || undefined,
-    dv: c.dv ?? undefined, dc: c.dc ?? undefined, pop: c.pop || undefined, also: c.also?.length ? c.also : undefined,
+    dv: c.dv ?? undefined, dc: c.dc ?? undefined, rv: c.rvh || undefined, nw: c.isNew || undefined, pop: c.pop || undefined, also: c.also?.length ? c.also : undefined,
   }));
 
   // 급상승 키워드: 최근 3시간 새 글 언급 수 vs 직전 3시간
@@ -475,13 +529,22 @@ async function run() {
   };
   const recent = sum(0, 3), before = sum(3, 6);
   const haveHist = snaps.length >= 2;
+  // 이번 회차 새 글 언급을 시간 버킷에 더하고, 28일이 지난 버킷은 버린다
+  const hk = hourKey(now);
+  hist.buckets[hk] = hist.buckets[hk] || {};
+  for (const [k, n] of Object.entries(kwNew)) hist.buckets[hk][k] = (hist.buckets[hk][k] || 0) + n;
+  for (const b of Object.keys(hist.buckets)) { const y = +b.slice(0, 4), mo = +b.slice(4, 6), d = +b.slice(6, 8), h = +b.slice(8, 10); if (now - new Date(Date.UTC(y, mo - 1, d, h - 9)) > HIST_KEEP_MS) delete hist.buckets[b]; }
+  for (const [id, at] of Object.entries(hist.first)) if (now - new Date(at) > SNAP_KEEP_MS) delete hist.first[id];
   const cur = {};
   for (const c of kept) for (const l of c.labels) cur[l] = (cur[l] || 0) + 1;
   const keywords = Object.entries(cur).map(([k, n]) => {
     const r = recent[k] || 0, b = before[k] || 0;
-    const trend = !haveHist ? 0 : r >= 3 && r >= b * 2 + 2 ? 2 : r > b ? 1 : r < b ? -1 : 0;
-    return { k, n, d: r, trend };
-  }).sort((a, b) => b.trend - a.trend || b.d - a.d || b.n - a.n).slice(0, 12);
+    const base = kwZ(hist.buckets, k); // 같은 시간대 최근 2주 대비(기준선 3일 이상일 때)
+    let trend;
+    if (base) trend = base.z >= 3 && base.recent >= 3 ? 2 : base.z >= 1.5 && base.recent >= 2 ? 1 : base.z <= -1.5 ? -1 : 0;
+    else trend = !haveHist ? 0 : r >= 3 && r >= b * 2 + 2 ? 2 : r > b ? 1 : r < b ? -1 : 0;
+    return { k, n, d: r, trend, z: base?.z, base: base ? true : undefined };
+  }).sort((a, b) => b.trend - a.trend || (b.z ?? 0) - (a.z ?? 0) || b.d - a.d || b.n - a.n).slice(0, 12);
 
   // 검색용 보관본: 최근 72시간 안에 본 금융 관련 글의 제목·지표(본문 없음). 이전 보관본과 합쳐 점수가 낮아 목록에서 빠진 글도 검색되게 한다.
   const arch = new Map();
@@ -510,6 +573,7 @@ async function run() {
     old.sources = status; old.stale = true; old.checkedAt = now.toISOString();
     fs.writeFileSync(path.join(OUT, "hot.json"), JSON.stringify(old));
     if (fs.existsSync(path.join(PREV, "archive.json"))) fs.copyFileSync(path.join(PREV, "archive.json"), path.join(OUT, "archive.json"));
+    if (fs.existsSync(path.join(PREV, "kwhist.json"))) fs.copyFileSync(path.join(PREV, "kwhist.json"), path.join(OUT, "kwhist.json"));
     copySnaps(snaps);
     console.log("모든 출처 실패 — 이전 데이터를 유지합니다.", JSON.stringify(status));
     return;
@@ -522,6 +586,7 @@ async function run() {
   for (const it of raw) items[it.id] = [it.views ?? 0, it.comments, it.likes];
   const nvSnap = Object.fromEntries(nv.terms.filter((t) => t.today != null).map((t) => [t.k, t.today]));
   fs.writeFileSync(path.join(OUT, "snap", `${stamp(now)}.json`), JSON.stringify({ at: now.toISOString(), items, kwNew, nv: nvSnap, nvTotal: Object.fromEntries(nv.terms.filter((t) => t.total != null).map((t) => [t.k, t.total])) }));
+  fs.writeFileSync(path.join(OUT, "kwhist.json"), JSON.stringify({ v: 1, updated: now.toISOString(), buckets: hist.buckets, first: hist.first }));
   copySnaps(snaps);
   console.log(`수집 ${raw.length}건 → 금융 관련 ${kept.length}건(감독 ${hot.stats.supervision}), 출처 ${okCount}/${status.length} 정상, 스냅샷 ${snaps.length + 1}개`);
   for (const s of status) console.log(" -", s.key, s.ok ? "ok" : "FAIL", s.count, s.error || "");
