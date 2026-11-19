@@ -56,6 +56,16 @@ data class IntradaySeries(
     val live: Boolean = true
 )
 
+/**
+ * 한국거래소가 평소(09:00)보다 늦게 여는 날(수능일, 매년 첫 거래일 등)의 개장 시각.
+ * 휴장일 목록이 따로 없고 "오늘 분봉이 없음"으로 추정하므로, 지연개장일은 여기 등록해야 휴장으로 오판하지 않는다. 해마다 확인해 추가한다.
+ */
+internal val KRX_LATE_OPEN: Map<java.time.LocalDate, java.time.LocalTime> = mapOf(
+    java.time.LocalDate.of(2026, 11, 19) to java.time.LocalTime.of(10, 0),
+    java.time.LocalDate.of(2027, 1, 4) to java.time.LocalTime.of(10, 0),
+    java.time.LocalDate.of(2027, 11, 18) to java.time.LocalTime.of(10, 0)
+)
+
 /** 전일 비교 그래프 자료와 상황 배지를 만든다. [nowSec]는 테스트에서 시각을 고정하려는 용도. */
 internal fun buildCompare(
     days: List<SessionDay>, zone: ZoneId, lastEpoch: Long, bars: Int, h24: Boolean, kr: Boolean,
@@ -70,10 +80,13 @@ internal fun buildCompare(
     if (live && price != null && price.isFinite() && price > 0) points[points.lastIndex] = price
     fun md(d: java.time.LocalDate) = "${d.monthValue}/${d.dayOfMonth}"
     val weekday = today.dayOfWeek.value in 1..5
+    val lateOpen = if (kr && weekday) KRX_LATE_OPEN[today] else null
+    val lateWait = lateOpen != null && last.date != today && now.toLocalTime() < lateOpen.plusMinutes(10)
     val status = when {
         h24 -> null
         live -> "장중"
         last.date == today -> "마감"
+        lateWait -> "지연개장 · %02d:%02d 개장".format(lateOpen!!.hour, lateOpen.minute)
         kr && weekday && now.toLocalTime() < java.time.LocalTime.of(9, 10) -> "개장 전"
         kr -> "휴장 · ${md(last.date)} 마감"
         else -> "마감 ${md(last.date)}(미국)"
