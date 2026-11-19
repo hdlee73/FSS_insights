@@ -57,13 +57,15 @@ data class IntradaySeries(
 )
 
 /**
- * 한국거래소가 평소(09:00)보다 늦게 여는 날(수능일, 매년 첫 거래일 등)의 개장 시각.
+ * 한국거래소가 평소(09:00~15:30)보다 1시간 늦게 열고 닫는 날(수능일 등)의 개장·종료 시각(수능일은 10:00~16:30, 한국거래소 공지).
  * 휴장일 목록이 따로 없고 "오늘 분봉이 없음"으로 추정하므로, 지연개장일은 여기 등록해야 휴장으로 오판하지 않는다. 해마다 확인해 추가한다.
  */
-internal val KRX_LATE_OPEN: Map<java.time.LocalDate, java.time.LocalTime> = mapOf(
-    java.time.LocalDate.of(2026, 11, 19) to java.time.LocalTime.of(10, 0),
-    java.time.LocalDate.of(2027, 1, 4) to java.time.LocalTime.of(10, 0),
-    java.time.LocalDate.of(2027, 11, 18) to java.time.LocalTime.of(10, 0)
+internal data class KrxLateSession(val open: java.time.LocalTime, val close: java.time.LocalTime)
+
+internal val KRX_LATE_OPEN: Map<java.time.LocalDate, KrxLateSession> = mapOf(
+    java.time.LocalDate.of(2026, 11, 19) to KrxLateSession(java.time.LocalTime.of(10, 0), java.time.LocalTime.of(16, 30)),
+    java.time.LocalDate.of(2027, 1, 4) to KrxLateSession(java.time.LocalTime.of(10, 0), java.time.LocalTime.of(16, 30)),
+    java.time.LocalDate.of(2027, 11, 18) to KrxLateSession(java.time.LocalTime.of(10, 0), java.time.LocalTime.of(16, 30))
 )
 
 /** 전일 비교 그래프 자료와 상황 배지를 만든다. [nowSec]는 테스트에서 시각을 고정하려는 용도. */
@@ -80,7 +82,7 @@ internal fun buildCompare(
     if (live && price != null && price.isFinite() && price > 0) points[points.lastIndex] = price
     fun md(d: java.time.LocalDate) = "${d.monthValue}/${d.dayOfMonth}"
     val weekday = today.dayOfWeek.value in 1..5
-    val lateOpen = if (kr && weekday) KRX_LATE_OPEN[today] else null
+    val lateOpen = if (kr && weekday) KRX_LATE_OPEN[today]?.open else null
     val lateWait = lateOpen != null && last.date != today && now.toLocalTime() < lateOpen.plusMinutes(10)
     val status = when {
         h24 -> null
@@ -537,7 +539,7 @@ class MarketClient(private val context: Context) {
             else -> return null
         }
         val day = java.time.LocalDate.now(ZoneId.of("Asia/Seoul")).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
-        val rows = JSONArray(get("https://api.stock.naver.com/chart/domestic/$path/minute5?startDateTime=${day}0900&endDateTime=${day}1600"))
+        val rows = JSONArray(get("https://api.stock.naver.com/chart/domestic/$path/minute5?startDateTime=${day}0900&endDateTime=${day}1700"))
         val points = (0 until rows.length()).map { rows.getJSONObject(it).optDouble("currentPrice", Double.NaN) }
             .filter { it.isFinite() && it > 0 }.toMutableList()
         if (points.size < 2) return null
@@ -599,7 +601,7 @@ class MarketClient(private val context: Context) {
         val fmt = java.time.format.DateTimeFormatter.BASIC_ISO_DATE
         val today = java.time.LocalDate.now(kst)
         for (span in listOf(4L, 12L)) {
-            val rows = JSONArray(get("https://api.stock.naver.com/chart/domestic/$path/minute?startDateTime=${today.minusDays(span).format(fmt)}0900&endDateTime=${today.format(fmt)}1600"))
+            val rows = JSONArray(get("https://api.stock.naver.com/chart/domestic/$path/minute?startDateTime=${today.minusDays(span).format(fmt)}0900&endDateTime=${today.format(fmt)}1700"))
             val closes = java.util.TreeMap<String, MutableList<Double>>()
             val opens = HashMap<String, Double>()
             var lastKey = ""
@@ -609,7 +611,8 @@ class MarketClient(private val context: Context) {
                 if (dt.length < 12) continue
                 val hhmm = dt.substring(8, 12).toIntOrNull() ?: continue
                 val c = row.optDouble("currentPrice", Double.NaN)
-                if (hhmm < 900 || hhmm > 1530 || !c.isFinite() || c <= 0) continue
+                val limit = KRX_LATE_OPEN[java.time.LocalDate.parse(dt.substring(0, 8), fmt)]?.close?.let { it.hour * 100 + it.minute } ?: 1530
+                if (hhmm < 900 || hhmm > limit || !c.isFinite() || c <= 0) continue
                 closes.getOrPut(dt.substring(0, 8)) { ArrayList() } += c
                 val o = row.optDouble("openPrice", Double.NaN)
                 if (o.isFinite() && o > 0) opens.putIfAbsent(dt.substring(0, 8), o)
