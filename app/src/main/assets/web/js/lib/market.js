@@ -192,13 +192,15 @@ export function intraday(raw, fallbackPrevious, price) {
       const chart = await yahooChart(sym, h24 ? "3d" : "5d", h24 ? "5m" : "1m");
       tz = chart.meta?.exchangeTimezoneName || "UTC";
       bars = h24 ? 288 : 390;
+      // 선물(=F)은 미국 동부 18:00에 새 거래일이 시작한다. 달력 날짜로 나누면 한국 저녁에 오늘 선이 일부만 채워진다.
+      if (sym.endsWith("=F") && tz.startsWith("America/")) dayShift = 6 * 3600;
       const ts = chart.timestamp || [];
       const q = chart.indicators?.quote?.[0] || {};
       const byDay = new Map();
       ts.forEach((t, i) => {
         const c = q.close?.[i];
         if (!(c > 0)) return;
-        const k = new Date(t * 1000).toLocaleDateString("en-CA", { timeZone: tz }).replace(/-/g, "");
+        const k = new Date((t + dayShift) * 1000).toLocaleDateString("en-CA", { timeZone: tz }).replace(/-/g, "");
         if (!byDay.has(k)) byDay.set(k, { date: k, closes: [], open: q.open?.[i] > 0 ? q.open[i] : null });
         byDay.get(k).closes.push(c);
         lastEpoch = t;
@@ -209,7 +211,7 @@ export function intraday(raw, fallbackPrevious, price) {
     const last = days[days.length - 1];
     const prev = days[days.length - 2];
     const now = Date.now() / 1000;
-    const today = new Date().toLocaleDateString("en-CA", { timeZone: tz }).replace(/-/g, "");
+    const today = new Date(Date.now() + dayShift * 1000).toLocaleDateString("en-CA", { timeZone: tz }).replace(/-/g, "");
     const live = h24 || (last.date === today && now - lastEpoch <= 15 * 60);
     const points = last.closes.slice();
     if (live && price > 0) points[points.length - 1] = price;
