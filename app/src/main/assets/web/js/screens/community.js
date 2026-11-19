@@ -40,6 +40,7 @@ const groupOf = (sk) => (sk.startsWith("dc-") ? "dc" : sk.startsWith("clien") ? 
 export const LIMITS = [
   "일부 커뮤니티만 수집합니다. 사이트가 수집을 허용하지 않거나 막는 곳(네이버 종토방·뽐뿌·에펨코리아 등)은 제외했습니다.",
   "약 30분(업무시간) 또는 2시간(야간·주말) 주기로 갱신하므로 실제 게시 시점보다 늦게 보일 수 있습니다.",
+  "순위는 누적 조회보다 최근 1~4시간의 증가 속도를 중심으로 매기고, 오래 머문 글은 점수를 깎습니다. 급상승 키워드(▲)는 같은 시간대 최근 2주 평균보다 얼마나 튀었는지로 판정하며, 기록이 3일 이상 쌓이기 전에는 직전 3시간과 비교합니다.",
   "인기글 기준은 사이트별 방식과 자체 열기점수에 따라 달라, 모든 이슈가 포함되지는 않습니다. 열기점수는 같은 출처 안에서만 비교하세요. 커뮤니티 게시판은 같은 게시판 글끼리의 상대 순위이고, 유튜브는 절대 기준(시간당 반응 1,000 ≈ 100점, 좋아요·댓글 가중, 감독 키워드 가산)이며 조회 1,000회 미만 영상은 숨깁니다.",
   "본문은 수집하지 않습니다. 제목·출처·시간·조회·댓글 수와 원문 링크만 제공하며, 클리앙은 인기 목록이 막혀 최신 글만 봅니다.",
   "네이버는 조회·댓글 수가 없어 ‘오늘 올라온 블로그 글 수(최근 100건 기준)’ 같은 언급량 신호만 제공합니다.",
@@ -103,7 +104,9 @@ function itemRow(it, rank) {
   const meta = [h("span", { class: "tag blue" }, it.s), it.b && it.sk !== "youtube" ? h("span", { class: "cm-b" }, it.b) : it.b ? h("span", { class: "cm-b" }, it.b) : null, h("span", null, rel(it.ts))];
   meta.push(h("span", null, `조회 ${num(it.v)}`), h("span", null, `댓글 ${num(it.c)}`));
   if (it.sk === "youtube" && it.l) meta.push(h("span", null, `좋아요 ${num(it.l)}`));
-  if (it.dv > 0) meta.push(h("span", { class: "cm-up", title: "직전 수집 대비 조회 증가량" }, `▲ 조회 +${num(it.dv)}`));
+  if (it.nw) meta.push(h("span", { class: "tag green", title: "최근 3시간 안에 처음 포착된 글" }, "신규"));
+  if (it.rv > 0) meta.push(h("span", { class: "cm-up", title: "최근 1~4시간 평균 시간당 조회 증가량" }, `▲ 시간당 +${num(it.rv)}`));
+  else if (it.dv > 0) meta.push(h("span", { class: "cm-up", title: "직전 수집 대비 조회 증가량" }, `▲ 조회 +${num(it.dv)}`));
   if (it.sup) meta.push(h("span", { class: "tag orange" }, "감독·금융사"));
   if (it.also?.length) meta.push(h("span", { class: "tag" }, `다른 출처 ${it.also.length}`));
   return h("div", { class: "cm-row" },
@@ -207,7 +210,7 @@ export async function render(root, params, ctx) {
     h("b", null, "급상승 키워드"),
     h("button", { type: "button", class: "pill" + (!kw && !onlySup ? " on" : ""), onclick: () => ctx.go({ t: tab === "all" ? "" : tab }) }, "전체"),
     h("button", { type: "button", class: "pill" + (onlySup ? " on" : ""), onclick: () => ctx.go(mk({ sup: onlySup ? "" : "1", q: "" })) }, "감독·금융사만"),
-    kws.map((k) => h("button", { type: "button", class: "pill" + (kw === k.k ? " on" : ""), title: `이번 목록 ${k.n}건`, onclick: () => ctx.go(mk({ q: kw === k.k ? "" : k.k, sup: "" })) }, k.k, k.trend ? h("em", { class: "cm-up" }, k.trend === 2 ? " ▲▲" : " ▲") : null)),
+    kws.map((k) => h("button", { type: "button", class: "pill" + (kw === k.k ? " on" : ""), title: k.z != null ? `이번 목록 ${k.n}건 · 같은 시간대 최근 2주 평균 대비 ${k.z > 0 ? "+" : ""}${k.z}σ` : `이번 목록 ${k.n}건`, onclick: () => ctx.go(mk({ q: kw === k.k ? "" : k.k, sup: "" })) }, k.k, k.trend ? h("em", { class: "cm-up" }, k.trend === 2 ? " ▲▲" : " ▲") : null)),
     !data.warm ? h("small", { class: "cm-note" }, "수집 기록이 쌓이는 중이라 급상승 판정은 잠시 후 정확해집니다.") : null);
 
   const tabBar = tabs(TAB_LABELS, TAB_IDS.indexOf(tab), (i) => ctx.go({ t: TAB_IDS[i] === "all" ? "" : TAB_IDS[i] }), "seg");
@@ -239,7 +242,7 @@ export async function render(root, params, ctx) {
     // 전체 급상승: 출처별 최대 2건, 같은 출처 안 순위로만 뽑는다(출처 간 점수 직접 비교 없음)
     const top = [];
     for (let r = 0; r < 2; r++) for (const id of ["dc", "clien", "bobae", "yt"]) { const it = apply(groups[id])[r]; if (it) top.push(it); }
-    top.sort((a, b) => (b.dv || 0) - (a.dv || 0) || b.score - a.score);
+    top.sort((a, b) => (b.rv || b.dv || 0) - (a.rv || a.dv || 0) || b.score - a.score);
     const topCard = h("section", { class: "card cm-card cm-top" },
       h("div", { class: "ch" }, icon("trending-up"), h("h3", null, "지금 눈에 띄는 글")),
       h("div", { class: "cm-sub" }, "각 출처에서 상위 2건씩만 모았습니다(점수는 출처 안에서만 비교됩니다)"),
