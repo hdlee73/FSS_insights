@@ -111,13 +111,13 @@ function itemRow(it, rank) {
   if (it.sup) meta.push(h("span", { class: "tag orange" }, "감독·금융사"));
   if (it.co?.length) meta.push(h("span", { class: "tag orange", title: "금융회사명 사전과 일치" }, it.co.slice(0, 2).join("·")));
   if (it.also?.length) meta.push(h("span", { class: "tag" }, `다른 출처 ${it.also.length}`));
-  const rel = it.rel?.length ? h("details", { class: "cm-nv" }, h("summary", null, h("b", null, `같은 이슈 ${it.cn}건`), h("span", { class: "cm-nvc" }, " 묶음 보기")), h("div", { class: "cm-nvd" }, ...it.rel.map((r) => h("div", null, h("span", { class: "tag" }, r.s), link(r.u, r.t))))) : null;
+  const group = it.rel?.length ? h("details", { class: "cm-nv" }, h("summary", null, h("b", null, `같은 이슈 ${it.cn}건`), h("span", { class: "cm-nvc" }, " 묶음 보기")), h("div", { class: "cm-nvd" }, ...it.rel.map((r) => h("div", null, h("span", { class: "tag" }, r.s), link(r.u, r.t))))) : null;
   return h("div", { class: "cm-row" },
     h("b", { class: "cm-rank" }, String(rank)),
     h("div", { class: "cm-body" },
       link(it.u, it.t, "cm-t"),
       h("div", { class: "cm-m" }, meta, h("span", { class: "cm-heat", title: `열기점수 ${it.score} (같은 출처 안에서만 비교)` }, h("i", { style: `--p:${Math.max(6, Math.min(100, it.score))}` }), h("em", null, "🔥" + it.score))),
-      rel));
+      group));
 }
 
 function naverRows(terms, limit) {
