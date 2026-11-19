@@ -17,6 +17,7 @@ const UA = "FSSInsightsBot/1.0 (+https://www.fssinsights.com; public list titles
 const DELAY_MS = Number(process.env.COMMUNITY_DELAY_MS ?? 3000);
 const SNAP_KEEP_MS = 72 * 3600 * 1000;
 const KW = JSON.parse(fs.readFileSync(path.join(HERE, "keywords.json"), "utf8"));
+const CO = JSON.parse(fs.readFileSync(path.join(HERE, "companies.json"), "utf8"));
 
 // ---------- 출처 정의 ----------
 // prior: 게시판 자체가 금융 주제라 키워드가 없어도 후보로 본다(점수가 높을 때만 노출).
@@ -24,6 +25,10 @@ const SOURCES = [
   { key: "dc-stock", name: "디시 주식", board: "주식 갤러리", kind: "dc", host: "https://gall.dcinside.com", base: "/board/lists/?id=stock_new2", prior: "증시" },
   { key: "dc-stockus", name: "디시 미국주식", board: "미국주식 마이너갤러리", kind: "dc", host: "https://gall.dcinside.com", base: "/mgallery/board/lists/?id=stockus", prior: "증시" },
   { key: "dc-bitcoin", name: "디시 비트코인", board: "비트코인 마이너갤러리", kind: "dc", host: "https://gall.dcinside.com", base: "/mgallery/board/lists/?id=bitcoin", prior: "가상자산" },
+  { key: "dc-tenbagger", name: "디시 텐배거", board: "텐배거 마이너갤러리", kind: "dc", host: "https://gall.dcinside.com", base: "/mgallery/board/lists/?id=tenbagger", prior: "증시", w: 0.9 },
+  { key: "dc-kospi", name: "디시 코스피", board: "코스피 마이너갤러리", kind: "dc", host: "https://gall.dcinside.com", base: "/mgallery/board/lists/?id=kospi", prior: "증시", w: 0.9 },
+  { key: "dc-etf", name: "디시 ETF", board: "ETF 마이너갤러리", kind: "dc", host: "https://gall.dcinside.com", base: "/mgallery/board/lists/?id=etf", prior: "증시", w: 0.9 },
+  { key: "dc-dollar", name: "디시 달러", board: "달러 마이너갤러리", kind: "dc", host: "https://gall.dcinside.com", base: "/mgallery/board/lists/?id=dollar", prior: "환율", w: 0.9 },
   { key: "clien-stock", name: "클리앙", board: "주식한당", kind: "clien", host: "https://www.clien.net", base: "/service/board/cm_stock", prior: "증시", latestOnly: true },
   { key: "clien-park", name: "클리앙", board: "모두의공원", kind: "clien", host: "https://www.clien.net", base: "/service/board/park", prior: null, latestOnly: true },
   { key: "bobae", name: "보배드림", board: "베스트·자유게시판", kind: "bobae", host: "https://www.bobaedream.co.kr", pages: [["/list?code=best", true], ["/list?code=freeb", false]], prior: null },
@@ -171,7 +176,7 @@ async function collect() {
       for (const it of rows) {
         const old = items.get(it.id);
         if (old) { old.pop = old.pop || it.pop; continue; }
-        items.set(it.id, { ...it, src: src.key, source: src.name, board: src.board, prior: src.prior });
+        items.set(it.id, { ...it, src: src.key, source: src.name, board: src.board, prior: src.prior, w: src.w ?? 1 });
       }
       st.count += rows.length;
       st.ok = true;
@@ -189,6 +194,7 @@ const splitTerms = (e) => e.split("|").map((x) => norm(x.trim())).filter(Boolean
 const compiled = {
   cats: Object.entries(KW.categories).map(([cat, v]) => ({ cat, strong: v.strong.map((e) => ({ label: e.split("|")[0].trim(), terms: splitTerms(e) })), weak: v.weak.map((e) => splitTerms(e)) })),
   sup: KW.supervision.terms.map(splitTerms),
+  cos: Object.entries(CO.groups).flatMap(([g, arr]) => arr.map((e) => ({ label: e.split("|")[0].trim(), group: g, terms: splitTerms(e) }))),
   exclude: KW.exclude.map((x) => norm(x)),
   profanity: (KW.profanity || []).map((x) => norm(x)),
 };
@@ -207,11 +213,31 @@ function classify(item) {
     if ((sm.length >= 1 || wm.length >= 2) && (!best || score > best.score)) best = { cat: c.cat, score };
     sm.forEach((s) => labels.push(s.label));
   }
-  const sup = compiled.sup.some((t) => has(text, t));
+  // 금융회사명 대조(FISIS·DART 등록 명칭 사전): 맞으면 분야 후보가 되고 '감독·금융사 언급'으로 본다
+  const cos = compiled.cos.filter((c) => has(text, c.terms));
+  cos.forEach((c) => labels.push(c.label));
+  if (!best && cos.length) best = { cat: "금융사", score: 2 };
+  const sup = cos.length > 0 || compiled.sup.some((t) => has(text, t));
   if (!best && item.prior) best = { cat: item.prior, score: 0, priorOnly: true };
   if (!best) return null;
-  return { cat: best.cat, priorOnly: !!best.priorOnly, sup, labels: [...new Set(labels)] };
+  return { cat: best.cat, priorOnly: !!best.priorOnly, sup, labels: [...new Set(labels)], cos: cos.map((c) => c.label) };
 }
+
+// ---------- 제목 토큰(키워드 자동 추출·이슈 묶기) ----------
+// 형태소 분석기 없이 한글·영문 단어에서 끝 조사만 떼어 쓴다(완벽하지 않으므로 여러 글에 반복될 때만 의미를 둔다).
+const JOSA = ["에서", "에게", "으로", "까지", "부터", "이랑", "하고", "처럼", "보다", "한테", "이다", "은", "는", "이", "가", "을", "를", "의", "에", "도", "로", "와", "과", "만", "고"];
+const STOP = new Set(("오늘 어제 내일 지금 진짜 그냥 이거 저거 근데 그리고 하지만 때문 정도 이번 다음 아직 이미 벌써 계속 완전 대박 ㅋㅋ ㅎㅎ 개추 추천 질문 궁금 사람 생각 이유 결과 상황 문제 가능 오히려 처음 마지막 다들 우리 너무 정말 같은 이런 저런 그런 어떤 하는 하면 해서 있는 없는 한다 된다 합니다 입니다 보면 보니 인가 인데 이네 하나 하루 이후 이전 요즘 갑자기 무조건 그래서 혹시 ㄹㅇ ㅇㅇ 갤러리 개념글 후기 정리 공유 오전 오후 주식 코인 종목").split(" "));
+function tokens(title) {
+  const out = new Set();
+  for (const w of norm(title).match(/[가-힣]{2,}|[a-z][a-z0-9&]{1,}|\d+[가-힣]{1,3}/g) || []) {
+    let t = w;
+    if (/[가-힣]$/.test(t)) for (const j of JOSA) if (t.length - j.length >= 2 && t.endsWith(j)) { t = t.slice(0, -j.length); break; }
+    if (t.length < 2 || STOP.has(t) || /^\d+$/.test(t)) continue;
+    out.add(t);
+  }
+  return out;
+}
+const knownTerm = (t) => compiled.cats.some((c) => c.strong.some((s) => s.terms.includes(t)) || c.weak.some((w) => w.includes(t))) || compiled.cos.some((c) => c.terms.includes(t)) || compiled.sup.some((x) => x.includes(t));
 
 // ---------- 스냅샷 ----------
 function loadSnaps() {
@@ -478,7 +504,8 @@ async function run() {
     let raw_ = 0.18 * Math.log(1 + v / m.v) + 0.15 * Math.log(1 + it.comments / m.c) + 0.07 * Math.log(1 + it.likes / m.l);
     if (rv != null) raw_ += 0.9 * Math.log(1 + rv / m.v) + 0.5 * Math.log(1 + (rc / Math.max(1, m.c)) * 2);
     if (it.pop) raw_ += 0.2;
-    raw_ *= Math.pow(0.5, ageH / 6);
+    if (cl.priorOnly) raw_ *= 0.45; // 금융 키워드 없이 금융 게시판이라는 이유만으로 들어온 글은 키워드가 맞은 글보다 낮게
+    raw_ *= Math.pow(0.5, ageH / 6) * (it.w ?? 1); // 출처별 가중치(보조 갤러리는 약간 낮춤)
     // 이미 오래 보여 준 글은 점수를 깎는다(24시간 넘게 목록에 머문 글: 하루마다 ×0.75)
     const firstAt = hist.first[it.id] || (p ? prev.at : now.toISOString());
     if (!hist.first[it.id]) hist.first[it.id] = firstAt;
@@ -487,7 +514,7 @@ async function run() {
     const isNew = heldH <= 3;
     if (cl.sup) raw_ += KW.supervision.bonus * Math.pow(0.5, ageH / 24);
     const score = Math.round(100 * raw_ / (raw_ + 1.2));
-    cand.push({ ...it, ...cl, score, dv, dc, ageH, rvh: rv != null && !implied ? Math.round(rv) : undefined, isNew });
+    cand.push({ ...it, ...cl, score, dv, dc, ageH, rvh: rv != null && !implied ? Math.round(rv) : undefined, isNew, isNewPost: !prevIds.has(it.id) });
     if (!prevIds.has(it.id)) for (const l of cl.labels) kwNew[l] = (kwNew[l] || 0) + 1;
   }
 
@@ -496,27 +523,41 @@ async function run() {
   if (process.env.COMMUNITY_DEBUG) for (const c of cand.sort((a, b) => b.score - a.score).slice(0, 60)) console.log(c.score, c.src, c.priorOnly ? "P" : "K", c.pop ? "pop" : "", c.views, c.comments, c.title.slice(0, 40));
   list = list.filter((c) => c.ageH <= 48 && (c.score >= 12 || !c.priorOnly)); // 키워드가 맞은 글은 점수가 낮아도 남긴다(보배드림처럼 일반 게시판이 비지 않게)
 
-  // 중복 묶기(제목 정규화 + 바이그램 유사도)
+  // 같은 이슈 묶기: 제목이 거의 같거나(바이그램 70%↑), 의미 있는 단어를 2개 이상 공유하고 단어 집합이 40% 이상 겹치면 한 이슈로 본다.
   const key = (t) => t.toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
-  const grams = (t) => { const k = key(t), s = new Set(); for (let i = 0; i < k.length - 1; i++) s.add(k.slice(i, i + 2)); return s; };
+  const grams = (t) => { const k = key(t), s2 = new Set(); for (let i = 0; i < k.length - 1; i++) s2.add(k.slice(i, i + 2)); return s2; };
   list.sort((a, b) => b.score - a.score);
+  for (const c of list) { c._g = grams(c.title); c._tk = tokens(c.title); }
+  const parent = list.map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const similar = (a, b) => {
+    let inter = 0; for (const x of a._g) if (b._g.has(x)) inter++;
+    const uni = a._g.size + b._g.size - inter;
+    if (uni > 0 && inter / uni >= 0.7) return true;
+    let sh = 0; for (const x of a._tk) if (b._tk.has(x)) sh++;
+    const tu = a._tk.size + b._tk.size - sh;
+    return sh >= 2 && tu > 0 && sh / tu >= 0.4;
+  };
+  for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) if (find(i) !== find(j) && similar(list[i], list[j])) parent[find(j)] = find(i);
+  const groupsMap = new Map();
+  list.forEach((c, i) => { const r = find(i); if (!groupsMap.has(r)) groupsMap.set(r, []); groupsMap.get(r).push(c); });
   const kept = [];
-  for (const c of list) {
-    const g = grams(c.title);
-    const dup = kept.find((k) => {
-      if (k.src === c.src && k.id === c.id) return true;
-      const g2 = k._g; let inter = 0; for (const x of g) if (g2.has(x)) inter++;
-      const uni = g.size + g2.size - inter;
-      return uni > 0 && inter / uni >= 0.7;
-    });
-    if (dup) { dup.also = [...new Set([...(dup.also || []), c.source])].filter((n) => n !== dup.source); continue; }
-    c._g = g; kept.push(c);
+  for (const members of groupsMap.values()) {
+    const rep = members[0]; // 점수순 정렬이라 첫 항목이 대표
+    const others = members.slice(1);
+    rep.also = [...new Set(others.map((o) => o.source))].filter((n) => n !== rep.source);
+    rep.cn = members.length;
+    rep.rel = others.slice(0, 4).map((o) => ({ t: o.title, u: o.url, s: o.source }));
+    // 여러 글·여러 출처에서 같이 오르는 이슈는 조금 가산(최대 +10)
+    if (members.length > 1) rep.score = Math.min(100, rep.score + Math.min(10, Math.round(3 * Math.log2(members.length) + 2 * rep.also.length)));
+    kept.push(rep);
   }
+  kept.sort((a, b) => b.score - a.score);
 
   const top = kept.slice(0, 100).map((c) => ({
     id: c.id, t: c.title, u: c.url, s: c.source, sk: c.src, b: c.board, ts: c.ts,
     v: c.views, c: c.comments, l: c.likes, score: c.score, cat: c.cat, sup: c.sup || undefined,
-    dv: c.dv ?? undefined, dc: c.dc ?? undefined, rv: c.rvh || undefined, nw: c.isNew || undefined, pop: c.pop || undefined, also: c.also?.length ? c.also : undefined,
+    dv: c.dv ?? undefined, dc: c.dc ?? undefined, rv: c.rvh || undefined, nw: c.isNew || undefined, cn: c.cn > 1 ? c.cn : undefined, rel: c.cn > 1 ? c.rel : undefined, co: c.cos?.length ? c.cos : undefined, pop: c.pop || undefined, also: c.also?.length ? c.also : undefined,
   }));
 
   // 급상승 키워드: 최근 3시간 새 글 언급 수 vs 직전 3시간
@@ -535,6 +576,24 @@ async function run() {
   for (const [k, n] of Object.entries(kwNew)) hist.buckets[hk][k] = (hist.buckets[hk][k] || 0) + n;
   for (const b of Object.keys(hist.buckets)) { const y = +b.slice(0, 4), mo = +b.slice(4, 6), d = +b.slice(6, 8), h = +b.slice(8, 10); if (now - new Date(Date.UTC(y, mo - 1, d, h - 9)) > HIST_KEEP_MS) delete hist.buckets[b]; }
   for (const [id, at] of Object.entries(hist.first)) if (now - new Date(at) > SNAP_KEEP_MS) delete hist.first[id];
+  // 자동 추출 키워드: 사전에 없는 단어 중 이번 후보 글 2건 이상에 나온 것을 '#단어'로 시간 버킷에 쌓고(새 글 기준), 최근 6시간 언급이 평소(같은 시간대 기준선)보다 튀는 것만 뽑는다.
+  const df = {}, dfNew = {};
+  for (const c of cand) { if (c.ageH > 24 || c.priorOnly) continue; // 키워드가 맞은 금융 글에서만 새 단어를 찾는다(게시판 잡담 제외)
+      for (const t of tokens(c.title)) { if (knownTerm(t)) continue; df[t] = (df[t] || 0) + 1; if (c.isNewPost) dfNew[t] = (dfNew[t] || 0) + 1; } }
+  const autoCand = Object.keys(dfNew).filter((t) => df[t] >= 2);
+  for (const t of autoCand) hist.buckets[hk]["#" + t] = (hist.buckets[hk]["#" + t] || 0) + dfNew[t];
+  const autoOut = [];
+  for (const k of Object.keys(hist.buckets[hk])) {
+    if (k[0] !== "#") continue;
+    const t = k.slice(1);
+    const rec = windowSum(hist.buckets, now.getTime(), 6, k).sum;
+    if (rec < 4 || !(df[t] >= 2)) continue;
+    const base = kwZ(hist.buckets, k);
+    const prior6 = windowSum(hist.buckets, now.getTime() - 6 * 3600000, 6, k).sum;
+    const z = base ? base.z : rec >= 5 && df[t] >= 3 && rec >= 2 * prior6 + 2 ? rec : 0; // 기준선이 쌓이기 전에는 더 엄격하게
+    if (z >= 3) autoOut.push({ k: t, n: df[t], r: rec, z: Math.round(z * 10) / 10 });
+  }
+  autoOut.sort((a, b) => b.z - a.z || b.r - a.r);
   const cur = {};
   for (const c of kept) for (const l of c.labels) cur[l] = (cur[l] || 0) + 1;
   const keywords = Object.entries(cur).map(([k, n]) => {
@@ -562,7 +621,7 @@ async function run() {
     note: "공개 게시글의 제목·출처·시간·조회·댓글 수와 원문 링크만 담습니다. 본문·닉네임은 수집하지 않습니다.",
     sources: status,
     stats: { collected: raw.length, finance: kept.length, supervision: kept.filter((c) => c.sup).length, sourcesOk: okCount, sourcesTotal: status.filter((x) => !x.pending).length, sourcesPending: status.filter((x) => x.pending).length },
-    items: top, keywords,
+    items: top, keywords, auto: autoOut.slice(0, 10),
     naver: { checkedAt: nv.st.checkedAt, terms: nv.terms },
     youtube: { ver: 2, checkedAt: yt.st.checkedAt, items: yt.items },
   };
