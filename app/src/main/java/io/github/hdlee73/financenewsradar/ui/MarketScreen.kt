@@ -520,7 +520,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
         item {
             Text(
                 if (state.failed) "일부 시세를 불러오지 못했습니다. 새로고침으로 다시 시도해 주세요."
-                else "공개 시세 기반이라 지연되거나 중단될 수 있습니다. 국내는 NAVER, 해외·환율은 Yahoo Finance.",
+                else "공개 시세 기반이라 지연되거나 중단될 수 있습니다. 국내는 NAVER, 해외·환율은 Yahoo Finance. CME 선물(나스닥100선물 등)은 약 10분 지연됩니다.",
                 Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 14.dp),
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
