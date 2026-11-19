@@ -27,7 +27,7 @@ function safeHttpUrl(url) {
 const URL_HOT = "https://raw.githubusercontent.com/hdlee73/FSS_insights/community-data/hot.json";
 const URL_ARCHIVE = "https://raw.githubusercontent.com/hdlee73/FSS_insights/community-data/archive.json";
 const GROUPS = [
-  ["dc", "디시인사이드", "주식·미국주식·비트코인 갤러리의 개념글과 최신 글"],
+  ["dc", "디시인사이드", "주식·미국주식·비트코인·텐배거·코스피·ETF·달러 갤러리의 개념글과 최신 글"],
   ["clien", "클리앙", "주식한당·모두의공원 최신 글(사이트가 인기 목록 수집을 허용하지 않음)"],
   ["bobae", "보배드림", "베스트·자유게시판 중 금융 키워드 글(보조)"],
   ["naver", "네이버 블로그·카페", "조회·댓글 수가 없어 순위가 아닌 ‘언급량 신호’"],
@@ -41,6 +41,7 @@ export const LIMITS = [
   "일부 커뮤니티만 수집합니다. 사이트가 수집을 허용하지 않거나 막는 곳(네이버 종토방·뽐뿌·에펨코리아 등)은 제외했습니다.",
   "약 30분(업무시간) 또는 2시간(야간·주말) 주기로 갱신하므로 실제 게시 시점보다 늦게 보일 수 있습니다.",
   "순위는 누적 조회보다 최근 1~4시간의 증가 속도를 중심으로 매기고, 오래 머문 글은 점수를 깎습니다. 급상승 키워드(▲)는 같은 시간대 최근 2주 평균보다 얼마나 튀었는지로 판정하며, 기록이 3일 이상 쌓이기 전에는 직전 3시간과 비교합니다.",
+  "‘새로 뜨는 단어’는 사전에 없는 단어를 제목에서 자동으로 뽑은 것이라 조사·합성어가 어색하거나 관련 없는 단어가 섞일 수 있습니다. ‘같은 이슈’ 묶음은 제목의 단어가 겹치는 글을 묶은 추정입니다.",
   "인기글 기준은 사이트별 방식과 자체 열기점수에 따라 달라, 모든 이슈가 포함되지는 않습니다. 열기점수는 같은 출처 안에서만 비교하세요. 커뮤니티 게시판은 같은 게시판 글끼리의 상대 순위이고, 유튜브는 절대 기준(시간당 반응 1,000 ≈ 100점, 좋아요·댓글 가중, 감독 키워드 가산)이며 조회 1,000회 미만 영상은 숨깁니다.",
   "본문은 수집하지 않습니다. 제목·출처·시간·조회·댓글 수와 원문 링크만 제공하며, 클리앙은 인기 목록이 막혀 최신 글만 봅니다.",
   "네이버는 조회·댓글 수가 없어 ‘오늘 올라온 블로그 글 수(최근 100건 기준)’ 같은 언급량 신호만 제공합니다.",
@@ -108,12 +109,15 @@ function itemRow(it, rank) {
   if (it.rv > 0) meta.push(h("span", { class: "cm-up", title: "최근 1~4시간 평균 시간당 조회 증가량" }, `▲ 시간당 +${num(it.rv)}`));
   else if (it.dv > 0) meta.push(h("span", { class: "cm-up", title: "직전 수집 대비 조회 증가량" }, `▲ 조회 +${num(it.dv)}`));
   if (it.sup) meta.push(h("span", { class: "tag orange" }, "감독·금융사"));
+  if (it.co?.length) meta.push(h("span", { class: "tag orange", title: "금융회사명 사전과 일치" }, it.co.slice(0, 2).join("·")));
   if (it.also?.length) meta.push(h("span", { class: "tag" }, `다른 출처 ${it.also.length}`));
+  const rel = it.rel?.length ? h("details", { class: "cm-nv" }, h("summary", null, h("b", null, `같은 이슈 ${it.cn}건`), h("span", { class: "cm-nvc" }, " 묶음 보기")), h("div", { class: "cm-nvd" }, ...it.rel.map((r) => h("div", null, h("span", { class: "tag" }, r.s), link(r.u, r.t))))) : null;
   return h("div", { class: "cm-row" },
     h("b", { class: "cm-rank" }, String(rank)),
     h("div", { class: "cm-body" },
       link(it.u, it.t, "cm-t"),
-      h("div", { class: "cm-m" }, meta, h("span", { class: "cm-heat", title: `열기점수 ${it.score} (같은 출처 안에서만 비교)` }, h("i", { style: `--p:${Math.max(6, Math.min(100, it.score))}` }), h("em", null, "🔥" + it.score)))));
+      h("div", { class: "cm-m" }, meta, h("span", { class: "cm-heat", title: `열기점수 ${it.score} (같은 출처 안에서만 비교)` }, h("i", { style: `--p:${Math.max(6, Math.min(100, it.score))}` }), h("em", null, "🔥" + it.score))),
+      rel));
 }
 
 function naverRows(terms, limit) {
@@ -213,6 +217,11 @@ export async function render(root, params, ctx) {
     kws.map((k) => h("button", { type: "button", class: "pill" + (kw === k.k ? " on" : ""), title: k.z != null ? `이번 목록 ${k.n}건 · 같은 시간대 최근 2주 평균 대비 ${k.z > 0 ? "+" : ""}${k.z}σ` : `이번 목록 ${k.n}건`, onclick: () => ctx.go(mk({ q: kw === k.k ? "" : k.k, sup: "" })) }, k.k, k.trend ? h("em", { class: "cm-up" }, k.trend === 2 ? " ▲▲" : " ▲") : null)),
     !data.warm ? h("small", { class: "cm-note" }, "수집 기록이 쌓이는 중이라 급상승 판정은 잠시 후 정확해집니다.") : null);
 
+  const auto = (data.auto || []).slice(0, 8);
+  const autoChips = auto.length ? h("div", { class: "cm-chips" },
+    h("b", { title: "사전에 없는 단어 중 같은 시간대 평소보다 갑자기 늘어난 단어(자동 추출)" }, "새로 뜨는 단어"),
+    auto.map((k) => h("button", { type: "button", class: "pill" + (kw === k.k ? " on" : ""), title: `최근 6시간 ${k.r}회 언급 · 기준 대비 ${k.z}`, onclick: () => ctx.go(mk({ q: kw === k.k ? "" : k.k, sup: "" })) }, k.k, h("em", { class: "cm-up" }, " ▲")))) : null;
+
   const tabBar = tabs(TAB_LABELS, TAB_IDS.indexOf(tab), (i) => ctx.go({ t: TAB_IDS[i] === "all" ? "" : TAB_IDS[i] }), "seg");
 
   // 본문
@@ -260,5 +269,5 @@ export async function render(root, params, ctx) {
     h("div", { class: "cm-sts" }, h("b", null, "출처 상태"), stRows, h("small", null, ` · 마지막 갱신 ${hhmm(data.updated)}`, stale ? " (오래됨: 수집이 지연되고 있습니다)" : "")),
     h("div", { class: "cm-disc" }, icon("info"), " 일부 커뮤니티만 약 30분 주기로 수집하며 지연·누락이 있을 수 있습니다. 제목·지표·원문 링크만 제공하고, 커뮤니티 글은 검증되지 않은 의견으로 투자·감독 판단의 근거가 아닙니다."));
 
-  body.replaceChildren(h("div", { class: "cm-head" }, infoBtn), info, box, kpis, chips, tabBar, panel, foot);
+  body.replaceChildren(h("div", { class: "cm-head" }, infoBtn), info, box, kpis, chips, autoChips, tabBar, panel, foot);
 }
