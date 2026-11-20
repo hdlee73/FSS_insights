@@ -275,16 +275,55 @@
     ]
   },
   "youtube": {
-    "_설명": "유튜브 검색어(검색 1건=100쿼터). 하루 1만 쿼터 한도라 1시간 이상 간격으로만 호출한다.",
-    "queries": [
-      "증시 코스피 급락 공매도",
-      "저축은행 금융사고 금융감독원",
-      "가상자산 코인 거래소 이슈"
+    "_설명": "유튜브 수집 채널 목록(채널 ID는 UC로 시작). 업로드 재생목록을 읽는 방식이라 채널 1개당 1쿼터다. prior를 쓰면 금융 전문 채널로 보아 키워드가 약한 영상도 후보로 본다(점수 ×0.7). 채널을 넣고 빼는 것만으로 반영된다.",
+    "channels": [
+      {
+        "id": "UChlv4GSd7OQl3js-jkLOnFA",
+        "name": "삼프로TV",
+        "prior": "증시"
+      },
+      {
+        "id": "UCsJ6RuBiTVWRX156FVbeaGg",
+        "name": "슈카월드"
+      },
+      {
+        "id": "UCF8AeLlUbEpKju6v1H6p8Eg",
+        "name": "한국경제TV",
+        "prior": "증시"
+      },
+      {
+        "id": "UCSSKqg95REpRy8gmPftqvDA",
+        "name": "매일경제TV"
+      },
+      {
+        "id": "UCyn2eSVKqarbnUrDHVDYdzA",
+        "name": "머니투데이방송"
+      },
+      {
+        "id": "UC8Sv6O3Ux8ePVqorx8aOBMg",
+        "name": "이데일리TV",
+        "prior": "증시"
+      },
+      {
+        "id": "UCEE10-s88CeOCDzNMLhsblw",
+        "name": "조선비즈"
+      },
+      {
+        "id": "UCg3P8P6I35JZeZA2o1JVYOg",
+        "name": "SBS Biz"
+      },
+      {
+        "id": "UChlgI3UHCOnwUGzWzbJ3H5w",
+        "name": "YTN"
+      }
     ],
-    "minIntervalMin": 50,
-    "maxPerQuery": 15,
+    "perChannel": 15,
     "hours": 48,
-    "trending": true,
-    "trendingCategory": 25
+    "minIntervalMin": 25,
+    "exclude": [
+      "뉴스공장",
+      "다시보기 전체",
+      "풀영상"
+    ]
   }
 }
