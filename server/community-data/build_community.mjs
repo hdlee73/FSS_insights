@@ -385,13 +385,13 @@ async function ytGet(endpoint, params) {
 //  - playlistItems.list는 1쿼터, videos.list(통계)도 50건에 1쿼터라 채널 10개를 읽어도 회차당 약 11쿼터(하루 1만 한도의 5% 안팎)다.
 //    예전 방식(search.list 검색어 3개=300쿼터, 조회수순)은 쿼터가 비싸 50분에 한 번만 돌릴 수 있었고, 금융과 무관한 대형 방송(예: 시사 라이브)이 상위를 차지했다.
 //  - 채널 단위로 읽으면 출처가 확실하고, 제목이 금융 키워드에 맞는 영상만 남긴다. 금융 전문 채널(prior 지정)은 키워드가 약해도 후보로 본다.
-// 점수: 반응량 = 조회 + 좋아요×3 + 댓글×5 를 시간당으로 환산(올라온 뒤 시간^0.8)하고, 시간당 1,000회 = 100점(로그 눈금). 감독·금융사 키워드 +10점.
+// 점수: 반응량 = 조회 + 좋아요×3 + 댓글×5 를 시간당으로 환산(올라온 뒤 시간^0.8)하고, 시간당 5,000회 = 100점(로그 눈금). 감독·금융사 키워드 +10점.
 // 금융 전문 채널이라 키워드가 약한 영상(priorOnly)은 ×0.7. 올라온 지 6시간 안 영상은 조회가 적어도(최소 100회) 보여 주고, 그 이후는 최소 1,000회.
 const ytScore = (v, priorOnly) => {
   const ageH = v.ts ? Math.max(1, (now - new Date(v.ts)) / 3600000) : 24;
   const weighted = v.v + 3 * v.l + 5 * v.c;
   const rate = weighted / Math.pow(ageH, 0.8);
-  let sc = Math.min(100, Math.round((100 * Math.log1p(rate)) / Math.log1p(1000)));
+  let sc = Math.min(100, Math.round((100 * Math.log1p(rate)) / Math.log1p(5000)));
   if (priorOnly) sc = Math.round(sc * 0.7);
   return Math.min(100, sc + (v.sup ? 10 : 0));
 };
@@ -446,7 +446,9 @@ async function collectYoutube() {
       if (x) out.set(x.id, x);
     }
   }
-  const items = [...out.values()].sort((a, b) => b.score - a.score).slice(0, 30);
+  // 한 채널이 목록을 독차지하지 않게 채널당 최대 6건만 남긴다.
+  const perCh = {};
+  const items = [...out.values()].sort((a, b) => b.score - a.score).filter((x) => (perCh[x.b] = (perCh[x.b] || 0) + 1) <= 6).slice(0, 30);
   st.count = items.length;
   st.ok = chOk > 0;
   if (st.error && st.error !== "quota" && st.ok) delete st.error; // 일부 채널만 실패한 경우는 정상으로 본다
