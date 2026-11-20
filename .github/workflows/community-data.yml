@@ -1,0 +1,72 @@
+name: Community data
+
+# 커뮤니티 핫이슈(금융관련) 자료를 모아 community-data 브랜치에 hot.json(화면용)과 snap/(증가량 계산용 스냅샷, 72시간 보관)으로 올린다.
+# 웹·앱은 이 파일을 raw.githubusercontent.com에서 읽는다(Worker 요청 없음).
+# 주기: 평일 업무시간(KST 09~22시) 30분마다, 그 밖의 시간은 2시간마다. 브랜치는 매번 새로 만들어 강제로 덮으므로(이력 없음) 레포 용량이 늘지 않는다.
+# 스케줄은 기본 브랜치(main)에서만 돈다. 병합 전·후 첫 자료는 Actions → Community data → Run workflow 로 만든다.
+on:
+  schedule:
+    - cron: "7,37 0-13 * * 1-5"   # 평일 KST 09:07~22:37, 30분마다
+    - cron: "7 */2 * * *"          # 2시간마다(업무시간 중에는 건너뜀)
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "server/community-data/**"
+      - ".github/workflows/community-data.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: community-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Decide whether to run
+        id: gate
+        run: |
+          # 2시간 주기 스케줄은 업무시간(평일 KST 09~22시)에는 30분 주기와 겹치므로 건너뛴다.
+          kst_hour=$(TZ=Asia/Seoul date +%H); kst_dow=$(TZ=Asia/Seoul date +%u)
+          if [ "${{ github.event.schedule }}" = "7 */2 * * *" ] && [ "$kst_dow" -le 5 ] && [ "$kst_hour" -ge 9 ] && [ "$kst_hour" -le 22 ]; then
+            echo "run=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fetch previous data
+        if: steps.gate.outputs.run == 'yes'
+        run: |
+          mkdir -p /tmp/prev
+          if git ls-remote --exit-code --heads origin community-data >/dev/null 2>&1; then
+            git fetch --depth=1 origin community-data
+            git archive FETCH_HEAD | tar -x -C /tmp/prev
+          fi
+          ls -la /tmp/prev | head
+      - name: Collect
+        if: steps.gate.outputs.run == 'yes'
+        env:
+          # 있으면 쓰고 없으면 해당 칸을 '준비 중'으로 건너뛴다(값은 로그·파일에 남기지 않는다).
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: node server/community-data/build_community.mjs out /tmp/prev
+      - name: Publish to community-data branch
+        if: steps.gate.outputs.run == 'yes' && github.event_name != 'pull_request'
+        run: |
+          set -e
+          git config user.name "community-data-bot"
+          git config user.email "noreply@github.com"
+          rm -rf /tmp/pub && mkdir /tmp/pub && cp -r out/* /tmp/pub/
+          git checkout --orphan community-data
+          git rm -rf . >/dev/null 2>&1 || true
+          cp -r /tmp/pub/* .
+          git add hot.json archive.json kwhist.json snap
+          git commit -m "data: $(date -u +%FT%H:%MZ)"
+          git push -f origin community-data

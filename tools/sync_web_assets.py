@@ -14,7 +14,7 @@ import os, re, shutil, sys
 SRC = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "../fss-insights-web")
 DST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "src", "main", "assets", "web")
 DST = os.path.abspath(DST)
-ENTRY = ["js/screens/consumer.js", "js/screens/crypto.js", "js/screens/finsim.js", "js/screens/fisis.js"]
+ENTRY = ["js/screens/consumer.js", "js/screens/crypto.js", "js/screens/finsim.js", "js/screens/fisis.js", "js/screens/community.js"]
 
 def closure():
     seen, todo = set(), list(ENTRY)
