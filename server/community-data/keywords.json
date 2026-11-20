@@ -41,7 +41,12 @@
         "투자",
         "수익률",
         "시총|시가총액",
-        "실적"
+        "실적",
+        "반등",
+        "낙폭",
+        "수혜주",
+        "시황",
+        "삼전닉스"
       ]
     },
     "가상자산": {
@@ -275,7 +280,7 @@
     ]
   },
   "youtube": {
-    "_설명": "유튜브 수집 채널 목록(채널 ID는 UC로 시작). 업로드 재생목록을 읽는 방식이라 채널 1개당 1쿼터다. prior를 쓰면 금융 전문 채널로 보아 키워드가 약한 영상도 후보로 본다(점수 ×0.7). 채널을 넣고 빼는 것만으로 반영된다.",
+    "_설명": "유튜브 수집 채널 목록(채널 ID는 UC로 시작; 유튜브 핸들 페이지의 externalId). 업로드 재생목록을 읽어 채널당 1쿼터. prior를 쓰면 금융 전문 채널로 보아 키워드가 약한 영상도 후보로 본다(점수 ×0.7). 시사·부동산 등 일반 채널(YTN, 조선비즈)은 금융 영상이 드물어 뺐다. 채널 ID는 빈 피드(영상 0건) 여부를 꼭 확인할 것.",
     "channels": [
       {
         "id": "UChlv4GSd7OQl3js-jkLOnFA",
@@ -292,12 +297,14 @@
         "prior": "증시"
       },
       {
-        "id": "UCSSKqg95REpRy8gmPftqvDA",
-        "name": "매일경제TV"
+        "id": "UCnfwIKyFYRuqZzzKBDt6JOA",
+        "name": "매일경제TV",
+        "prior": "증시"
       },
       {
-        "id": "UCyn2eSVKqarbnUrDHVDYdzA",
-        "name": "머니투데이방송"
+        "id": "UClErHbdZKUnD1NyIUeQWvuQ",
+        "name": "머니투데이방송",
+        "prior": "증시"
       },
       {
         "id": "UC8Sv6O3Ux8ePVqorx8aOBMg",
@@ -305,16 +312,24 @@
         "prior": "증시"
       },
       {
-        "id": "UCEE10-s88CeOCDzNMLhsblw",
-        "name": "조선비즈"
+        "id": "UCbMjg2EvXs_RUGW-KrdM3pw",
+        "name": "SBS Biz",
+        "prior": "증시"
       },
       {
-        "id": "UCg3P8P6I35JZeZA2o1JVYOg",
-        "name": "SBS Biz"
+        "id": "UC6kZpTl39-_SqfBrF1-N2oQ",
+        "name": "연합뉴스경제TV",
+        "prior": "증시"
       },
       {
-        "id": "UChlgI3UHCOnwUGzWzbJ3H5w",
-        "name": "YTN"
+        "id": "UC3p-0EWA8OXko2EUDUXAy5w",
+        "name": "서울경제TV",
+        "prior": "증시"
+      },
+      {
+        "id": "UCr7XsrSrvAn_WcU4kF99bbQ",
+        "name": "박곰희TV",
+        "prior": "증시"
       }
     ],
     "perChannel": 15,
@@ -323,7 +338,9 @@
     "exclude": [
       "뉴스공장",
       "다시보기 전체",
-      "풀영상"
+      "풀영상",
+      "#shorts",
+      "#Shorts"
     ]
   }
 }
