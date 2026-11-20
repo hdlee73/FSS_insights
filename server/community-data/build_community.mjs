@@ -363,7 +363,7 @@ async function collectNaver(snaps) {
 }
 
 // ---------- 유튜브(Data API v3) ----------
-// 검색 1건=100쿼터(하루 1만). 그래서 검색어 3개를 최소 50분 간격으로만 호출한다. 키(YOUTUBE_API_KEY)가 없으면 '준비 중'으로 조용히 건너뛴다.
+// 키(YOUTUBE_API_KEY)가 없으면 '준비 중'으로 조용히 건너뛴다.
 const YT_KEY = process.env.YOUTUBE_API_KEY;
 async function ytGet(endpoint, params) {
   const url = `https://www.googleapis.com/youtube/v3/${endpoint}?${new URLSearchParams({ ...params, key: YT_KEY })}`;
@@ -381,75 +381,77 @@ async function ytGet(endpoint, params) {
     return { err: e?.name === "AbortError" ? "timeout" : "error" };
   } finally { clearTimeout(timer); }
 }
-// 점수(절대 기준): 반응량 = 조회 + 좋아요×3 + 댓글×5 를 시간당으로 환산(올라온 뒤 시간^0.8)하고, 시간당 1,000회 = 100점(로그 눈금)이다.
-// 감독·금융사 키워드가 맞으면 +10점. 조회 1,000회 미만 영상은 보여 주지 않는다. 그래서 이번에 모은 영상 중 최고라도 반응이 작으면 낮은 점수가 나온다.
-const YT_MIN_VIEWS = 1000;
-const ytScore = (v) => {
+// 수집 방식(v3): 금융·경제 채널 목록(keywords.json youtube.channels)의 '업로드 재생목록'을 읽는다.
+//  - playlistItems.list는 1쿼터, videos.list(통계)도 50건에 1쿼터라 채널 10개를 읽어도 회차당 약 11쿼터(하루 1만 한도의 5% 안팎)다.
+//    예전 방식(search.list 검색어 3개=300쿼터, 조회수순)은 쿼터가 비싸 50분에 한 번만 돌릴 수 있었고, 금융과 무관한 대형 방송(예: 시사 라이브)이 상위를 차지했다.
+//  - 채널 단위로 읽으면 출처가 확실하고, 제목이 금융 키워드에 맞는 영상만 남긴다. 금융 전문 채널(prior 지정)은 키워드가 약해도 후보로 본다.
+// 점수: 반응량 = 조회 + 좋아요×3 + 댓글×5 를 시간당으로 환산(올라온 뒤 시간^0.8)하고, 시간당 1,000회 = 100점(로그 눈금). 감독·금융사 키워드 +10점.
+// 금융 전문 채널이라 키워드가 약한 영상(priorOnly)은 ×0.7. 올라온 지 6시간 안 영상은 조회가 적어도(최소 100회) 보여 주고, 그 이후는 최소 1,000회.
+const ytScore = (v, priorOnly) => {
   const ageH = v.ts ? Math.max(1, (now - new Date(v.ts)) / 3600000) : 24;
   const weighted = v.v + 3 * v.l + 5 * v.c;
   const rate = weighted / Math.pow(ageH, 0.8);
-  return Math.min(100, Math.round((100 * Math.log1p(rate)) / Math.log1p(1000)) + (v.sup ? 10 : 0));
+  let sc = Math.min(100, Math.round((100 * Math.log1p(rate)) / Math.log1p(1000)));
+  if (priorOnly) sc = Math.round(sc * 0.7);
+  return Math.min(100, sc + (v.sup ? 10 : 0));
 };
-function ytItem(f, st) {
-  const text = { title: f.title, prior: null };
-  const cl = classify(text);
-  if (!cl) return null; // 금융 키워드가 맞는 영상만
+function ytItem(f, st, prior) {
+  // 출연자 명단이 대괄호 안에 줄줄이 붙은 방송 전체 영상(예: 시사 라이브 회차)은 제목에 '주식' 같은 말이 우연히 섞여도 금융 영상이 아니므로 뺀다.
+  if ((f.title.match(/\[[^\]]*,[^\]]*,[^\]]*\]/) || (KW.youtube?.exclude || []).some((x) => f.title.includes(x)))) return null;
+  const cl = classify({ title: f.title, prior: prior || null });
+  if (!cl) return null; // 금융 키워드가 맞는 영상(또는 금융 전문 채널 영상)만
   const views = Number(st?.viewCount ?? 0);
-  if (views < YT_MIN_VIEWS) return null;
+  const ageH = f.ts ? (now - new Date(f.ts)) / 3600000 : 99;
+  if (views < (ageH <= 6 ? 100 : 1000)) return null;
   const x = { id: `yt:${f.id}`, t: f.title, u: `https://www.youtube.com/watch?v=${f.id}`, s: "유튜브", sk: "youtube", b: f.ch, ts: f.ts, v: views, c: Number(st?.commentCount ?? 0), l: Number(st?.likeCount ?? 0), cat: cl.cat, sup: cl.sup || undefined };
-  x.score = ytScore(x);
+  x.score = ytScore(x, cl.priorOnly);
   return x;
 }
 async function collectYoutube() {
   const cfg = KW.youtube || {};
-  const st = { key: "youtube", name: "유튜브", board: "영상(조회·댓글 수 포함)", ok: false, count: 0, checkedAt: now.toISOString() };
+  const st = { key: "youtube", name: "유튜브", board: "금융·경제 채널 영상(조회·댓글 수 포함)", ok: false, count: 0, checkedAt: now.toISOString() };
   if (!YT_KEY) { st.pending = true; st.error = "키 없음"; return { st, items: [] }; }
-  // 직전에 호출했다면 쿼터 절약을 위해 이전 결과를 그대로 쓴다(점수 방식이 바뀐 이전 버전 결과는 쓰지 않는다).
+  // 직전 호출이 가까우면 이전 결과를 그대로 쓴다(채널 방식은 값이 싸므로 기본 25분).
   let prevYt = null;
   try { prevYt = PREV ? JSON.parse(fs.readFileSync(path.join(PREV, "hot.json"), "utf8")).youtube : null; } catch { /* 없음 */ }
-  if (prevYt?.ver !== 2) prevYt = null;
-  if (prevYt?.checkedAt && now - new Date(prevYt.checkedAt) < (cfg.minIntervalMin ?? 50) * 60000 && prevYt.items?.length) {
+  if (prevYt?.ver !== 3) prevYt = null; // 수집 방식이 바뀐 이전 버전 결과는 쓰지 않는다
+  if (prevYt?.checkedAt && now - new Date(prevYt.checkedAt) < (cfg.minIntervalMin ?? 25) * 60000 && prevYt.items?.length) {
     st.ok = true; st.count = prevYt.items.length; st.checkedAt = prevYt.checkedAt; st.cached = true;
-    return { st, items: prevYt.items };
+    return { st, items: prevYt.items, chOk: prevYt.chOk };
   }
-  const after = new Date(now - (cfg.hours ?? 48) * 3600000).toISOString();
+  const after = now - (cfg.hours ?? 48) * 3600000;
   const found = new Map();
-  for (const q of cfg.queries || []) {
-    const r = await ytGet("search", { part: "snippet", q, type: "video", order: "viewCount", publishedAfter: after, regionCode: "KR", relevanceLanguage: "ko", maxResults: String(cfg.maxPerQuery ?? 15), safeSearch: "moderate" });
-    if (r.err) { st.error = r.err; if (r.err === "quota") break; continue; }
+  let chOk = 0, chFail = 0;
+  for (const ch of cfg.channels || []) {
+    if (!/^UC[\w-]{20,}$/.test(ch.id || "")) continue;
+    const r = await ytGet("playlistItems", { part: "snippet", playlistId: "UU" + ch.id.slice(2), maxResults: String(cfg.perChannel ?? 15) });
+    if (r.err) { st.error = r.err; chFail++; if (r.err === "quota") break; continue; }
+    chOk++;
     for (const it of r.json.items || []) {
-      const id = it.id?.videoId;
-      if (id && !found.has(id)) found.set(id, { id, title: decode(it.snippet?.title || ""), ch: decode(it.snippet?.channelTitle || ""), ts: it.snippet?.publishedAt || null });
+      const id = it.snippet?.resourceId?.videoId;
+      const ts = it.snippet?.publishedAt || null;
+      if (!id || (ts && new Date(ts) < after) || found.has(id)) continue;
+      found.set(id, { id, title: decode(it.snippet?.title || ""), ch: ch.name || decode(it.snippet?.videoOwnerChannelTitle || ""), ts, prior: ch.prior || null });
     }
-    await sleep(300);
+    await sleep(150);
   }
   const out = new Map();
-  if (found.size) {
-    const v = await ytGet("videos", { part: "statistics", id: [...found.keys()].slice(0, 50).join(",") });
-    if (v.err) st.error = v.err;
+  const ids = [...found.keys()];
+  for (let i = 0; i < ids.length; i += 50) {
+    const v = await ytGet("videos", { part: "statistics", id: ids.slice(i, i + 50).join(",") });
+    if (v.err) { st.error = v.err; continue; }
     for (const it of v.json?.items || []) {
       const f = found.get(it.id);
-      const x = f && ytItem(f, it.statistics);
+      const x = f && ytItem(f, it.statistics, f.prior);
       if (x) out.set(x.id, x);
     }
   }
-  // 보충: 유튜브 '인기 급상승' 뉴스·정치 범주(1쿼터). 금융 키워드가 맞고 조회 1,000회 이상인 영상만 쓴다.
-  if (cfg.trending !== false && st.error !== "quota") {
-    const m = await ytGet("videos", { part: "snippet,statistics", chart: "mostPopular", regionCode: "KR", videoCategoryId: String(cfg.trendingCategory ?? 25), maxResults: "50" });
-    if (!m.err) {
-      for (const it of m.json.items || []) {
-        const f = { id: it.id, title: decode(it.snippet?.title || ""), ch: decode(it.snippet?.channelTitle || ""), ts: it.snippet?.publishedAt || null };
-        const x = ytItem(f, it.statistics);
-        if (x && !out.has(x.id)) out.set(x.id, x);
-      }
-    }
-  }
   const items = [...out.values()].sort((a, b) => b.score - a.score).slice(0, 30);
-  st.ok = !st.error || st.error !== "quota" || items.length > 0;
   st.count = items.length;
-  if (st.error && st.error !== "quota") delete st.error;
-  if (!items.length && st.error === "quota" && prevYt?.items?.length) { st.stale = true; return { st, items: prevYt.items }; }
-  return { st, items };
+  st.ok = chOk > 0;
+  if (st.error && st.error !== "quota" && st.ok) delete st.error; // 일부 채널만 실패한 경우는 정상으로 본다
+  if (!items.length && prevYt?.items?.length && !st.ok) { st.stale = true; return { st, items: prevYt.items, chOk: prevYt.chOk }; }
+  return { st, items, chOk };
 }
 
 async function run() {
@@ -623,7 +625,7 @@ async function run() {
     stats: { collected: raw.length, finance: kept.length, supervision: kept.filter((c) => c.sup).length, sourcesOk: okCount, sourcesTotal: status.filter((x) => !x.pending).length, sourcesPending: status.filter((x) => x.pending).length },
     items: top, keywords, auto: autoOut.slice(0, 10),
     naver: { checkedAt: nv.st.checkedAt, terms: nv.terms },
-    youtube: { ver: 2, checkedAt: yt.st.checkedAt, items: yt.items },
+    youtube: { ver: 3, checkedAt: yt.st.checkedAt, chOk: yt.chOk, items: yt.items },
   };
 
   // 모든 출처가 실패하면 이전 hot.json을 그대로 두고(화면이 비지 않게) 상태만 갱신한다
