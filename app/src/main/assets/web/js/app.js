@@ -11,6 +11,7 @@ const ROUTES = {
   lawnews: { label: "최근 금융관련 법령개정 소식", load: () => import("./screens/lawnews.js") },
   lawdoc: { label: "법령 개정 내용", load: () => import("./screens/lawdoc.js") },
   board: { label: "익명게시판", load: () => import("./screens/board.js") },
+  community: { label: "(베타) 커뮤니티 핫이슈(금융관련)", load: () => import("./screens/community.js") },
 };
 const HOME = "consumer";
 
