@@ -1,5 +1,6 @@
 // 익명게시판: Cloudflare Worker(/board/*) 기반 익명 글·댓글 및 관리자 전용 공지사항.
 import { setHeader } from "../app.js";
+import { installId } from "../usage.js";
 import { SERVER, dialog, errorText, h, icon, loading, message, searchBox, toast } from "../core.js";
 
 const BOARD_BASE = (() => {
@@ -44,6 +45,15 @@ function rememberVote(id, v) {
     if (keys.length > 500) for (const k of keys.slice(0, keys.length - 500)) delete o[k];
     localStorage.setItem("fss.boardMyVotes", JSON.stringify(o));
   } catch {}
+}
+
+// 작성자 확인용 접속자 설치 ID. 서버가 해시해 저장하며 운영자만 앞 6자리를 볼 수 있다(서버가 모르는 필드면 무시).
+function myUid() {
+  try {
+    return installId();
+  } catch {
+    return "";
+  }
 }
 
 function voterId() {
@@ -122,7 +132,7 @@ async function openWriteDialog(ctx) {
     const created = await req("/board/posts", {
       method: "POST",
       admin: isNotice,
-      body: { title, body, author, password, is_notice: isNotice },
+      body: { title, body, author, password, is_notice: isNotice, uid: myUid() },
     });
     toast(isNotice ? "공지사항을 등록했습니다." : "글을 등록했습니다.");
     ctx.go({ id: created.id });
@@ -204,7 +214,7 @@ async function renderList(root, params, ctx) {
       try {
         const r = await req(`/board/posts/${encodeURIComponent(p.id)}/vote`, {
           method: "POST",
-          body: { voter: voterId(), vote: st.mine === v ? 0 : v },
+          body: { voter: voterId(), vote: st.mine === v ? 0 : v, uid: myUid() },
         });
         st.likes = r.likes;
         st.dislikes = r.dislikes;
@@ -327,7 +337,7 @@ async function mountPost(box, id, ctx, opts = {}) {
       if (p.is_notice) setAdminKey(out.pw.trim());
       else password = out.pw;
     } else {
-      const ok = await dialog({ title: "게시글 삭제", text: "이 글을 삭제할까요?", ok: "삭제" });
+      const ok = await dialog({ title: "게시글 삭제 (운영자)", text: "이 글과 댓글·투표가 모두 삭제됩니다. 삭제할까요?", ok: "삭제", danger: true });
       if (!ok) return;
     }
     try {
@@ -347,7 +357,10 @@ async function mountPost(box, id, ctx, opts = {}) {
   const deleteComment = async (cid) => {
     const isAdmin = !!adminKey();
     let password = "";
-    if (!isAdmin) {
+    if (isAdmin) {
+      const okAdmin = await dialog({ title: "댓글 삭제 (운영자)", text: "이 댓글을 삭제할까요?", ok: "삭제", danger: true });
+      if (!okAdmin) return;
+    } else {
       const out = await dialog({
         title: "댓글 삭제",
         text: "댓글 작성 시 입력한 비밀번호를 입력하세요.",
@@ -446,7 +459,7 @@ async function mountPost(box, id, ctx, opts = {}) {
     try {
       const r = await req(`/board/posts/${encodeURIComponent(id)}/vote`, {
         method: "POST",
-        body: { voter: voterId(), vote: vote.mine === v ? 0 : v },
+        body: { voter: voterId(), vote: vote.mine === v ? 0 : v, uid: myUid() },
       });
       vote.likes = r.likes;
       vote.dislikes = r.dislikes;
@@ -472,7 +485,7 @@ async function mountPost(box, id, ctx, opts = {}) {
     try {
       await req(`/board/posts/${encodeURIComponent(id)}/comments`, {
         method: "POST",
-        body: { author: cAuthor.value.trim() || "익명", body, password: cPw.value },
+        body: { author: cAuthor.value.trim() || "익명", body, password: cPw.value, uid: myUid() },
       });
       toast("댓글을 등록했습니다.");
       mountPost(box, id, ctx, opts);
@@ -484,7 +497,7 @@ async function mountPost(box, id, ctx, opts = {}) {
   box.replaceChildren(
     h("div", { class: "stack" },
       h("section", { class: "card" + (p.is_notice ? " bd-notice" : ""), style: { padding: "18px" } },
-        h("div", { class: "bd-meta" },
+        h("div", { class: "bd-meta bd-post-head" },
           p.is_notice ? h("span", { class: "tag blue" }, "공지") : null,
           h("b", null, p.author || "익명"),
           h("span", null, fmtDate(p.created_at) + (p.edited_at ? " (수정됨)" : "")),
@@ -498,10 +511,10 @@ async function mountPost(box, id, ctx, opts = {}) {
         inline ? null : h("div", { class: "bd-votes" }, likeBtn, dislikeBtn)
       ),
       h("section", { class: "card", style: { padding: "16px" } },
-        h("div", { class: "section-label" }, `댓글 ${comments.length}`),
+        h("div", { class: "bd-cmt-title" }, "댓글 • ", h("b", null, String(comments.length))),
         comments.length
           ? h("div", null, comments.map((c) => h("div", { class: "bd-cmt" },
-              h("div", { class: "bd-meta" },
+              h("div", { class: "bd-meta bd-cmt-head" },
                 h("b", null, c.author || "익명"),
                 h("span", null, fmtDate(c.created_at) + (c.edited_at ? " (수정됨)" : "")),
                 h("span", { class: "bd-acts" },
@@ -512,7 +525,7 @@ async function mountPost(box, id, ctx, opts = {}) {
               h("div", { class: "bd-cmt-txt" }, c.body)
             )))
           : h("p", { class: "note" }, "첫 댓글을 남겨 보세요."),
-        h("form", { class: "bd-form", style: { marginTop: "14px" }, onsubmit: submitComment },
+        h("form", { class: "bd-form bd-cmt-form", onsubmit: submitComment },
           h("div", { class: "row-gap" }, cAuthor, cPw),
           cBody,
           h("div", { style: { display: "flex", justifyContent: "flex-end" } }, h("button", { class: "btn sm", type: "submit" }, "댓글 등록"))

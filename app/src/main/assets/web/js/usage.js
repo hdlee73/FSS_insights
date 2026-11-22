@@ -22,7 +22,7 @@ try {
 const automated = () => navigator.webdriver === true || /HeadlessChrome|Playwright|Puppeteer|PhantomJS/i.test(navigator.userAgent || "") || store.get("usage.notrack", false) === true;
 export const enabled = () => store.get("usageStats", true) && !automated();
 
-function installId() {
+export function installId() {
   let id = store.get("usage.id", "");
   if (!/^[A-Za-z0-9-]{16,64}$/.test(id)) {
     id = crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");

@@ -6,8 +6,9 @@ const KR = /^[A-Z0-9]{6}\.(KS|KQ)$/;
 
 export const isKorean = (sym) => KR.test(sym) || sym === "^KS11" || sym === "^KQ11";
 
-async function json(url) {
-  const { text } = await fetchSite(url, { referer: NAVER_REF });
+// bust: 중간 저장소(브라우저·통신망·서버 가장자리)가 붙잡은 옛 응답을 피하려고 요청 주소를 매번 다르게 만든다(Referer 값은 시세 제공처가 보지 않는다).
+async function json(url, bust = false) {
+  const { text } = await fetchSite(url, { referer: NAVER_REF + (bust ? "?b=" + Date.now().toString(36) : "") });
   return JSON.parse(text);
 }
 const num = (t) => Number(String(t ?? "").replace(/,/g, "").trim());
@@ -25,11 +26,16 @@ function naverPath(sym) {
   return null;
 }
 
-async function yahooChart(sym, range, interval = "1d") {
+// 오래된 값이 내려온 종목은 잠시 동안 중간 저장소를 건너뛰고 받는다.
+const bustUntil = new Map();
+const bustTried = new Map();
+const bustOn = (sym) => (bustUntil.get(sym) || 0) > Date.now();
+
+async function yahooChart(sym, range, interval = "1d", bust = bustOn(sym)) {
   let last;
   for (const host of ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]) {
     try {
-      const root = await json(`https://${host}/v8/finance/chart/${encodeURIComponent(sym)}?range=${range}&interval=${interval}`);
+      const root = await json(`https://${host}/v8/finance/chart/${encodeURIComponent(sym)}?range=${range}&interval=${interval}`, bust);
       const r = root?.chart?.result?.[0];
       if (!r) throw new Error("해당 종목 시세가 없습니다");
       return r;
@@ -54,7 +60,21 @@ async function naverQuote(url) {
 }
 
 async function yahooQuote(sym) {
-  const chart = await yahooChart(sym, "5d");
+  let chart = await yahooChart(sym, "5d");
+  // 기준 시각이 너무 오래됐으면 한 번 더, 저장소를 건너뛰고 받아 본다(장이 닫힌 종목에서 반복하지 않도록 1분에 한 번만).
+  const at0 = (chart.meta?.regularMarketTime || 0) * 1000;
+  if (at0 && Date.now() - at0 > STALE_MS && !bustOn(sym) && Date.now() - (bustTried.get(sym) || 0) > 60_000) {
+    bustTried.set(sym, Date.now());
+    try {
+      const fresh = await yahooChart(sym, "5d", "1d", true);
+      if ((fresh.meta?.regularMarketTime || 0) * 1000 > at0 + 60_000) {
+        chart = fresh;
+        bustUntil.set(sym, Date.now() + 5 * 60_000);
+      }
+    } catch {
+      /* 원래 값을 그대로 쓴다 */
+    }
+  }
   const meta = chart.meta || {};
   const price = meta.regularMarketPrice;
   if (!(price > 0)) throw new Error("유효한 가격 없음");
@@ -145,7 +165,41 @@ export function history(raw) {
     }));
 }
 
+// 한국거래소가 평소(09:00~15:30)보다 1시간 늦게 열고 닫는 날(수능일, 매년 첫 거래일 등). 날짜(yyyymmdd) → 개장·종료 시각(hhmm).
+// 수능일은 10:00~16:30(한국거래소 공지). 휴장일은 따로 목록이 없고 "오늘 분봉이 없음"으로 추정하므로, 지연개장일은 여기 등록해야 휴장으로 오판하지 않는다. 해마다 확인해 추가한다.
+export const KRX_LATE_OPEN = {
+  "20261119": { open: 1000, close: 1630 },
+  "20270104": { open: 1000, close: 1630 },
+  "20271118": { open: 1000, close: 1630 },
+};
+
 const kstDay = (d = new Date()) => d.toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }).replace(/-/g, "");
+
+// 아시아 거래소 점심 휴장(현지시각 hhmm)과 하루 분봉 수. 도쿄 11:30~12:30, 홍콩 12:00~13:00, 상하이 11:30~13:00.
+const ASIA_SESSIONS = {
+  "Asia/Tokyo": { lunch: [1130, 1230], bars: 300 },
+  "Asia/Hong_Kong": { lunch: [1200, 1300], bars: 330 },
+  "Asia/Shanghai": { lunch: [1130, 1300], bars: 240 },
+  "Asia/Taipei": { lunch: null, bars: 270 },
+};
+
+/**
+ * 24시간 지표 중 주말·정비 시간에 거래가 멈추는 것(CME 선물 =F, 외환 =X)의 휴장 여부(미국 동부시간 기준).
+ * 선물: 금 17:00 ~ 일 18:00 주말 마감, 월~목 17:00~18:00 정비 휴장. 외환: 금 17:00 ~ 일 17:00 주말 마감.
+ * 반환: "weekend"(마감) | "break"(정비 휴장) | null(거래 중). 휴일 단축거래는 반영하지 않는다.
+ */
+export function marketClosure(sym, nowMs = Date.now()) {
+  const fut = sym.endsWith("=F");
+  if (!fut && !sym.endsWith("=X")) return null;
+  const et = new Date(new Date(nowMs).toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const day = et.getDay(); // 0=일
+  const hm = et.getHours() * 60 + et.getMinutes();
+  const close = 17 * 60;
+  const reopen = (fut ? 18 : 17) * 60;
+  if (day === 6 || (day === 5 && hm >= close) || (day === 0 && hm < reopen)) return "weekend";
+  if (fut && day >= 1 && day <= 4 && hm >= close && hm < reopen) return "break";
+  return null;
+}
 
 /**
  * 당일(장이 끝났으면 가장 최근 거래일) 흐름: { points, previous, prevPoints, status, bars, live }.
@@ -161,19 +215,21 @@ export function intraday(raw, fallbackPrevious, price) {
     let bars;
     let kr = false;
     let tz = "Asia/Seoul";
+    let dayShift = 0; // 거래일 경계를 달력 날짜에서 밀어 주는 초(선물용)
+    let session = null; // Yahoo 정규장 시작·종료(초). 아시아 지수 장중 판정에 쓴다.
     if (path) {
       kr = true;
       bars = 391;
       for (const span of [4, 12]) {
         const from = new Date(Date.now() - span * 86_400_000);
-        const rows = await json(`https://api.stock.naver.com/chart/domestic/${path}/minute?startDateTime=${kstDay(from)}0900&endDateTime=${kstDay()}1600`);
+        const rows = await json(`https://api.stock.naver.com/chart/domestic/${path}/minute?startDateTime=${kstDay(from)}0900&endDateTime=${kstDay()}1700`);
         const byDay = new Map();
         let lastKey = "";
         for (const r of rows || []) {
           const dt = String(r.localDateTime || "");
           const hhmm = Number(dt.slice(8, 12));
           const c = Number(r.currentPrice);
-          if (dt.length < 12 || hhmm < 900 || hhmm > 1530 || !(c > 0)) continue;
+          if (dt.length < 12 || hhmm < 900 || hhmm > (KRX_LATE_OPEN[dt.slice(0, 8)]?.close ?? 1530) || !(c > 0)) continue;
           const k = dt.slice(0, 8);
           if (!byDay.has(k)) byDay.set(k, { date: k, closes: [], open: Number(r.openPrice) > 0 ? Number(r.openPrice) : null });
           byDay.get(k).closes.push(c);
@@ -191,8 +247,10 @@ export function intraday(raw, fallbackPrevious, price) {
       kr = false;
       const chart = await yahooChart(sym, h24 ? "3d" : "5d", h24 ? "5m" : "1m");
       tz = chart.meta?.exchangeTimezoneName || "UTC";
-      bars = h24 ? 288 : 390;
-      // 선물(=F)은 미국 동부 18:00에 새 거래일이 시작한다. 달력 날짜로 나누면 한국 저녁에 오늘 선이 일부만 채워진다.
+      bars = h24 ? 288 : ASIA_SESSIONS[tz]?.bars || 390;
+      const reg = chart.meta?.currentTradingPeriod?.regular;
+      if (reg?.start && reg?.end) session = { start: reg.start, end: reg.end };
+      // 선물(=F)은 미국 동부 18:00에 새 거래일이 시작한다(한국 아침 8시). 달력 날짜(자정)로 나누면 한국 저녁에도 오늘 선이 하루의 일부만 채워져 늦게 반영되는 것처럼 보이므로, 18:00 기준으로 거래일을 나눈다.
       if (sym.endsWith("=F") && tz.startsWith("America/")) dayShift = 6 * 3600;
       const ts = chart.timestamp || [];
       const q = chart.indicators?.quote?.[0] || {};
@@ -212,24 +270,56 @@ export function intraday(raw, fallbackPrevious, price) {
     const prev = days[days.length - 2];
     const now = Date.now() / 1000;
     const today = new Date(Date.now() + dayShift * 1000).toLocaleDateString("en-CA", { timeZone: tz }).replace(/-/g, "");
-    const live = h24 || (last.date === today && now - lastEpoch <= 15 * 60);
+    const local = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
+    const hhmm = local.getHours() * 100 + local.getMinutes();
+    const weekday = local.getDay() >= 1 && local.getDay() <= 5;
+    const lunch = ASIA_SESSIONS[tz]?.lunch;
+    // 아시아·유럽 지수: Yahoo가 15~20분 지연되므로 "마지막 분봉이 15분 이내"로 보면 장중에도 마감으로 나온다. 거래소 정규장 시간(오늘 날짜 자료가 있을 때)으로 판정한다.
+    const inSession = !!session && last.date === today && now >= session.start && now <= session.end + 600;
+    const onLunch = !!lunch && inSession && hhmm >= lunch[0] && hhmm < lunch[1];
+    const closure = h24 ? marketClosure(sym) : null; // 주말·정비 휴장이면 지연이 아니라 마감으로 표시한다
+    const live = (h24 && !closure) || (session && !kr ? inSession : last.date === today && now - lastEpoch <= 15 * 60);
     const points = last.closes.slice();
     if (live && price > 0) points[points.length - 1] = price;
     const md = (d) => `${Number(d.slice(4, 6))}/${Number(d.slice(6, 8))}`;
-    const local = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
-    const weekday = local.getDay() >= 1 && local.getDay() <= 5;
-    const early = local.getHours() * 100 + local.getMinutes() < 910;
-    const status = h24 ? null : live ? "장중" : last.date === today ? "마감" : kr && weekday && early ? "개장 전" : kr ? `휴장 · ${md(last.date)} 마감` : `마감 ${md(last.date)}(미국)`;
+    const early = hhmm < 910;
+    let beforeOpen = false; // 아직 오늘 장이 열리지 않았거나 막 열려 첫 분봉이 없음(어제 자료)
+    if (session && weekday) {
+      const sl = new Date(new Date(session.start * 1000).toLocaleString("en-US", { timeZone: tz }));
+      beforeOpen = hhmm < sl.getHours() * 100 + sl.getMinutes() + 20;
+    }
+    const lateOpen = kr && weekday ? KRX_LATE_OPEN[today]?.open ?? 0 : 0; // 오늘이 지연개장일이면 개장 시각(hhmm)
+    const lateWait = lateOpen && last.date !== today && hhmm < lateOpen + 10; // 개장 10분 뒤까지 첫 분봉을 기다린다
+    const status = closure === "weekend" ? `마감 ${md(last.date)}` : closure === "break" ? "휴장" : h24 ? null : onLunch ? "점심 휴장" : live ? "장중" : last.date === today ? "마감" : lateWait ? `지연개장 · ${String(Math.floor(lateOpen / 100)).padStart(2, "0")}:${String(lateOpen % 100).padStart(2, "0")} 개장` : kr && weekday && early ? "개장 전" : kr ? `휴장 · ${md(last.date)} 마감`
+      : !session ? `마감 ${md(last.date)}(미국)`
+      : beforeOpen ? "개장 전"
+      : tz.startsWith("America/") ? `마감 ${md(last.date)}(미국)` : `휴장 · ${md(last.date)} 마감`;
     const previous = last.date === today || live ? fallbackPrevious ?? prev.closes[prev.closes.length - 1] : prev.closes[prev.closes.length - 1];
     return { points, previous, prevPoints: prev.closes, open: last.open ?? points[0], status, bars, live };
   });
 }
 
-/** 코스피·코스닥 투자자별 순매수(억원). */
+/** 코스피·코스닥 투자자별 순매수(억원). 한 번 실패하면 잠시 뒤 한 번 더 읽고, 그래도 안 되면 마지막으로 읽은 값(같은 날 것)을 쓴다. */
+const lastInv = new Map();
 export function investors(sym) {
   return cached("inv:" + sym, 30_000, async () => {
-    const o = await json(`https://m.stock.naver.com/api/index/${sym === "^KS11" ? "KOSPI" : "KOSDAQ"}/trend`);
-    return { bizdate: o.bizdate || "", personal: num(o.personalValue), foreign: num(o.foreignValue), institutional: num(o.institutionalValue) };
+    const url = `https://m.stock.naver.com/api/index/${sym === "^KS11" ? "KOSPI" : "KOSDAQ"}/trend`;
+    let o;
+    try {
+      try {
+        o = await json(url);
+      } catch {
+        await new Promise((r) => setTimeout(r, 1500));
+        o = await json(url, true);
+      }
+    } catch (e) {
+      const prev = lastInv.get(sym);
+      if (prev) return prev;
+      throw e;
+    }
+    const v = { bizdate: o.bizdate || "", personal: num(o.personalValue), foreign: num(o.foreignValue), institutional: num(o.institutionalValue) };
+    lastInv.set(sym, v);
+    return v;
   });
 }
 
@@ -396,7 +486,97 @@ export function sparkline(values, { width = 300, height = 64, color, baseline, p
   const total = Math.max(bars || 0, values.length);
   const pts = values.map((v, i) => [(i / ((bars ? total : values.length) - 1)) * width, y(v)]);
   poly(pts, stroke, 1.8);
+  svg.pos = (i) => ({ x: pts[i][0] / width, y: pts[i][1] / height });
   return svg;
+}
+
+const yDate = (d) => (d && d.length >= 8 ? `${d.slice(2, 4)}.${+d.slice(4, 6)}.${+d.slice(6, 8)}` : "");
+
+/**
+ * 1년 그래프: 꺾은선 위에 시작·최고·최저 가격을 해당 일자에 표시한다(종가 기준).
+ * 선 위·아래 띠에 글자를 놓고, 서로 겹치면 반대쪽 띠나 옆으로 옮긴다. 화면에 붙은 뒤 실제 글자 폭을 재서 배치한다.
+ */
+export function yearChart(it, closes, dates, { color, price } = {}) {
+  const wrap = document.createElement("div");
+  wrap.className = "ych";
+  const svg = sparkline(closes, { height: 40, color });
+  wrap.append(svg);
+  const n = closes.length;
+  if (n < 2 || !svg.pos) return svg;
+  let hi = 0;
+  let lo = 0;
+  closes.forEach((v, i) => {
+    if (v > closes[hi]) hi = i;
+    if (v < closes[lo]) lo = i;
+  });
+  const groups = new Map();
+  const add = (i, name) => groups.set(i, [...(groups.get(i) || []), name]);
+  if (closes[hi] !== closes[lo]) {
+    add(hi, "최고");
+    add(lo, "최저");
+  }
+  add(0, "시작");
+  const items = [];
+  for (const [i, names] of groups) {
+    const p = svg.pos(i);
+    const up = names.includes("최고");
+    const down = names.includes("최저");
+    const c = up ? UP : down ? DOWN : "var(--muted)";
+    const dot = document.createElement("i");
+    dot.className = "yd";
+    dot.style.cssText = `left:${(p.x * 100).toFixed(2)}%;top:calc(22px + (100% - 44px) * ${p.y.toFixed(4)});background:${c}`;
+    const lab = document.createElement("span");
+    lab.className = "yl";
+    lab.style.color = c;
+    const b = document.createElement("b");
+    const pv = closes[i] >= 1000 && it.type !== "RATE" && it.type !== "FX" ? Math.round(closes[i]).toLocaleString("ko-KR") : priceText(it, closes[i]).replace(/원$/, "");
+    b.textContent = names.join("·") + " " + pv;
+    const dt = document.createElement("span");
+    dt.className = "ydt";
+    dt.textContent = "(" + yDate(dates?.[i]) + ")";
+    lab.append(b, dt);
+    wrap.append(dot, lab);
+    items.push({ lab, x: p.x, y: p.y, band: up ? "top" : down ? "bot" : p.y < 0.5 ? "top" : "bot", fixed: up || down });
+  }
+  requestAnimationFrame(() => {
+    const W = wrap.clientWidth;
+    const H = wrap.clientHeight;
+    if (!W) {
+      for (const t of items) t.lab.style.visibility = "visible";
+      return;
+    }
+    const placed = { top: [], bot: [] };
+    const clash = (band, l, w) => placed[band].find((r) => l < r.r + 3 && l + w + 3 > r.l);
+    const place = (t) => {
+      const w = t.lab.offsetWidth;
+      let l = Math.min(Math.max(t.x * W - w / 2, 0), W - w);
+      let band = t.band;
+      if (clash(band, l, w)) {
+        const other = band === "top" ? "bot" : "top";
+        if (!clash(other, l, w)) band = other;
+        else {
+          const c = clash(band, l, w);
+          const right = c.r + 3;
+          if (right + w <= W) l = right;
+          else if (c.l - 3 - w >= 0) l = c.l - 3 - w;
+          else return false;
+        }
+      }
+      placed[band].push({ l, r: l + w });
+      t.lab.style.left = l + "px";
+      t.lab.style.top = band === "top" ? "0px" : H - 22 + "px";
+      t.lab.style.visibility = "visible";
+      return true;
+    };
+    items.sort((a, b) => Number(b.fixed) - Number(a.fixed)).forEach((t) => {
+      // 자리가 모자라면 날짜를 빼고 가격만 보여 준다.
+      if (!place(t)) {
+        t.lab.classList.add("short");
+        place(t);
+      }
+    });
+  });
+  return wrap;
 }
 
 export const UP = "var(--up)";
@@ -408,7 +588,7 @@ export const signed = (v, digits = 0) => (v > 0 ? "▲" : v < 0 ? "▼" : "") + 
 const ins = (symbol, name, currency, type) => ({ symbol, name, currency, type });
 export const KOREA_INDEXES = [ins("^KS11", "KOSPI", "KRW", "INDEX"), ins("^KQ11", "KOSDAQ", "KRW", "INDEX")];
 export const PANEL_CATALOG = [
-  ins("^GSPC", "S&P 500", "USD", "INDEX"), ins("^IXIC", "Nasdaq", "USD", "INDEX"), ins("NQ=F", "Nasdaq 100 Futures (나스닥100선물)", "USD", "INDEX"), ins("KRW=X", "USD/KRW", "KRW", "FX"), ins("CL=F", "WTI", "USD", "EQUITY"),
+  ins("^GSPC", "S&P 500", "USD", "INDEX"), ins("^IXIC", "Nasdaq", "USD", "INDEX"), ins("NQ=F", "Nasdaq 100 Futures", "USD", "INDEX"), ins("KRW=X", "USD/KRW", "KRW", "FX"), ins("CL=F", "WTI", "USD", "EQUITY"),
   ins("^TNX", "US 10Y", "USD", "RATE"), ins("GC=F", "Gold", "USD", "EQUITY"),
   ins("^DJI", "Dow Jones", "USD", "INDEX"), ins("^SOX", "Philadelphia Semiconductor", "USD", "INDEX"), ins("^NDX", "Nasdaq 100", "USD", "INDEX"),
   ins("^RUT", "Russell 2000", "USD", "INDEX"), ins("^VIX", "VIX", "USD", "INDEX"),

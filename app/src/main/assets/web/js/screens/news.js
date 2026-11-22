@@ -2,7 +2,7 @@
 // 맞춤 키워드 뉴스, 직접 검색(AND·OR·"문구"·-제외어), 언론 범위·기간 필터, 중복 정리, 즐겨찾기, 이전 기사 더 불러오기,
 // 키워드 모니터링(최근 7일 기사 수·급증), 맞춤 키워드 설정.
 import { setHeader } from "../app.js";
-import { cached, dialog, errorText, forget, h, icon, iconButton, loading, message, openUrl, share, skeleton, toast } from "../core.js";
+import { cached, dialog, errorText, forget, h, icon, iconButton, loading, message, openUrl, share, skeleton, store, toast } from "../core.js";
 import * as N from "../lib/news.js";
 import { cachedOffline } from "../lib/offline.js";
 import { editNote, getNote, isRead, markRead } from "../lib/vault.js";
@@ -74,6 +74,12 @@ export async function render(root, params, ctx) {
   setHeader("뉴스검색", "금융 뉴스를 키워드로 찾아보기", [
     h("button", { class: "pill", type: "button", onclick: () => ctx.go({ view: "monitor" }) }, icon("activity"), h("span", { class: "lbl" }, "키워드 모니터링")),
     h("button", { class: "pill" + (bmOnly ? " on" : ""), type: "button", onclick: () => ctx.go(bmOnly ? { q } : { q, bm: "1" }) }, icon("bookmark"), h("span", { class: "lbl" }, "즐겨찾기")),
+    q ? h("button", { class: "pill", type: "button", title: "이 검색어를 새 기사 알림 키워드로 등록", onclick: () => {
+      const kws = store.get("alerts.keywords", []);
+      if (kws.includes(q)) return toast("이미 알림 키워드로 등록되어 있습니다. 알림 메뉴에서 관리하세요.");
+      store.set("alerts.keywords", [...kws, q].slice(0, 30));
+      toast(`‘${q}’ 알림 키워드로 등록했습니다. 알림 설정에서 고치거나 지울 수 있어요.`);
+    } }, icon("bell"), h("span", { class: "lbl" }, "알림 받기")) : null,
     h("button", { class: "pill", type: "button", onclick: () => openSettings(ctx) }, icon("sliders"), h("span", { class: "lbl" }, "설정")),
   ]);
 

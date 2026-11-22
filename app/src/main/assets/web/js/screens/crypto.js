@@ -2,14 +2,15 @@
 // 자료는 FSS_insights 레포 crypto-data 브랜치(매일 24:00 KST 하루 한 번 집계한 JSON·PDF·HWPX와 거래소 재무, 워크플로 crypto-data.yml). 주요 코인 시세는 업비트·빗썸 웹소켓(끊기면 폴링)과 Coinbase를 브라우저에서 직접 읽는다. 별도 서버 없음.
 import { setHeader } from "../app.js";
 import { canPoll, onResume, card, download as coreDownload, errorText, h, icon, loading, message, reportError, shareFile, tabs } from "../core.js";
-import { liveCrypto } from "../lib/livefeed.js";
+import { liveCrypto, loadCoinbase, loadMarkets } from "../lib/livefeed.js";
 
 const BASE = "https://raw.githubusercontent.com/hdlee73/FSS_insights/crypto-data";
 const TABS = [["summary", "시장 요약"], ["coins", "주요코인 시세"], ["exchange", "거래소별 현황"], ["fin", "거래소 재무"], ["global", "해외 시장 비교"], ["report", "시장 일보"]];
 const EXCHANGES = [["upbit", "업비트"], ["bithumb", "빗썸"], ["coinone", "코인원"], ["korbit", "코빗"], ["gopax", "고팍스"]];
-const MAJORS = ["BTC", "ETH", "XRP", "SOL", "DOGE", "ADA", "USDT", "USDC"];
+const MAJORS = ["BTC", "ETH", "XRP", "SOL", "DOGE", "ADA", "AVAX", "LINK", "DOT", "SUI", "USDT", "USDC"];
+const TABLE_COINS = ["BTC", "ETH", "XRP", "SOL", "DOGE", "ADA", "AVAX", "LINK", "DOT", "SUI"]; // 주요 코인 시세표(업비트·빗썸·Coinbase 모두 상장)
 const STABLES = ["USDT", "USDC"];
-const MAJOR_NAME = { BTC: "비트코인", ETH: "이더리움", XRP: "리플", SOL: "솔라나", DOGE: "도지코인", ADA: "에이다", USDT: "테더", USDC: "USD코인" };
+const MAJOR_NAME = { BTC: "비트코인", ETH: "이더리움", XRP: "리플", SOL: "솔라나", DOGE: "도지코인", ADA: "에이다", AVAX: "아발란체", LINK: "체인링크", DOT: "폴카닷", SUI: "수이", USDT: "테더", USDC: "USD코인" };
 const SRC_NOTE = "정보 제공용이며 투자 권유가 아닙니다.";
 
 // ---------- 자료 읽기 ----------
@@ -51,7 +52,7 @@ async function loadAll() {
 // ---------- 서식 ----------
 const num = (v, d = 0) => (v == null || !Number.isFinite(v) ? "-" : v.toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d }));
 const won = (v) => (v == null ? "-" : Math.abs(v) >= 1e12 ? num(v / 1e12, 2) + "조" : Math.abs(v) >= 1e8 ? num(v / 1e8) + "억" : num(v));
-const price = (v) => (v == null ? "-" : v >= 100 ? num(v) : v >= 1 ? num(v, 2) : num(v, 4));
+const price = (v) => (v == null ? "-" : v >= 100 ? num(v) : v >= 1 ? num(v, 2) : v >= 0.01 ? num(v, 4) : v > 0 ? num(v, Math.min(10, 2 - Math.floor(Math.log10(Math.max(v, 1e-10))))) : "0");
 const pct = (r, d = 1, signed = false) => (r == null ? "-" : (signed && r * 100 >= 0.5 / 10 ** d ? "+" : "") + num(r * 100, d) + "%");
 const pp = (diff) => (diff == null ? "-" : (diff * 100 >= 0.05 ? "+" : "") + num(diff * 100, 1) + "%p");
 // $2.51T = 2.51조 달러, $71.9B = 719억 달러
@@ -191,38 +192,107 @@ function hbars(items, fmt = pct) {
 }
 
 // ---------- 실시간 시세(브라우저에서 직접 연결: 업비트·빗썸 웹소켓, 끊기면 폴링) ----------
-const usd = (v) => (v == null ? "-" : "$" + (v >= 100 ? num(v) : v >= 1 ? num(v, 3) : num(v, 4)));
-const MODE_TEXT = { ws: "실시간(웹소켓)", poll: "3초 간격 조회", down: "수신중" };
+const usd = (v) => (v == null || !Number.isFinite(v) ? "-" : "$" + (v >= 100 ? num(v) : v >= 1 ? num(v, 3) : v >= 0.01 ? num(v, 4) : v > 0 ? num(v, Math.min(10, 2 - Math.floor(Math.log10(Math.max(v, 1e-10))))) : "0")); // 아주 싼 코인은 유효숫자 3자리
+const MODE_TEXT = { ws: "실시간(웹소켓)", poll: "3초 간격 조회", down: "수신중", none: "해당 없음" };
 /** 실시간 시세표: 코인 · 업비트 현재가 · 전일대비 · 빗썸 · 해외가 · 김치 프리미엄. */
-function liveTable(ctx, snap, syms, { full = innerWidth >= 560 } = {}) {
+function liveTable(ctx, snap, syms, { full = innerWidth >= 560, names = MAJOR_NAME, listed = null, showNote = true } = {}) {
   const g = snap.global || {}, cp = snap.coin_premium || {};
   const cells = {};
   const head = full ? ["코인", "업비트(원)", "전일대비", "빗썸(원)", "해외가", "김프"] : ["코인", "업비트(원)", "전일대비", "김프"];
+  const none = "미상장";
   const body = syms.map((x) => {
-    const c = (cells[x] = { p: h("td", { class: "num" }, "-"), r: h("td", { class: "num" }, "-"), b: h("td", { class: "num" }, "-"), u: h("td", { class: "num" }, usd(cp[x]?.usd)), k: h("td", { class: "num" }, pct(cp[x]?.premium, 2, true)) });
-    return h("tr", null, h("td", null, h("b", null, x), full ? h("small", { class: "note" }, " " + (MAJOR_NAME[x] || "")) : null), c.p, c.r, full ? c.b : null, full ? c.u : null, c.k);
+    const c = (cells[x] = {
+      p: h("td", { class: "num" }, listed && !listed.up ? none : "-"), r: h("td", { class: "num" }, listed && !listed.up ? none : "-"),
+      b: h("td", { class: "num" }, listed && !listed.bi ? none : "-"), u: h("td", { class: "num" }, listed && !listed.cb ? none : usd(cp[x]?.usd)),
+      k: h("td", { class: "num" }, listed && !listed.cb ? "-" : pct(cp[x]?.premium, 2, true)),
+    });
+    return h("tr", null, h("td", null, h("b", null, x), full ? h("small", { class: "note" }, " " + (names[x] || "")) : null), c.p, c.r, full ? c.b : null, full ? c.u : null, c.k);
   });
   const stamp = h("span", { class: "cr-live" }, h("i"), "실시간 연결 중…");
   liveCrypto(ctx, syms, (st) => {
     for (const x of syms) {
       const c = cells[x], q = st.up[x], b = st.bi[x];
       if (b && Number.isFinite(b.price)) c.b.textContent = price(b.price);
-      if (!q) continue;
-      c.p.textContent = price(q.price);
-      c.r.textContent = pct(q.rate, 2, true);
-      c.r.className = "num " + cls(q.rate);
+      // 업비트에 없고 빗썸에만 있는 코인은 빗썸 값으로 대신한다(전일대비는 빗썸의 24시간 변동률).
+      const kr = q && Number.isFinite(q.price) ? q : listed && !listed.up && b && Number.isFinite(b.price) ? b : null;
+      if (!kr) continue;
+      if (kr === q || listed) { c.p.textContent = listed && !listed.up ? "-" : price(kr.price); c.r.textContent = pct(kr.rate, 2, true); c.r.className = "num " + cls(kr.rate); }
+      if (listed && !listed.cb) continue;
       const u = st.usd[x] ?? cp[x]?.usd;
       c.u.textContent = usd(u);
-      const pr = u && g.usdkrw ? q.price / (u * g.usdkrw) - 1 : cp[x]?.premium;
+      const pr = u && g.usdkrw ? kr.price / (u * g.usdkrw) - 1 : cp[x]?.premium;
       c.k.textContent = pct(pr, 2, true);
       c.k.className = "num " + cls(pr);
     }
-    const m = st.mode.upbit || "down";
-    stamp.lastChild.textContent = `${MODE_TEXT[m]} · ${new Date(st.at).toTimeString().slice(0, 8)} 수신` + (m === "ws" && st.mode.bithumb !== "ws" ? " (빗썸은 " + MODE_TEXT[st.mode.bithumb || "down"] + ")" : "");
+    const m = st.mode.upbit && st.mode.upbit !== "none" ? st.mode.upbit : st.mode.bithumb || "down";
+    stamp.lastChild.textContent = `${MODE_TEXT[m] || MODE_TEXT.down} · ${new Date(st.at).toTimeString().slice(0, 8)} 수신` + (m === "ws" && st.mode.bithumb && st.mode.bithumb !== "ws" && st.mode.bithumb !== "none" ? " (빗썸은 " + MODE_TEXT[st.mode.bithumb] + ")" : "");
   });
   return h("div", { class: "stack" }, stamp,
     h("div", { class: "tbl-wrap" }, h("table", { class: "tbl cr-live-tbl" }, h("thead", null, h("tr", null, head.map((t, i) => h("th", { class: i ? "num" : "" }, t)))), h("tbody", null, body))),
-    note(`업비트·빗썸은 체결되는 즉시 웹소켓으로 받습니다(끊기면 3초마다 조회). 전일대비=업비트 전일 종가(09:00) 대비, 빗썸 값은 현재 체결가입니다. 해외가=Coinbase(달러, 5초 간격). 김프=원화가÷(해외가×환율)−1이며, 환율 ${num(g.usdkrw, 1)}원은 ${shortDate(snap.date || (snap.as_of || "").slice(0, 10))} 24시 집계 시점 값이라 실시간이 아닙니다.`));
+    !showNote ? null : note(`업비트·빗썸은 체결되는 즉시 웹소켓으로 받습니다(끊기면 3초마다 조회). 전일대비=업비트 전일 종가(09:00) 대비, 빗썸 값은 현재 체결가입니다. 해외가=Coinbase(달러, 5초 간격). 김프=원화가÷(해외가×환율)−1이며, 환율 ${num(g.usdkrw, 1)}원은 ${shortDate(snap.date || (snap.as_of || "").slice(0, 10))} 24시 집계 시점 값이라 실시간이 아닙니다.`));
+}
+
+/** 코인·티커 검색: 이름·티커로 찾아 업비트·빗썸·Coinbase 실시간 시세를 보여 준다. */
+function norm(t) { return String(t || "").trim().toLowerCase().replace(/\s+/g, ""); }
+function findCoins(q, mk, cb) {
+  const k = norm(q);
+  if (!k) return [];
+  const syms = new Set([...(mk.upbit?.keys() || []), ...(mk.bithumb || []), ...(cb || [])]);
+  const out = [];
+  for (const sym of syms) {
+    const low = sym.toLowerCase(), meta = mk.upbit?.get(sym) || {};
+    const ko = norm(meta.ko), en = norm(meta.en), kn = MAJOR_NAME[sym] ? norm(MAJOR_NAME[sym]) : "";
+    let score = 0;
+    if (low === k) score = 100;
+    else if (ko === k || en === k || kn === k) score = 90;
+    else if (low.startsWith(k) && k.length >= 2) score = 60;
+    else if (ko.startsWith(k) || en.startsWith(k)) score = 50;
+    else if (k.length >= 2 && (ko.includes(k) || en.includes(k))) score = 30;
+    if (score) out.push({ sym, name: meta.ko || MAJOR_NAME[sym] || meta.en || "", score });
+  }
+  return out.sort((a, b) => b.score - a.score || a.sym.length - b.sym.length || (a.sym < b.sym ? -1 : 1)).slice(0, 6);
+}
+function coinSearch(ctx, snap) {
+  let seq = 0, stopCur = null;
+  const input = h("input", { type: "search", class: "cr-search", placeholder: "코인 이름 또는 티커 (예: BTC, 비트코인, PEPE)", maxlength: "30", autocomplete: "off", "aria-label": "코인 검색" });
+  const btn = h("button", { type: "submit", class: "btn" }, "조회");
+  const out = h("div", { class: "stack" });
+  const clear = () => { if (stopCur) { stopCur(); stopCur = null; } };
+  const show = (c, mk, cbSet, alts) => {
+    clear();
+    let stopped = false;
+    stopCur = () => { stopped = true; };
+    const child = { alive: () => !stopped && ctx.alive() };
+    const listed = { up: !!mk.upbit?.has(c.sym), bi: !!mk.bithumb?.has(c.sym), cb: !!cbSet?.has(c.sym) };
+    const unknown = !mk.upbit && !mk.bithumb; // 상장 목록을 못 읽은 경우는 걸러내지 않고 시도한다.
+    const eff = unknown ? { up: true, bi: true, cb: true } : { up: mk.upbit ? listed.up : true, bi: mk.bithumb ? listed.bi : true, cb: cbSet ? listed.cb : true };
+    const where = [eff.up && "업비트", eff.bi && "빗썸", eff.cb && "Coinbase"].filter(Boolean);
+    out.replaceChildren(
+      alts.length > 1 ? h("div", { class: "cr-alts" }, h("small", { class: "note" }, "다른 후보 "), alts.map((a) => h("button", { type: "button", class: "pill" + (a.sym === c.sym ? " on" : ""), onclick: () => { input.value = a.sym; run(a.sym); } }, `${a.sym} ${a.name}`.trim()))) : null,
+      liveTable(child, snap, [c.sym], { full: true, names: { [c.sym]: c.name }, listed: eff, showNote: false }),
+      note(`상장 거래소: ${where.join("·") || "없음"}.` + (!eff.up && eff.bi ? " 업비트에 없어 빗썸 값으로 대신하며, 전일대비는 빗썸의 24시간 변동률입니다." : "") + (!eff.cb ? " Coinbase에 없어 김프는 계산하지 않습니다." : "")));
+  };
+  async function run(q) {
+    const my = ++seq;
+    const text = String(q ?? input.value).trim();
+    if (!text) { clear(); out.replaceChildren(); return; }
+    btn.disabled = true;
+    out.replaceChildren(loading("상장 코인 목록을 확인하는 중…"));
+    try {
+      const [mk, cb] = await Promise.all([loadMarkets(), loadCoinbase()]);
+      if (my !== seq || !ctx.alive()) return;
+      if (!mk.upbit && !mk.bithumb && !cb) { clear(); out.replaceChildren(message("상장 코인 목록을 불러오지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.")); return; }
+      const hits = findCoins(text, mk, cb);
+      if (!hits.length) { clear(); out.replaceChildren(message(`‘${text}’에 해당하는 코인을 찾지 못했습니다. 업비트·빗썸·Coinbase 중 한 곳 이상에 상장된 코인만 조회할 수 있습니다. 티커(예: BTC)나 한글 이름(예: 비트코인)으로 다시 입력해 보세요.`)); return; }
+      show(hits[0], mk, cb, hits);
+    } catch {
+      if (my === seq) { clear(); out.replaceChildren(message("조회 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")); reportError("crypto-search"); }
+    } finally {
+      if (my === seq) btn.disabled = false;
+    }
+  }
+  const form = h("form", { class: "cr-searchbar", onsubmit: (e) => { e.preventDefault(); run(); } }, input, btn);
+  return h("div", { class: "stack" }, form, out, note("업비트·빗썸 상장 코인은 웹소켓으로, 해외가는 Coinbase에서 5초마다 읽습니다. 화면이 보일 때만 갱신합니다."));
 }
 
 // ---------- 공통 조각 ----------
@@ -594,7 +664,8 @@ function coinsView(root, data, params, ctx) {
   root.append(h("div", { class: "cr-basis stack" },
     h("div", null, badge("live", "실시간"), h("span", null, "지금 이 순간 거래소 시세를 직접 조회합니다(아래 두 표). 새로고침 없이 체결되는 대로 바뀝니다.")),
     h("div", null, cs ? snapBadge(cs) : badge("snap", "24시 집계"), h("span", null, "하루 한 번 집계해 저장한 값은 1년 그래프와 맨 아래 전체 비교뿐입니다. 종목별 당일 그래프·현재가·고저가·변동률은 실시간입니다. " + (cs ? snapExplain(cs) : "")))));
-  root.append(card("주요 코인 시세와 김치 프리미엄", "activity", liveTable(ctx, data.snapshot, ["BTC", "ETH", "XRP", "SOL", "DOGE", "ADA"]), badge("live", "실시간")));
+  root.append(card("주요 코인 시세와 김치 프리미엄", "activity", liveTable(ctx, data.snapshot, TABLE_COINS), badge("live", "실시간")));
+  root.append(card("코인·티커 검색", "search", coinSearch(ctx, data.snapshot), badge("live", "실시간")));
   root.append(card("대표 스테이블코인 (달러 연동 코인)", "coins", liveTable(ctx, data.snapshot, STABLES), badge("live", "실시간")));
   root.append(note("스테이블코인은 달러와 1:1을 목표로 해서, 원화 가격이 환율과 같으면 김프 0%입니다. 환율보다 높으면 달러 수요가 몰린 것입니다."));
   if (!cs || !(cs.coins || []).length) return root.append(message("당일·1년 그래프 자료를 불러오지 못했습니다. 다음 집계 후 새로고침해 주세요."));
