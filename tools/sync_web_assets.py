@@ -36,7 +36,7 @@ def patch_core(s):
         if old not in s:
             sys.exit("core.js 패턴을 찾지 못했습니다(웹 core.js가 바뀐 듯합니다): " + old[:60])
         s = s.replace(old, new, 1)
-    sub('export function openUrl(url) {\n', 'export function openUrl(url) {\n  if (window.FssNative) return window.FssNative.openUrl(String(url));\n')
+    sub('  if (!safe) return toast("열 수 없는 주소입니다.");\n', '  if (!safe) return toast("열 수 없는 주소입니다.");\n  if (window.FssNative) return window.FssNative.openUrl(safe);\n')
     sub('export async function share(title, url) {\n', 'export async function share(title, url) {\n  if (window.FssNative) return window.FssNative.share(String(title), String(url));\n')
     sub('export function download(blob, name, opt = {}) {\n', '''export function download(blob, name, opt = {}) {
   if (window.FssNative) {
