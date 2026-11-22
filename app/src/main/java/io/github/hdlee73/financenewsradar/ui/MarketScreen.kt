@@ -523,7 +523,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
         item {
             Text(
                 if (state.failed) "일부 시세를 불러오지 못했습니다. 새로고침으로 다시 시도해 주세요."
-                else "공개 시세 기반이라 지연되거나 중단될 수 있습니다. 국내는 NAVER, 해외·환율은 Yahoo Finance.",
+                else "공개 시세 기반이라 지연되거나 중단될 수 있습니다. 국내는 NAVER, 해외·환율은 Yahoo Finance. CME 선물(나스닥100선물 등)은 약 10분 지연됩니다.",
                 Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 14.dp),
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -672,10 +672,7 @@ private fun IndexTile(
         if (wide) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1)
-                        if (showIntraday) StatusTag(series?.status)
-                    }
+                    NameWithTag(item.name, series?.status, nameStyle, MaterialTheme.colorScheme.primary, showIntraday)
                     Text(price, Modifier.padding(top = 2.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
                 }
                 if (showIntraday) IntradayChart(series, color, Modifier.weight(0.8f).height(30.dp))
@@ -685,10 +682,7 @@ private fun IndexTile(
             Text(delta, Modifier.padding(top = 2.dp), style = deltaStyle, color = color, maxLines = 1)
             if (showInvestors) InvestorRow(investors)
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1, softWrap = false)
-                if (showIntraday) StatusTag(series?.status)
-            }
+            NameWithTag(item.name, series?.status, nameStyle, MaterialTheme.colorScheme.primary, showIntraday)
             // 코스피·코스닥 이외 칸은 수치를 오른쪽 끝에 맞춘다.
             Text(price, Modifier.fillMaxWidth().padding(top = 1.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
             Text(delta, Modifier.fillMaxWidth().padding(top = 1.dp), style = deltaStyle, color = color, maxLines = 1, textAlign = TextAlign.End)
@@ -984,12 +978,33 @@ internal fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modi
     }
 }
 
+/**
+ * 지표 이름과 상황 배지. 배지가 지연 표시(긴 문구)일 때는 이름이 긴 칸(나스닥100선물)에서 배지가 잘리지 않도록 이름 아래 줄에 둔다.
+ */
+@Composable
+internal fun NameWithTag(
+    name: String, status: String?, style: TextStyle, color: Color, showTag: Boolean = true,
+    gap: androidx.compose.ui.unit.Dp = 4.dp, modifier: Modifier = Modifier
+) {
+    if (showTag && status?.startsWith("지연") == true) {
+        Column(modifier) {
+            Text(name, style = style, color = color, maxLines = 2)
+            StatusTag(status, Modifier.padding(top = 2.dp))
+        }
+    } else {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(gap)) {
+            Text(name, style = style, color = color, maxLines = 1, softWrap = false)
+            if (showTag) StatusTag(status)
+        }
+    }
+}
+
 /** 지표 이름 옆 상황 배지(장중·마감·휴장·개장 전). 상황을 알 수 없으면 아무것도 그리지 않는다. */
 @Composable
 internal fun StatusTag(status: String?, modifier: Modifier = Modifier) {
-    // 장중만 표시한다. 마감·휴장·개장 전 같은 설명은 지수명을 가리므로 넣지 않는다.
-    if (status != "장중") return
-    val live = true
+    // 장중과 시세 지연(CME 선물)만 표시한다. 마감·휴장·개장 전 같은 설명은 지수명을 가리므로 넣지 않는다.
+    if (status != "장중" && status?.startsWith("지연") != true) return
+    val live = status == "장중"
     Text(
         status,
         modifier.background(

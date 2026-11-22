@@ -100,4 +100,15 @@ class MarketDataTest {
         assertEquals(null, fx.status)
         assertTrue(fx.live)
     }
+
+    @Test
+    fun compareSeriesFuturesShowDelayMinutesWhenFeedLags() {
+        val ny = java.time.ZoneId.of("America/New_York")
+        val days = listOf(day("2026-11-18", 1.0, 2.0), day("2026-11-19", 3.0, 4.0))
+        val now = java.time.LocalDateTime.parse("2026-11-19T04:44:00").atZone(ny).toEpochSecond()
+        val lag = buildCompare(days, ny, now - 600, 288, true, false, 2.0, 4.0, now, dayShiftSec = 6 * 3600L, futuresDelay = true)
+        assertEquals("지연 10분", lag.status)
+        val fresh = buildCompare(days, ny, now - 60, 288, true, false, 2.0, 4.0, now, dayShiftSec = 6 * 3600L, futuresDelay = true)
+        assertEquals(null, fresh.status)
+    }
 }

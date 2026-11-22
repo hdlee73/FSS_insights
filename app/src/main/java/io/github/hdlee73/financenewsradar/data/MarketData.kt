@@ -59,11 +59,13 @@ data class IntradaySeries(
 /** 전일 비교 그래프 자료와 상황 배지를 만든다. [nowSec]는 테스트에서 시각을 고정하려는 용도. */
 internal fun buildCompare(
     days: List<SessionDay>, zone: ZoneId, lastEpoch: Long, bars: Int, h24: Boolean, kr: Boolean,
-    fallbackPrevious: Double?, price: Double?, nowSec: Long = System.currentTimeMillis() / 1000
+    fallbackPrevious: Double?, price: Double?, nowSec: Long = System.currentTimeMillis() / 1000,
+    dayShiftSec: Long = 0, futuresDelay: Boolean = false
 ): IntradaySeries {
     val last = days.last()
     val prev = days[days.size - 2]
-    val now = java.time.Instant.ofEpochSecond(nowSec).atZone(zone)
+    // 선물은 미국 동부 18:00에 거래일이 시작하므로 달력 날짜 대신 [dayShiftSec]만큼 민 날짜로 "오늘"을 판단한다.
+    val now = java.time.Instant.ofEpochSecond(nowSec + dayShiftSec).atZone(zone)
     val today = now.toLocalDate()
     val live = h24 || (last.date == today && (nowSec - lastEpoch) <= 15 * 60)
     val points = last.closes.toMutableList()
@@ -71,7 +73,8 @@ internal fun buildCompare(
     fun md(d: java.time.LocalDate) = "${d.monthValue}/${d.dayOfMonth}"
     val weekday = today.dayOfWeek.value in 1..5
     val status = when {
-        h24 -> null
+        // CME 선물은 거래소가 무료 시세를 약 10분 늦춰 내보내므로, 3분 넘게 뒤처지면 지연 분을 알린다.
+        h24 -> if (futuresDelay && nowSec - lastEpoch >= 180) "지연 ${(nowSec - lastEpoch + 30) / 60}분" else null
         live -> "장중"
         last.date == today -> "마감"
         kr && weekday && now.toLocalTime() < java.time.LocalTime.of(9, 10) -> "개장 전"
@@ -555,6 +558,7 @@ class MarketClient(private val context: Context) {
         val bars: Int
         val h24 = symbol.endsWith("=X") || symbol.endsWith("=F")
         val kr: Boolean
+        var dayShift = 0L
         if (naver != null) {
             zone = kst; days = naver.first; lastEpoch = naver.second; bars = 391; kr = true
         } else {
@@ -568,10 +572,12 @@ class MarketClient(private val context: Context) {
             val closes = java.util.TreeMap<java.time.LocalDate, MutableList<Double>>()
             val opens = HashMap<java.time.LocalDate, Double>()
             var last = 0L
+            // 선물(=F)은 미국 동부 18:00(한국 08:00)에 새 거래일이 시작한다. 달력 날짜(자정)로 나누면 한국 저녁에 오늘 선이 일부만 채워진다.
+            if (symbol.endsWith("=F") && zone.id.startsWith("America/")) dayShift = 6 * 3600L
             for (i in 0 until ts.length()) {
                 val c = cl.optDouble(i, Double.NaN)
                 if (!c.isFinite() || c <= 0) continue
-                val day = java.time.Instant.ofEpochSecond(ts.getLong(i)).atZone(zone).toLocalDate()
+                val day = java.time.Instant.ofEpochSecond(ts.getLong(i) + dayShift).atZone(zone).toLocalDate()
                 closes.getOrPut(day) { ArrayList() } += c
                 val o = op?.optDouble(i, Double.NaN) ?: Double.NaN
                 if (o.isFinite() && o > 0) opens.putIfAbsent(day, o)
@@ -581,7 +587,7 @@ class MarketClient(private val context: Context) {
             lastEpoch = last; bars = if (h24) 288 else 390; kr = false
         }
         if (days.size < 2) return null
-        return buildCompare(days, zone, lastEpoch, bars, h24, kr, fallbackPrevious, price)
+        return buildCompare(days, zone, lastEpoch, bars, h24, kr, fallbackPrevious, price, dayShiftSec = dayShift, futuresDelay = symbol.endsWith("=F"))
     }
 
     /** NAVER 1분봉(09:00~15:30)을 최근 거래일별로 묶어 최소 2거래일을 돌려준다. 국내 지수·종목이 아니면 null. */
