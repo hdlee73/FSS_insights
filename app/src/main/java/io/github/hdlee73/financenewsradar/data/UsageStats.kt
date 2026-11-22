@@ -27,10 +27,13 @@ object UsageStats {
     private const val KEY_LAST_VERSION = "last_ping_version"
     private const val KEY_STAT = "stat" // 날짜별 방문(v)·사용 시간(s, 초) 누적
     private const val KEY_ACKED = "acked" // 서버가 받았다고 확인한 날짜별 누적값 서명
+    private const val KEY_MACK = "menu_acked" // 서버에 보낸 날짜별 메뉴 열람 합계(오늘 것이 바뀌었는지 판단)
     private const val KEY_LIVE = "live" // 서버가 방문·시간 수집을 지원한다고 알려 준 적이 있는지
     private const val KEEP_DAYS = 14L
     private const val MAX_GAP_MS = 90_000L // 절전·지연으로 한 번에 크게 늘어나는 것을 막는다
     const val TICK_MS = 60_000L
+    /** 통계 날짜는 기기 시간대와 관계없이 한국시간 기준(서버·관리자 화면이 한국시간 하루로 집계). */
+    private val KST = java.time.ZoneId.of("Asia/Seoul")
     private val lock = Any()
     @Volatile private var appContext: Context? = null
     @Volatile private var lastTick = 0L
@@ -48,7 +51,7 @@ object UsageStats {
     /** 끄면 아직 보내지 않은 기록을 지운다. */
     fun setEnabled(context: Context, enabled: Boolean) = synchronized(lock) {
         val editor = prefs(context).edit().putBoolean(KEY_ENABLED, enabled)
-        if (!enabled) editor.remove(KEY_PENDING).remove(KEY_STAT).remove(KEY_ACKED) else lastTick = System.currentTimeMillis()
+        if (!enabled) editor.remove(KEY_PENDING).remove(KEY_STAT).remove(KEY_ACKED).remove(KEY_MACK) else lastTick = System.currentTimeMillis()
         editor.apply()
     }
 
@@ -59,8 +62,8 @@ object UsageStats {
             synchronized(lock) {
                 val p = prefs(context)
                 val stat = UsageLog.parse(p.getString(KEY_STAT, null))
-                if (skipNextVisit) skipNextVisit = false else UsageLog.addVisit(stat, LocalDate.now().toString())
-                UsageLog.prune(stat, LocalDate.now().minusDays(KEEP_DAYS).toString())
+                if (skipNextVisit) skipNextVisit = false else UsageLog.addVisit(stat, LocalDate.now(KST).toString())
+                UsageLog.prune(stat, LocalDate.now(KST).minusDays(KEEP_DAYS).toString())
                 p.edit().putString(KEY_STAT, stat.toString()).apply()
                 lastTick = System.currentTimeMillis()
             }
@@ -78,7 +81,7 @@ object UsageStats {
                 if (gap <= 0) return
                 val p = prefs(context)
                 val stat = UsageLog.parse(p.getString(KEY_STAT, null))
-                UsageLog.addSeconds(stat, LocalDate.now().toString(), (gap / 1000).toInt())
+                UsageLog.addSeconds(stat, LocalDate.now(KST).toString(), (gap / 1000).toInt())
                 p.edit().putString(KEY_STAT, stat.toString()).apply()
             }
         }
@@ -96,7 +99,7 @@ object UsageStats {
         synchronized(lock) {
             val p = prefs(context)
             val pending = UsageLog.parse(p.getString(KEY_PENDING, null))
-            val day = LocalDate.now().toString()
+            val day = LocalDate.now(KST).toString()
             UsageLog.add(pending, day, label)
             UsageLog.add(pending, day, "~h:" + java.time.LocalTime.now().hour) // 이용 시간대(기기 시계 기준 '시')
             p.edit().putString(KEY_PENDING, pending.toString()).apply()
@@ -113,7 +116,7 @@ object UsageStats {
             synchronized(lock) {
                 val p = prefs(context)
                 val pending = UsageLog.parse(p.getString(KEY_PENDING, null))
-                val day = LocalDate.now().toString()
+                val day = LocalDate.now(KST).toString()
                 val menus = pending.optJSONObject(day) ?: JSONObject().also { pending.put(day, it) }
                 val key = "~e:$clean"
                 menus.put(key, minOf(1000, menus.optInt(key, 0) + 1))
@@ -139,18 +142,19 @@ object UsageStats {
         runCatching {
             if (!isEnabled(context) || !NewsProxy.isConfigured) return@runCatching
             val p = prefs(context)
-            val today = LocalDate.now().toString()
+            val today = LocalDate.now(KST).toString()
             var sigs = emptyMap<String, String>()
             val (body, sentDays) = synchronized(lock) {
                 val id = p.getString(KEY_ID, null) ?: UUID.randomUUID().toString().also { p.edit().putString(KEY_ID, it).apply() }
                 val pending = UsageLog.parse(p.getString(KEY_PENDING, null))
-                UsageLog.prune(pending, LocalDate.now().minusDays(14).toString())
+                UsageLog.prune(pending, LocalDate.now(KST).minusDays(14).toString())
                 val stat = UsageLog.parse(p.getString(KEY_STAT, null))
                 val acked = UsageLog.parse(p.getString(KEY_ACKED, null))
+                val mack = UsageLog.parse(p.getString(KEY_MACK, null))
                 val result = UsageLog.payload(
                     id, BuildConfig.VERSION_NAME, pending, today, env = envInfo(context),
                     includeToday = p.getString(KEY_LAST_PING, null) != today || p.getString(KEY_LAST_VERSION, null) != BuildConfig.VERSION_NAME,
-                    stat = stat, acked = acked, live = p.getBoolean(KEY_LIVE, false),
+                    stat = stat, acked = acked, live = p.getBoolean(KEY_LIVE, false), menuAcked = mack,
                 )
                 sigs = result.second.mapNotNull { d -> stat.optJSONObject(d)?.let { d to UsageLog.sig(it) } }.toMap()
                 result
@@ -170,11 +174,14 @@ object UsageStats {
                     synchronized(lock) {
                         val pending = UsageLog.parse(p.getString(KEY_PENDING, null))
                         sentDays.filter { it < today }.forEach { pending.remove(it) }
-                        val editor = p.edit().putString(KEY_PENDING, pending.toString()).putString(KEY_LAST_PING, today).putString(KEY_LAST_VERSION, BuildConfig.VERSION_NAME)
+                        val mack = UsageLog.parse(p.getString(KEY_MACK, null))
+                        sentDays.forEach { d -> pending.optJSONObject(d)?.let { mack.put(d, UsageLog.menuSig(it)) } }
+                        UsageLog.prune(mack, LocalDate.now(KST).minusDays(KEEP_DAYS).toString())
+                        val editor = p.edit().putString(KEY_PENDING, pending.toString()).putString(KEY_LAST_PING, today).putString(KEY_LAST_VERSION, BuildConfig.VERSION_NAME).putString(KEY_MACK, mack.toString())
                         if (live) {
                             val acked = UsageLog.parse(p.getString(KEY_ACKED, null))
                             sigs.forEach { (d, sg) -> acked.put(d, sg) }
-                            UsageLog.prune(acked, LocalDate.now().minusDays(KEEP_DAYS).toString())
+                            UsageLog.prune(acked, LocalDate.now(KST).minusDays(KEEP_DAYS).toString())
                             editor.putBoolean(KEY_LIVE, true).putString(KEY_ACKED, acked.toString())
                         }
                         editor.apply()
@@ -211,23 +218,30 @@ internal object UsageLog {
     /** 방문·시간 누적값의 서명. 서버가 받았다고 확인한 값과 다를 때만 다시 보낸다. */
     fun sig(x: JSONObject): String = "${x.optInt("v", 0)}:${x.optInt("s", 0)}"
 
+    /** 그날 메뉴 열람 횟수의 합계(서버에 보낸 값과 비교해 오늘 것이 바뀌었는지 판단). */
+    fun menuSig(menus: JSONObject): Int = menus.keys().asSequence().sumOf { menus.optInt(it, 0) }
+
     fun prune(pending: JSONObject, oldestDay: String) {
         pending.keys().asSequence().toList().filter { it < oldestDay }.forEach { pending.remove(it) }
     }
 
     /**
-     * 보낼 본문과 그 안에 담은 날짜들. 지난 날짜는 메뉴 횟수까지, 오늘은 "오늘 접속했다"는 신호만 담는다
-     * (오늘 횟수는 날이 바뀐 뒤 한 번만 보내 중복 집계를 피한다). 보낼 것이 없으면 body 는 null.
+     * 보낼 본문과 그 안에 담은 날짜들. 지난 날짜는 메뉴 횟수까지, 오늘은 접속 신호와 바뀐 메뉴 누적 횟수를 담는다
+     * (오늘 메뉴 횟수는 그날 누적값을 보내며 서버가 최댓값으로 받는다). 보낼 것이 없으면 body 는 null.
      */
     fun payload(
         installId: String, version: String, pending: JSONObject, today: String, includeToday: Boolean, env: JSONObject? = null,
         stat: JSONObject = JSONObject(), acked: JSONObject = JSONObject(), live: Boolean = false,
+        menuAcked: JSONObject = JSONObject(),
     ): Pair<JSONObject?, List<String>> {
         val objs = sortedMapOf<String, JSONObject>()
         pending.keys().asSequence().toList().filter { it < today }.forEach { day ->
             objs[day] = JSONObject().put("d", day).put("m", pending.getJSONObject(day))
         }
-        if (includeToday) objs[today] = JSONObject().put("d", today).put("m", JSONObject())
+        // 오늘 메뉴 열람은 그날 누적값을 보낸다(서버가 최댓값으로 받아 중복 집계되지 않는다). 지난 버전은 오늘 것을 날이 바뀐 뒤에야 보내 하루 늦게 보였다.
+        val todayMenus = pending.optJSONObject(today)
+        val todayChanged = todayMenus != null && menuSig(todayMenus) != menuAcked.optInt(today, 0)
+        if (includeToday || todayChanged) objs[today] = JSONObject().put("d", today).put("m", todayMenus ?: JSONObject())
         if (live) {
             // 서버가 아직 받지 못한 방문·시간 누적값이 있는 날짜(지난 날짜 포함)
             stat.keys().asSequence().toList().sorted().takeLast(10).forEach { day ->
