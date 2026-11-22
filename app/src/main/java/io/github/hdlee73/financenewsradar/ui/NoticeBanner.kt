@@ -23,6 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.hdlee73.financenewsradar.data.Notice
 import io.github.hdlee73.financenewsradar.data.NoticeFeed
 import kotlinx.coroutines.delay
@@ -39,11 +42,17 @@ fun NoticeBanner() {
     var index by rememberSaveable { mutableStateOf(0) }
     var expanded by rememberSaveable { mutableStateOf(false) }
 
-    // 앱을 켜는 동안 10분마다 새 공지를 확인한다. 화면을 떠나면 코루틴이 함께 취소된다.
-    LaunchedEffect(Unit) {
-        while (true) {
-            NoticeFeed.fetch()?.let { notices = it }
-            delay(10 * 60_000L)
+    // 앱이 화면에 보이는 동안만 10분마다 새 공지를 확인한다(백그라운드에서는 멈추고, 돌아왔을 때 10분이 지났으면 바로 확인).
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var lastFetch by remember { mutableStateOf(0L) }
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val wait = 10 * 60_000L - (System.currentTimeMillis() - lastFetch)
+                if (wait > 0) { delay(wait); continue }
+                lastFetch = System.currentTimeMillis()
+                NoticeFeed.fetch()?.let { notices = it }
+            }
         }
     }
     val visible = notices.filter { it.id !in hidden }

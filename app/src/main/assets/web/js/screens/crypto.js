@@ -1,7 +1,7 @@
 // 가상자산 시장 동향: 국내 원화거래소 5곳 합산 시장 일보(VirtualAssets에서 옮겨 온 화면).
 // 자료는 FSS_insights 레포 crypto-data 브랜치(매일 24:00 KST 하루 한 번 집계한 JSON·PDF·HWPX와 거래소 재무, 워크플로 crypto-data.yml). 주요 코인 시세는 업비트·빗썸 웹소켓(끊기면 폴링)과 Coinbase를 브라우저에서 직접 읽는다. 별도 서버 없음.
 import { setHeader } from "../app.js";
-import { card, download as coreDownload, errorText, h, icon, loading, message, reportError, shareFile, tabs } from "../core.js";
+import { canPoll, onResume, card, download as coreDownload, errorText, h, icon, loading, message, reportError, shareFile, tabs } from "../core.js";
 import { liveCrypto } from "../lib/livefeed.js";
 
 const BASE = "https://raw.githubusercontent.com/hdlee73/FSS_insights/crypto-data";
@@ -565,17 +565,19 @@ function coinChartCard(ctx, cs, coin, year, params) {
 
   // 당일 1분봉(1분마다 갱신, 화면이 숨겨져 있으면 건너뜀)
   if (!year) {
-    let timer = 0;
+    let timer = 0, skipped = false, bo = 0;
+    const off = onResume(() => { if (skipped && ctx.alive()) { clearTimeout(timer); load(); } }); // 돌아오면 바로 한 번 읽는다
     const load = async () => {
       timer = 0;
-      if (!ctx.alive()) return;
-      if (!document.hidden) {
-        try { candles = await fetchDayCandles(sym); candleErr = false; } catch { candleErr = true; }
+      if (!ctx.alive()) return off();
+      skipped = !canPoll();
+      if (!skipped) {
+        try { candles = await fetchDayCandles(sym); candleErr = false; bo = 0; } catch { candleErr = true; bo++; }
         if (!ctx.alive()) return;
         draw();
       }
       // 업비트 REST는 Origin 기준 10초에 1회 제한이라 실패하면 11초 뒤 다시, 성공하면 1분마다(마지막 점은 실시간이라 충분).
-      timer = setTimeout(load, candleErr ? 11000 : 60000);
+      timer = setTimeout(load, candleErr ? Math.min(120_000, 11000 * 2 ** (bo - 1)) * (0.8 + Math.random() * 0.4) : 60000); // 실패가 이어지면 11초→22초…최대 2분
     };
     load();
   }
