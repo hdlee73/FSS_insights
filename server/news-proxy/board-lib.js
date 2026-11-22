@@ -82,7 +82,15 @@ async function ensure(db) {
     try {
       await db.prepare(`ALTER TABLE ${t} ADD COLUMN edited_at TEXT`).run();
     } catch {}
+    // 작성자 접속자 ID(해시). 운영자(관리자 토큰)에게만 앞 6자리를 보여 준다. 이전 글은 NULL(알 수 없음).
+    try {
+      await db.prepare(`ALTER TABLE ${t} ADD COLUMN uid TEXT`).run();
+    } catch {}
   }
+  // 투표자의 접속자 ID(해시). 운영자에게만 앞 6자리를 보여 준다. 이전 표는 NULL(알 수 없음).
+  try {
+    await db.prepare(`ALTER TABLE board_votes ADD COLUMN uid TEXT`).run();
+  } catch {}
   ready = true;
 }
 
@@ -90,6 +98,20 @@ async function ensure(db) {
 function cleanVoter(v) {
   const s = String(v || "");
   return /^[A-Za-z0-9_-]{8,64}$/.test(s) ? s : null;
+}
+
+// 설치 ID(웹·앱이 /usage/ping 에 보내는 무작위 값). 형식이 아니면 null.
+function cleanInstallId(v) {
+  const s = String(v || "");
+  return /^[A-Za-z0-9-]{16,64}$/.test(s) ? s : null;
+}
+
+// /admin 접속자 표와 같은 방식: SHA-256(설치ID:APP_TOKEN) 16진수. 표에는 앞 6자리가 나온다.
+async function authorUid(installId, env) {
+  const id = cleanInstallId(installId);
+  if (!id) return null;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${id}:${env.APP_TOKEN}`));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function hashPassword(pw) {
@@ -125,6 +147,39 @@ export async function handleBoard(request, env, corsHeaders) {
   if (path === "/board/admin/verify" && request.method === "POST") {
     if (!isAdmin(request, env)) return json({ error: "관리자 토큰이 올바르지 않습니다." }, 403, cors);
     return json({ ok: true }, 200, cors);
+  }
+
+  // GET /board/admin/list?page=N  (관리자 전용) 일반 글 최신순 + 각 글의 댓글. 작성자 접속자 ID 앞 6자리(uid6, 없으면 null).
+  if (path === "/board/admin/list" && request.method === "GET") {
+    if (!isAdmin(request, env)) return json({ error: "관리자 토큰이 올바르지 않습니다." }, 403, cors);
+    const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+    const pageSize = 20;
+    const total = (await db.prepare(`SELECT COUNT(*) AS cnt FROM board_posts WHERE is_notice = 0`).first())?.cnt || 0;
+    const posts = (await db.prepare(
+      `SELECT id, title, body, author, created_at, edited_at, substr(uid, 1, 6) AS uid6 FROM board_posts
+       WHERE is_notice = 0 ORDER BY id DESC LIMIT ? OFFSET ?`
+    ).bind(pageSize, (page - 1) * pageSize).all()).results || [];
+    let comments = [];
+    if (posts.length) {
+      const ids = posts.map((p) => p.id);
+      comments = (await db.prepare(
+        `SELECT id, post_id, author, body, created_at, substr(uid, 1, 6) AS uid6 FROM board_comments
+         WHERE post_id IN (${ids.map(() => "?").join(",")}) ORDER BY id ASC`
+      ).bind(...ids).all()).results || [];
+    }
+    let votes = [];
+    if (posts.length) {
+      const ids = posts.map((p) => p.id);
+      votes = (await db.prepare(
+        `SELECT post_id, vote, substr(uid, 1, 6) AS uid6 FROM board_votes
+         WHERE post_id IN (${ids.map(() => "?").join(",")}) ORDER BY created_at ASC`
+      ).bind(...ids).all()).results || [];
+    }
+    for (const p of posts) {
+      p.comments = comments.filter((c) => c.post_id === p.id);
+      p.votes = votes.filter((v) => v.post_id === p.id).map((v) => ({ vote: v.vote, uid6: v.uid6 || null }));
+    }
+    return json({ posts, total, page, pageSize }, 200, { ...cors, "Cache-Control": "no-store" });
   }
 
   // GET /board/posts
@@ -203,10 +258,11 @@ export async function handleBoard(request, env, corsHeaders) {
     if (password && password.length < 4) return json({ error: "비밀번호는 4자 이상이어야 합니다." }, 400, cors);
 
     const pwHash = wantNotice ? null : await hashPassword(password);
+    const uid = wantNotice ? null : await authorUid(bodyJson.uid, env);
     const now = new Date().toISOString();
     const res = await db.prepare(
-      `INSERT INTO board_posts (is_notice, title, body, author, pw_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(wantNotice ? 1 : 0, title, body, author, pwHash, now).run();
+      `INSERT INTO board_posts (is_notice, title, body, author, pw_hash, created_at, uid) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(wantNotice ? 1 : 0, title, body, author, pwHash, now, uid).run();
 
     return json({ id: res.meta.last_row_id, ok: true }, 201, cors);
   }
@@ -216,17 +272,21 @@ export async function handleBoard(request, env, corsHeaders) {
   if (postMatch) {
     const id = Number(postMatch[1]);
     if (request.method === "GET") {
+      // 작성자 접속자 ID(author_uid)는 관리자 토큰이 있을 때만 응답에 넣는다. 일반 응답에는 절대 포함하지 않는다.
+      const admin = isAdmin(request, env);
+      const uidCol = admin ? ", substr(uid, 1, 6) AS author_uid" : "";
       const post = await db.prepare(
-        `SELECT id, is_notice, title, body, author, created_at, edited_at, (pw_hash IS NOT NULL) AS has_pw FROM board_posts WHERE id = ?`
+        `SELECT id, is_notice, title, body, author, created_at, edited_at, (pw_hash IS NOT NULL) AS has_pw${uidCol} FROM board_posts WHERE id = ?`
       ).bind(id).first();
       if (!post) return json({ error: "글을 찾을 수 없습니다." }, 404, cors);
       const comments = await db.prepare(
-        `SELECT id, post_id, author, body, created_at, edited_at, (pw_hash IS NOT NULL) AS has_pw FROM board_comments WHERE post_id = ? ORDER BY id ASC`
+        `SELECT id, post_id, author, body, created_at, edited_at, (pw_hash IS NOT NULL) AS has_pw${uidCol} FROM board_comments WHERE post_id = ? ORDER BY id ASC`
       ).bind(id).all();
       const counts = await db.prepare(
         `SELECT COALESCE(SUM(vote = 1), 0) AS likes, COALESCE(SUM(vote = -1), 0) AS dislikes FROM board_votes WHERE post_id = ?`
       ).bind(id).first();
       post.has_pw = !!post.has_pw;
+      if (admin) post.author_uid = post.author_uid || null; // null = 알 수 없음(이전 글·공지)
       post.likes = counts?.likes || 0;
       post.dislikes = counts?.dislikes || 0;
       const voter = cleanVoter(url.searchParams.get("voter"));
@@ -235,7 +295,7 @@ export async function handleBoard(request, env, corsHeaders) {
         const mine = await db.prepare(`SELECT vote FROM board_votes WHERE post_id = ? AND voter = ?`).bind(id, voter).first();
         post.my_vote = mine?.vote || 0;
       }
-      const list = (comments.results || []).map((c) => ({ ...c, has_pw: !!c.has_pw }));
+      const list = (comments.results || []).map((c) => ({ ...c, has_pw: !!c.has_pw, ...(admin ? { author_uid: c.author_uid || null } : {}) }));
       return json({ post, comments: list }, 200, cors);
     }
     if (request.method === "PUT") {
@@ -271,6 +331,7 @@ export async function handleBoard(request, env, corsHeaders) {
         if (!ok) return json({ error: "비밀번호가 일치하지 않습니다." }, 403, cors);
       }
       await db.prepare(`DELETE FROM board_comments WHERE post_id = ?`).bind(id).run();
+      await db.prepare(`DELETE FROM board_votes WHERE post_id = ?`).bind(id).run();
       await db.prepare(`DELETE FROM board_posts WHERE id = ?`).bind(id).run();
       return json({ ok: true }, 200, cors);
     }
@@ -292,10 +353,11 @@ export async function handleBoard(request, env, corsHeaders) {
     if (password && password.length < 4) return json({ error: "비밀번호는 4자 이상이어야 합니다." }, 400, cors);
 
     const pwHash = await hashPassword(password);
+    const uid = await authorUid(bodyJson.uid, env);
     const now = new Date().toISOString();
     const res = await db.prepare(
-      `INSERT INTO board_comments (post_id, author, body, pw_hash, created_at) VALUES (?, ?, ?, ?, ?)`
-    ).bind(postId, author, body, pwHash, now).run();
+      `INSERT INTO board_comments (post_id, author, body, pw_hash, created_at, uid) VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(postId, author, body, pwHash, now, uid).run();
     return json({ id: res.meta.last_row_id, ok: true }, 201, cors);
   }
 
@@ -308,15 +370,16 @@ export async function handleBoard(request, env, corsHeaders) {
     const bodyJson = await request.json().catch(() => null);
     const voter = cleanVoter(bodyJson?.voter);
     const vote = Number(bodyJson?.vote);
+    const uid = await authorUid(bodyJson?.uid, env);
     if (!voter) return json({ error: "투표자 정보가 올바르지 않습니다." }, 400, cors);
     if (![1, -1, 0].includes(vote)) return json({ error: "잘못된 투표 값입니다." }, 400, cors);
     if (vote === 0) {
       await db.prepare(`DELETE FROM board_votes WHERE post_id = ? AND voter = ?`).bind(postId, voter).run();
     } else {
       await db.prepare(
-        `INSERT INTO board_votes (post_id, voter, vote, created_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(post_id, voter) DO UPDATE SET vote = excluded.vote`
-      ).bind(postId, voter, vote, new Date().toISOString()).run();
+        `INSERT INTO board_votes (post_id, voter, vote, created_at, uid) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(post_id, voter) DO UPDATE SET vote = excluded.vote, uid = COALESCE(excluded.uid, board_votes.uid)`
+      ).bind(postId, voter, vote, new Date().toISOString(), uid).run();
     }
     const counts = await db.prepare(
       `SELECT COALESCE(SUM(vote = 1), 0) AS likes, COALESCE(SUM(vote = -1), 0) AS dislikes FROM board_votes WHERE post_id = ?`
