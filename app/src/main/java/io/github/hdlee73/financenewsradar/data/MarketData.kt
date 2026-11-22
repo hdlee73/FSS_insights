@@ -38,7 +38,7 @@ data class Quote(val price: Double, val previous: Double?, val timeSeconds: Long
 data class InvestorFlow(val bizdate: String, val personal: Double, val foreign: Double, val institutional: Double)
 
 /** 최근 1년 일별 종가와 기간 최고가·최저가. */
-data class PriceHistory(val closes: List<Double>, val high: Double, val low: Double)
+data class PriceHistory(val closes: List<Double>, val high: Double, val low: Double, val dates: List<String> = emptyList())
 
 /** 당일(장이 끝났으면 가장 최근 거래일)의 분봉 종가. [previous]는 그래프 기준선(전일 종가). */
 /**
@@ -660,11 +660,13 @@ class MarketClient(private val context: Context) {
     }
 
     private fun encodeHistory(h: PriceHistory) =
-        JSONObject().put("closes", JSONArray(h.closes)).put("high", h.high).put("low", h.low)
+        JSONObject().put("closes", JSONArray(h.closes)).put("high", h.high).put("low", h.low).put("dates", JSONArray(h.dates))
 
     private fun decodeHistory(o: JSONObject): PriceHistory {
         val a = o.getJSONArray("closes")
-        return PriceHistory((0 until a.length()).map { a.getDouble(it) }, o.getDouble("high"), o.getDouble("low"))
+        val d = o.optJSONArray("dates")
+        val dates = if (d != null && d.length() == a.length()) (0 until d.length()).map { d.getString(it) } else emptyList()
+        return PriceHistory((0 until a.length()).map { a.getDouble(it) }, o.getDouble("high"), o.getDouble("low"), dates)
     }
 
     private fun yahooHistory(symbol: String): PriceHistory {
@@ -674,23 +676,29 @@ class MarketClient(private val context: Context) {
         val highs = values.getJSONArray("high")
         val lows = values.getJSONArray("low")
         val points = ArrayList<Double>()
+        val days = ArrayList<String>()
+        val stamps = chart.optJSONArray("timestamp")
+        val zone = ZoneId.of(chart.optJSONObject("meta")?.optString("exchangeTimezoneName", "UTC") ?: "UTC")
         var high = -Double.MAX_VALUE
         var low = Double.MAX_VALUE
         for (i in 0 until closes.length()) {
             val close = closes.optDouble(i, Double.NaN)
             if (!close.isFinite()) continue
+            days += if (stamps != null) java.time.Instant.ofEpochSecond(stamps.getLong(i)).atZone(zone).toLocalDate().toString().replace("-", "") else ""
+
             highs.optDouble(i, close).takeIf { it.isFinite() }?.let { high = maxOf(high, it) }
             lows.optDouble(i, close).takeIf { it.isFinite() }?.let { low = minOf(low, it) }
             points += close
         }
         if (points.size < 2) error("1년 차트 자료가 부족합니다")
-        return PriceHistory(points, high, low)
+        return PriceHistory(points, high, low, if (days.all { it.isNotEmpty() }) days else emptyList())
     }
 
     /** NAVER 일봉 XML: item data="날짜|시가|고가|저가|종가|거래량". */
     private fun naverHistory(code: String): PriceHistory {
         val xml = get("https://fchart.stock.naver.com/sise.nhn?symbol=$code&timeframe=day&count=260&requestType=0")
         val points = ArrayList<Double>()
+        val days = ArrayList<String>()
         var high = -Double.MAX_VALUE
         var low = Double.MAX_VALUE
         val cutoff = java.time.LocalDate.now(ZoneId.of("Asia/Seoul")).minusYears(1)
@@ -704,9 +712,10 @@ class MarketClient(private val context: Context) {
             high = maxOf(high, parseNumber(v[2]))
             low = minOf(low, parseNumber(v[3]))
             points += close
+            days += v[0]
         }
         if (points.size < 2) error("차트 자료 없음")
-        return PriceHistory(points, high, low)
+        return PriceHistory(points, high, low, days)
     }
 
     private fun etfCatalog(): List<Instrument> {

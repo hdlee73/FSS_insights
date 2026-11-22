@@ -12,7 +12,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
@@ -676,7 +682,7 @@ private fun IndexTile(
                     Text(price, Modifier.padding(top = 2.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
                 }
                 if (showIntraday) IntradayChart(series, color, Modifier.weight(0.8f).height(30.dp))
-                else Sparkline(history?.closes.orEmpty(), Modifier.weight(0.8f).height(30.dp))
+                else YearChart(item, history, Modifier.weight(0.8f).height(86.dp))
             }
             // 등락률 괄호까지 들어가도록 차트 아래 칸 전체 폭을 쓴다(차트 옆 좁은 칸에서는 잘림).
             Text(delta, Modifier.padding(top = 2.dp), style = deltaStyle, color = color, maxLines = 1)
@@ -687,7 +693,7 @@ private fun IndexTile(
             Text(price, Modifier.fillMaxWidth().padding(top = 1.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
             Text(delta, Modifier.fillMaxWidth().padding(top = 1.dp), style = deltaStyle, color = color, maxLines = 1, textAlign = TextAlign.End)
             if (showIntraday) IntradayChart(series, color, Modifier.fillMaxWidth().padding(top = 4.dp).height(26.dp))
-            else Sparkline(history?.closes.orEmpty(), Modifier.fillMaxWidth().padding(top = 4.dp).height(26.dp))
+            else YearChart(item, history, Modifier.fillMaxWidth().padding(top = 2.dp).height(86.dp))
         }
     }
 }
@@ -1151,12 +1157,12 @@ private fun WatchCell(
                 Modifier.weight(1f), style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp), color = color, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             if (showIntraday) IntradayChart(intraday, color, Modifier.width(44.dp).height(18.dp), compare = false)
-            else if (history != null) Sparkline(history.closes, Modifier.width(44.dp).height(18.dp))
         }
         Text(
             quote?.let { deltaText(item, it) } ?: "—",
             style = TextStyle(fontSize = 9.5.sp, fontWeight = FontWeight.Medium), color = color, maxLines = 1, overflow = TextOverflow.Ellipsis
         )
+        if (!showIntraday && history != null) YearChart(item, history, Modifier.fillMaxWidth().padding(top = 2.dp).height(86.dp))
         if (editing) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 IconButton(onClick = onUp, enabled = canUp, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.ArrowUpward, contentDescription = "앞으로", Modifier.size(16.dp)) }
@@ -1186,6 +1192,90 @@ private fun Sparkline(closes: List<Double>, modifier: Modifier = Modifier) {
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         drawPath(path, ChartColor, style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round))
+    }
+}
+
+/**
+ * 1년 그래프(지수 칸): 꺾은선에 시작·최고·최저 가격과 일자를 점과 글자로 표시한다(종가 기준).
+ * 글자는 선 위·아래 띠에 놓고, 서로 겹치면 반대 띠나 옆으로 옮기며, 그래도 안 되면 날짜를 뺀다. 최고는 빨강, 최저는 파랑, 시작은 회색.
+ */
+@Composable
+private fun YearChart(item: Instrument, history: PriceHistory?, modifier: Modifier = Modifier) {
+    val closes = history?.closes.orEmpty()
+    val dates = history?.dates.orEmpty()
+    val measurer = rememberTextMeasurer()
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Canvas(modifier) {
+        if (closes.size < 2) return@Canvas
+        val band = 22.dp.toPx()
+        val pad = 3.dp.toPx()
+        val chartH = size.height - 2 * band
+        val lo = closes.min()
+        val span = (closes.max() - lo).takeIf { it > 0 } ?: 1.0
+        fun xOf(i: Int) = pad + i / (closes.size - 1f) * (size.width - 2 * pad)
+        fun yOf(v: Double) = band + chartH * (1f - ((v - lo) / span).toFloat()) * 0.9f + chartH * 0.05f
+        val path = Path()
+        closes.forEachIndexed { i, v -> if (i == 0) path.moveTo(xOf(i), yOf(v)) else path.lineTo(xOf(i), yOf(v)) }
+        drawPath(path, ChartColor, style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+        val hi = closes.indices.maxByOrNull { closes[it] } ?: 0
+        val low = closes.indices.minByOrNull { closes[it] } ?: 0
+        val groups = LinkedHashMap<Int, MutableList<String>>()
+        if (closes[hi] != closes[low]) {
+            groups.getOrPut(hi) { mutableListOf() }.add("최고")
+            groups.getOrPut(low) { mutableListOf() }.add("최저")
+        }
+        groups.getOrPut(0) { mutableListOf() }.add("시작")
+        fun valueText(v: Double) =
+            if (v >= 1000 && item.type != Instrument.TYPE_FX && item.type != Instrument.TYPE_RATE) grouped(v, 0) else priceText(item, v).removeSuffix("원")
+        fun dateText(i: Int): String {
+            val d = dates.getOrNull(i) ?: return ""
+            return if (d.length >= 8) "${d.substring(2, 4)}.${d.substring(4, 6).toInt()}.${d.substring(6, 8).toInt()}" else ""
+        }
+        class Mark(val i: Int, val names: List<String>, val color: Color, val top: Boolean, val fixed: Boolean)
+        val marks = groups.map { (i, names) ->
+            val up = "최고" in names
+            val down = "최저" in names
+            val y = yOf(closes[i])
+            Mark(i, names, if (up) UpColor else if (down) DownColor else muted, if (up) true else if (down) false else y < band + chartH / 2, up || down)
+        }.sortedByDescending { it.fixed }
+        val bold = TextStyle(fontSize = 8.5.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
+        val regular = TextStyle(fontSize = 8.5.sp, letterSpacing = (-0.2).sp, lineHeight = 10.sp, textAlign = TextAlign.Center)
+        val placed = mapOf(true to mutableListOf<ClosedFloatingPointRange<Float>>(), false to mutableListOf<ClosedFloatingPointRange<Float>>())
+        fun clash(top: Boolean, l: Float, w: Float) = placed.getValue(top).firstOrNull { l < it.endInclusive + 3f && l + w + 3f > it.start }
+        for (m in marks) {
+            val head = m.names.joinToString("·") + " " + valueText(closes[m.i])
+            val date = dateText(m.i)
+            for (withDate in if (date.isEmpty()) listOf(false) else listOf(true, false)) {
+                val text = buildAnnotatedString {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(head) }
+                    if (withDate) {
+                        append("\n")
+                        withStyle(SpanStyle(fontSize = 7.5.sp)) { append("($date)") }
+                    }
+                }
+                val layout = measurer.measure(text, regular.copy(color = m.color))
+                val w = layout.size.width.toFloat()
+                var l = (xOf(m.i) - w / 2).coerceIn(0f, size.width - w)
+                var top = m.top
+                var ok = true
+                if (clash(top, l, w) != null) {
+                    if (clash(!top, l, w) == null) top = !top
+                    else {
+                        val c = clash(top, l, w)!!
+                        if (c.endInclusive + 3f + w <= size.width) l = c.endInclusive + 3f
+                        else if (c.start - 3f - w >= 0f) l = c.start - 3f - w
+                        else ok = false
+                    }
+                }
+                if (!ok) continue
+                placed.getValue(top).add(l..(l + w))
+                drawText(layout, topLeft = Offset(l, if (top) 0f else size.height - band + 1.dp.toPx()))
+                break
+            }
+            drawCircle(Color.White, 4.dp.toPx(), Offset(xOf(m.i), yOf(closes[m.i])))
+            drawCircle(m.color, 3.dp.toPx(), Offset(xOf(m.i), yOf(closes[m.i])))
+        }
     }
 }
 
