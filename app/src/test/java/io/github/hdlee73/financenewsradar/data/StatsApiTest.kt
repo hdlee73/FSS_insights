@@ -48,10 +48,12 @@ class StatsApiTest {
     }
 
     @Test
-    fun defaultsAreInCatalogAndBriefingKeepsTwoStats() {
+    fun defaultsAreInCatalogAndBriefingKeepsThreeStatsAndTwoMacro() {
         val ids = STAT_CATALOG.map { it.id }.toSet()
         assertTrue(ids.containsAll(DEFAULT_MARKET_STATS))
-        assertEquals(listOf("ktb-3y", "corp-aa"), DEFAULT_BRIEFING_STATS)
+        assertEquals(listOf("ktb-3y", "corp-aa", "household-credit"), DEFAULT_BRIEFING_STATS)
+        assertEquals(listOf("cpi-yoy", "unemployment"), DEFAULT_BRIEFING_MACRO)
+        assertTrue(MACRO_CATALOG.map { it.id }.containsAll(DEFAULT_BRIEFING_MACRO))
     }
 
     @Test

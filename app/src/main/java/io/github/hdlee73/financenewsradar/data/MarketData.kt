@@ -155,6 +155,13 @@ class WatchlistStore(context: Context) {
         preferences.edit().putStringSet(MACRO_SELECTED, ids).apply()
     }
 
+    /** 거시경제 지표 중 오늘의 브리핑에도 보일 것. 저장된 값이 없으면 소비자물가 상승률·실업률. */
+    fun loadMacroBriefing(): Set<String> = preferences.getStringSet(MACRO_BRIEFING, null) ?: DEFAULT_BRIEFING_MACRO.toSet()
+
+    fun saveMacroBriefing(ids: Set<String>) {
+        preferences.edit().putStringSet(MACRO_BRIEFING, ids).apply()
+    }
+
     /** 자본시장 통계에서 숨긴 항목 키. 저장된 값이 없으면 전부 보이고, 새로 생긴 항목도 기본으로 보인다. */
     fun loadKofiaHidden(): Set<String> = preferences.getStringSet(KOFIA_HIDDEN, null) ?: emptySet()
 
@@ -169,7 +176,7 @@ class WatchlistStore(context: Context) {
     fun loadIndexSelection(): IndexSelection {
         val saved = preferences.getStringSet(INDEX_MARKET, null)
         val market = saved ?: (KOREA_INDEXES.map { it.symbol } + panelSlots(loadPanelSlots()).map { it.symbol }).toSet()
-        val briefing = preferences.getStringSet(INDEX_BRIEFING, null) ?: (market - BRIEFING_EXCLUDED_DEFAULT)
+        val briefing = preferences.getStringSet(INDEX_BRIEFING, null) ?: BRIEFING_DEFAULT_INDEXES
         return IndexSelection(market, briefing)
     }
 
@@ -200,6 +207,7 @@ class WatchlistStore(context: Context) {
         const val STAT_MARKET = "stat_market_v1"
         const val STAT_BRIEFING = "stat_briefing_v1"
         const val MACRO_SELECTED = "macro_selected_v1"
+        const val MACRO_BRIEFING = "macro_briefing_v1"
         const val KOFIA_HIDDEN = "kofia_hidden_v1"
         const val ITEMS = "items"
         const val PANEL = "panel_slots"
@@ -288,6 +296,8 @@ val INDEX_CHOICES: List<Instrument> = KOREA_INDEXES + PANEL_CATALOG
 
 /** 처음에 브리핑 시장 지표에서 뺀 항목: S&P 500, WTI, US 10Y, 필라델피아 반도체. */
 val BRIEFING_EXCLUDED_DEFAULT = setOf("^GSPC", "CL=F", "^TNX", "^SOX")
+/** 오늘의 브리핑 시장 지표 기본값(사용자가 따로 고르기 전): KOSPI·KOSDAQ·나스닥·S&P 500·환율. */
+val BRIEFING_DEFAULT_INDEXES = setOf("^KS11", "^KQ11", "^IXIC", "^GSPC", "KRW=X")
 
 /** 사용자가 고른 증시 지표: 증시동향에 보일 것과 오늘의 브리핑에 보일 것(심볼). */
 data class IndexSelection(val market: Set<String>, val briefing: Set<String>) {

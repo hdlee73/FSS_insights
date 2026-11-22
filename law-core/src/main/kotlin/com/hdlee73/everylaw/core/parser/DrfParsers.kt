@@ -190,6 +190,9 @@ object DrfParsers {
                 name = name,
                 kind = n.childText("행정규칙종류"),
                 agency = n.childText("소관부처명", "발령기관명"),
+                promulgationDate = n.childText("발령일자"),
+                effectiveDate = n.childText("시행일자"),
+                revisionType = n.childText("제개정구분명"),
             )
         }.orDiagnose(r, xml)
     }
