@@ -6,7 +6,7 @@ import org.junit.Test
 
 class MarketDataTest {
     @Test
-    fun panelHasSixDistinctSlotsAndDefaultsWhenNothingSaved() {
+    fun panelHasDefaultDistinctSlotsAndDefaultsWhenNothingSaved() {
         assertEquals(listOf("^KS11", "^KQ11"), KOREA_INDEXES.map { it.symbol })
         val defaults = panelSlots(emptyList()).map { it.symbol }
         assertEquals(DEFAULT_PANEL_SLOTS, defaults)
