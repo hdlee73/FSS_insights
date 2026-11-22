@@ -89,7 +89,7 @@ e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", uf
 const d12u = e.series.find((x) => x.day === "2026-11-12");
 assert.equal(d12u.unmeasured, 1);
 assert.equal(d12u.users + d12u.unmeasured, d12u.dau); // 측정 + 미측정 = DAU
-assert.deepEqual(d12u.unList, [{ id: "u3", p: "web", ver: "2.19.0", at: null, fa: null, fd: "2026-11-12" }]);
+assert.deepEqual(d12u.unList, [{ id: "u3", p: "web", ver: "2.19.0", at: null, fa: null, fd: "2026-11-12", cd: 1, cm: 0, cv: 0, cs: 0 }]);
 assert.equal(e.series.find((x) => x.day === "2026-11-13").unmeasured, 0);
 assert.equal(e.period.unmeasured, 1);
 assert.deepEqual(e.period.users.map((x) => [x.id, !!x.un]), [["u2", false], ["u1", false], ["u3", true]]);
