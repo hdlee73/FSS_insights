@@ -1,6 +1,6 @@
 // 보관함(스크랩·메모)과 읽음 표시. 서버 없이 이 브라우저(localStorage)에만 저장한다.
 // 기사 즐겨찾기(news.bookmarks)·보도자료/리포트 저장함(savedReleases)을 그대로 쓰고, 메모와 읽음만 더한다.
-import { dialog, store, toast } from "../core.js";
+import { dialog, safeHttpUrl, store, toast } from "../core.js";
 import * as N from "./news.js";
 import { agencyById } from "./agencies.js";
 
@@ -79,15 +79,58 @@ export function allItems() {
 export function exportAll() {
   return JSON.stringify({ app: "fss-insights-web", version: 1, savedAt: new Date().toISOString(), bookmarks: N.bookmarks(), releases: savedReleases(), notes: notes() }, null, 1);
 }
+// ---- 가져오기 검증 ----
+const BAD_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const str = (v, max) => (typeof v === "string" ? v.slice(0, max) : "");
+const num = (v) => (Number.isFinite(v) ? v : 0);
+/** http/https 주소만 통과(그 밖은 ""). */
+const url = (v) => {
+  const s = str(v, 2000);
+  return safeHttpUrl(s) ? s : "";
+};
+/** 항목 하나를 정리: 허용 키만(프로토타입 오염 키 제외), 문자열(길이 제한)·숫자·참거짓 값만, 주소 필드는 http/https만. */
+function cleanItem(x) {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
+  const link = url(x.link);
+  if (!link) return null;
+  const out = { link };
+  for (const k of Object.keys(x).slice(0, 40)) {
+    if (BAD_KEYS.has(k) || k === "link" || k.length > 40) continue;
+    const v = x[k];
+    if (typeof v === "string") {
+      if (/url|link|href/i.test(k)) { const u = url(v); if (u) out[k] = u; }
+      else out[k] = str(v, k === "summary" ? 2000 : 500);
+    } else if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+    else if (typeof v === "boolean") out[k] = v;
+  }
+  return out;
+}
+const cleanBookmark = cleanItem;
+const cleanRelease = cleanItem;
+function cleanNotes(n) {
+  const out = {};
+  if (!n || typeof n !== "object" || Array.isArray(n)) return out;
+  for (const k of Object.keys(n).slice(0, 5000)) {
+    if (BAD_KEYS.has(k) || !safeHttpUrl(k) || typeof n[k]?.text !== "string") continue;
+    out[k] = { text: str(n[k].text, 2000), at: num(n[k].at) };
+  }
+  return out;
+}
+const list = (v, f, max) => (Array.isArray(v) ? v.slice(0, max).map(f).filter(Boolean) : []);
+
 export function importAll(text) {
+  if (typeof text !== "string" || text.length > 10 * 1024 * 1024) throw new Error("파일이 너무 크거나 올바르지 않습니다.");
   const d = JSON.parse(text);
-  if (d?.app !== "fss-insights-web") throw new Error("FSS Insights 웹에서 내보낸 파일이 아닙니다.");
+  if (!d || typeof d !== "object" || d.app !== "fss-insights-web") throw new Error("FSS Insights 웹에서 내보낸 파일이 아닙니다.");
+  const bookmarks = list(d.bookmarks, cleanBookmark, 500);
+  const releases = list(d.releases, cleanRelease, 2000);
+  const notes0 = cleanNotes(d.notes);
   const mergeBy = (a, b) => {
     const seen = new Set(a.map((x) => x.link));
-    return [...a, ...b.filter((x) => x?.link && !seen.has(x.link))];
+    return [...a, ...b.filter((x) => !seen.has(x.link) && seen.add(x.link))];
   };
-  store.set("news.bookmarks", mergeBy(N.bookmarks(), d.bookmarks || []).slice(0, 500));
-  store.set("savedReleases", mergeBy(savedReleases(), d.releases || []));
-  store.set("vault.notes", { ...(d.notes || {}), ...notes() });
-  return (d.bookmarks?.length || 0) + (d.releases?.length || 0);
+  store.set("news.bookmarks", mergeBy(N.bookmarks(), bookmarks).slice(0, 500));
+  store.set("savedReleases", mergeBy(savedReleases(), releases));
+  store.set("vault.notes", { ...notes0, ...notes() });
+  return bookmarks.length + releases.length;
 }

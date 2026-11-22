@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""웹(fss-insights-web)의 소비자 지킴이·제재 양정 시뮬레이터·가상자산 시장 동향 화면을 앱 assets/web 으로 복사한다.
+"""웹(fss-insights-web)의 소비자 지킴이·제재 양정 시뮬레이터·가상자산 시장 동향·익명게시판 화면을 앱 assets/web 으로 복사한다.
 
 앱은 이 화면들을 WebView(앱에 내장된 파일, 오프라인에서도 열림)로 보여 주므로 웹과 같은 코드를 쓴다.
 웹에서 이 화면들을 고치면 아래처럼 다시 실행하면 앱에도 반영된다.
@@ -14,7 +14,7 @@ import os, re, shutil, sys
 SRC = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "../fss-insights-web")
 DST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "src", "main", "assets", "web")
 DST = os.path.abspath(DST)
-ENTRY = ["js/screens/consumer.js", "js/screens/crypto.js", "js/screens/finsim.js", "js/screens/fisis.js"]
+ENTRY = ["js/screens/consumer.js", "js/screens/crypto.js", "js/screens/finsim.js", "js/screens/fisis.js", "js/screens/lawnews.js", "js/screens/lawdoc.js", "js/screens/board.js", "js/screens/community.js"]
 
 def closure():
     seen, todo = set(), list(ENTRY)
@@ -36,7 +36,7 @@ def patch_core(s):
         if old not in s:
             sys.exit("core.js 패턴을 찾지 못했습니다(웹 core.js가 바뀐 듯합니다): " + old[:60])
         s = s.replace(old, new, 1)
-    sub('export function openUrl(url) {\n', 'export function openUrl(url) {\n  if (window.FssNative) return window.FssNative.openUrl(String(url));\n')
+    sub('  if (!safe) return toast("열 수 없는 주소입니다.");\n', '  if (!safe) return toast("열 수 없는 주소입니다.");\n  if (window.FssNative) return window.FssNative.openUrl(safe);\n')
     sub('export async function share(title, url) {\n', 'export async function share(title, url) {\n  if (window.FssNative) return window.FssNative.share(String(title), String(url));\n')
     sub('export function download(blob, name, opt = {}) {\n', '''export function download(blob, name, opt = {}) {
   if (window.FssNative) {
@@ -56,7 +56,7 @@ def patch_crypto(s):
             sys.exit("crypto.js 패턴을 찾지 못했습니다(웹 crypto.js가 바뀐 듯합니다): " + old[:60])
         s = s.replace(old, new, 1)
     # 일보 HTML 저장은 앱에서는 파일 저장 창으로, 인쇄(PDF) 단추는 WebView에서 동작하지 않으므로 숨긴다.
-    sub('import { card, errorText, h, icon, loading, message, reportError, shareFile, tabs } from "../core.js";', 'import { card, download as coreDownload, errorText, h, icon, loading, message, reportError, shareFile, tabs } from "../core.js";')
+    sub('import { canPoll, onResume, card, errorText,', 'import { canPoll, onResume, card, download as coreDownload, errorText,')
     sub('    const a = h("a", { href: URL.createObjectURL(blob), download: `가상자산시장일보_${data.snapshot.date}.html` });\n    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);\n', '    coreDownload(blob, `가상자산시장일보_${data.snapshot.date}.html`);\n')
     sub('h("button", { type: "button", class: "btn ghost sm", onclick: pr }, "PDF로 저장(인쇄)")', 'window.FssNative ? null : h("button", { type: "button", class: "btn ghost sm", onclick: pr }, "PDF로 저장(인쇄)")')
     return s

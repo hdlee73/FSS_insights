@@ -61,7 +61,8 @@ import kotlinx.coroutines.withContext
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun WebEmbedScreen(route: String, modifier: Modifier = Modifier, backEnabled: Boolean = true) {
+fun WebEmbedScreen(route: String, modifier: Modifier = Modifier, backEnabled: Boolean = true, onOpenLaw: ((String) -> Unit)? = null) {
+    val openLawNow = androidx.compose.runtime.rememberUpdatedState(onOpenLaw)
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
@@ -96,6 +97,7 @@ fun WebEmbedScreen(route: String, modifier: Modifier = Modifier, backEnabled: Bo
     val bridge = remember {
         FssNativeBridge(context.applicationContext, Handler(Looper.getMainLooper()),
             onOpen = { url -> openWebLink(context, url) },
+            onOpenLaw = { q -> openLawNow.value?.invoke(q) },
             onSave = { name, bytes ->
                 pendingSave[0] = bytes
                 runCatching { saver.launch(name) }.onFailure { pendingSave[0] = null }
@@ -240,6 +242,8 @@ private fun proxyApi(request: WebResourceRequest): WebResourceResponse? {
     val uri = request.url
     val host = runCatching { Uri.parse(base).host }.getOrNull() ?: return null
     if (host.isBlank() || uri.host != host) return null
+    // 익명게시판(/board/)은 글·댓글 쓰기(POST·DELETE, 본문 있음)가 필요한데 여기서는 본문을 읽을 수 없으므로 가로채지 않고 그대로 서버로 보낸다(서버가 앱 출처를 CORS 허용해야 함).
+    if (uri.path.orEmpty().startsWith("/board/")) return null
     if (request.method == "OPTIONS" || (request.method != "GET" && request.method != "HEAD")) {
         return WebResourceResponse("text/plain", "utf-8", 204, "No Content", CORS_HEADERS, java.io.ByteArrayInputStream(ByteArray(0)))
     }
@@ -307,12 +311,19 @@ private class FssNativeBridge(
     private val context: Context,
     private val main: Handler,
     private val onOpen: (String) -> Unit,
+    private val onOpenLaw: (String) -> Unit,
     private val onSave: (String, ByteArray) -> Unit,
     private val onShare: (String, String) -> Unit,
 ) {
     @JavascriptInterface
     fun openUrl(url: String) {
         main.post { onOpen(url) }
+    }
+
+    /** 법령명을 스마트 법령검색(앱 화면)에서 연다. */
+    @JavascriptInterface
+    fun openLaw(query: String) {
+        main.post { onOpenLaw(query) }
     }
 
     @JavascriptInterface

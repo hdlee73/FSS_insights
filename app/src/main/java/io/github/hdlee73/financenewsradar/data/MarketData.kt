@@ -38,7 +38,7 @@ data class Quote(val price: Double, val previous: Double?, val timeSeconds: Long
 data class InvestorFlow(val bizdate: String, val personal: Double, val foreign: Double, val institutional: Double)
 
 /** 최근 1년 일별 종가와 기간 최고가·최저가. */
-data class PriceHistory(val closes: List<Double>, val high: Double, val low: Double)
+data class PriceHistory(val closes: List<Double>, val high: Double, val low: Double, val dates: List<String> = emptyList())
 
 /** 당일(장이 끝났으면 가장 최근 거래일)의 분봉 종가. [previous]는 그래프 기준선(전일 종가). */
 /**
@@ -56,27 +56,64 @@ data class IntradaySeries(
     val live: Boolean = true
 )
 
+/**
+ * 한국거래소가 평소(09:00~15:30)보다 1시간 늦게 열고 닫는 날(수능일 등)의 개장·종료 시각(수능일은 10:00~16:30, 한국거래소 공지).
+ * 휴장일 목록이 따로 없고 "오늘 분봉이 없음"으로 추정하므로, 지연개장일은 여기 등록해야 휴장으로 오판하지 않는다. 해마다 확인해 추가한다.
+ */
+internal data class KrxLateSession(val open: java.time.LocalTime, val close: java.time.LocalTime)
+
+internal val KRX_LATE_OPEN: Map<java.time.LocalDate, KrxLateSession> = mapOf(
+    java.time.LocalDate.of(2026, 11, 19) to KrxLateSession(java.time.LocalTime.of(10, 0), java.time.LocalTime.of(16, 30)),
+    java.time.LocalDate.of(2027, 1, 4) to KrxLateSession(java.time.LocalTime.of(10, 0), java.time.LocalTime.of(16, 30)),
+    java.time.LocalDate.of(2027, 11, 18) to KrxLateSession(java.time.LocalTime.of(10, 0), java.time.LocalTime.of(16, 30))
+)
+
+/** 아시아 거래소 점심 휴장(현지시각 hhmm 시작·끝)과 하루 분봉 수. */
+private val ASIA_LUNCH = mapOf("Asia/Tokyo" to (1130 to 1230), "Asia/Hong_Kong" to (1200 to 1300), "Asia/Shanghai" to (1130 to 1300))
+private val ASIA_BARS = mapOf("Asia/Tokyo" to 300, "Asia/Hong_Kong" to 330, "Asia/Shanghai" to 240, "Asia/Taipei" to 270)
+
 /** 전일 비교 그래프 자료와 상황 배지를 만든다. [nowSec]는 테스트에서 시각을 고정하려는 용도. */
 internal fun buildCompare(
     days: List<SessionDay>, zone: ZoneId, lastEpoch: Long, bars: Int, h24: Boolean, kr: Boolean,
-    fallbackPrevious: Double?, price: Double?, nowSec: Long = System.currentTimeMillis() / 1000
+    fallbackPrevious: Double?, price: Double?, nowSec: Long = System.currentTimeMillis() / 1000,
+    sessionStart: Long? = null, sessionEnd: Long? = null,
+    dayShiftSec: Long = 0, futuresDelay: Boolean = false
 ): IntradaySeries {
     val last = days.last()
     val prev = days[days.size - 2]
-    val now = java.time.Instant.ofEpochSecond(nowSec).atZone(zone)
+    // 선물은 미국 동부 18:00에 거래일이 시작하므로 달력 날짜 대신 [dayShiftSec]만큼 민 날짜로 "오늘"을 판단한다.
+    val now = java.time.Instant.ofEpochSecond(nowSec + dayShiftSec).atZone(zone)
     val today = now.toLocalDate()
-    val live = h24 || (last.date == today && (nowSec - lastEpoch) <= 15 * 60)
+    val nowTime = now.toLocalTime()
+    val hhmm = nowTime.hour * 100 + nowTime.minute
+    val weekday = today.dayOfWeek.value in 1..5
+    // 해외 지수는 Yahoo가 15~20분 지연되므로 "마지막 분봉 15분 이내"로 보면 장중에도 마감으로 나온다 → 거래소 정규장 시간으로 판정.
+    val hasSession = !kr && sessionStart != null && sessionEnd != null
+    val inSession = hasSession && last.date == today && nowSec >= sessionStart!! && nowSec <= sessionEnd!! + 600
+    val lunch = ASIA_LUNCH[zone.id]
+    val onLunch = lunch != null && inSession && hhmm >= lunch.first && hhmm < lunch.second
+    val live = h24 || (if (hasSession) inSession else last.date == today && (nowSec - lastEpoch) <= 15 * 60)
     val points = last.closes.toMutableList()
     if (live && price != null && price.isFinite() && price > 0) points[points.lastIndex] = price
     fun md(d: java.time.LocalDate) = "${d.monthValue}/${d.dayOfMonth}"
-    val weekday = today.dayOfWeek.value in 1..5
+    val lateOpen = if (kr && weekday) KRX_LATE_OPEN[today]?.open else null
+    val lateWait = lateOpen != null && last.date != today && nowTime < lateOpen.plusMinutes(10)
+    val beforeOpen = hasSession && weekday && java.time.Instant.ofEpochSecond(sessionStart!!).atZone(zone).toLocalTime().let {
+        hhmm < it.hour * 100 + it.minute + 20
+    }
     val status = when {
-        h24 -> null
+        // CME 선물은 거래소가 무료 시세를 약 10분 늦춰 내보내므로, 3분 넘게 뒤처지면 지연 분을 알린다.
+        h24 -> if (futuresDelay && nowSec - lastEpoch >= 180) "지연 ${(nowSec - lastEpoch + 30) / 60}분" else null
+        onLunch -> "점심 휴장"
         live -> "장중"
         last.date == today -> "마감"
-        kr && weekday && now.toLocalTime() < java.time.LocalTime.of(9, 10) -> "개장 전"
+        lateWait -> "지연개장 · %02d:%02d 개장".format(lateOpen!!.hour, lateOpen.minute)
+        kr && weekday && nowTime < java.time.LocalTime.of(9, 10) -> "개장 전"
         kr -> "휴장 · ${md(last.date)} 마감"
-        else -> "마감 ${md(last.date)}(미국)"
+        !hasSession -> "마감 ${md(last.date)}(미국)"
+        beforeOpen -> "개장 전"
+        zone.id.startsWith("America/") -> "마감 ${md(last.date)}(미국)"
+        else -> "휴장 · ${md(last.date)} 마감"
     }
     return IntradaySeries(
         points, fallbackPrevious ?: prev.closes.last(), prev.closes,
@@ -155,6 +192,13 @@ class WatchlistStore(context: Context) {
         preferences.edit().putStringSet(MACRO_SELECTED, ids).apply()
     }
 
+    /** 거시경제 지표 중 오늘의 브리핑에도 보일 것. 저장된 값이 없으면 소비자물가 상승률·실업률. */
+    fun loadMacroBriefing(): Set<String> = preferences.getStringSet(MACRO_BRIEFING, null) ?: DEFAULT_BRIEFING_MACRO.toSet()
+
+    fun saveMacroBriefing(ids: Set<String>) {
+        preferences.edit().putStringSet(MACRO_BRIEFING, ids).apply()
+    }
+
     /** 자본시장 통계에서 숨긴 항목 키. 저장된 값이 없으면 전부 보이고, 새로 생긴 항목도 기본으로 보인다. */
     fun loadKofiaHidden(): Set<String> = preferences.getStringSet(KOFIA_HIDDEN, null) ?: emptySet()
 
@@ -169,7 +213,14 @@ class WatchlistStore(context: Context) {
     fun loadIndexSelection(): IndexSelection {
         val saved = preferences.getStringSet(INDEX_MARKET, null)
         val market = saved ?: (KOREA_INDEXES.map { it.symbol } + panelSlots(loadPanelSlots()).map { it.symbol }).toSet()
-        val briefing = preferences.getStringSet(INDEX_BRIEFING, null) ?: (market - BRIEFING_EXCLUDED_DEFAULT)
+        val briefing = preferences.getStringSet(INDEX_BRIEFING, null) ?: BRIEFING_DEFAULT_INDEXES
+        // 나스닥100 선물을 기본에 새로 넣었으므로, 이미 지표를 골라 둔 사용자에게도 한 번만 추가한다(이후 빼면 그대로 유지).
+        if (!preferences.getBoolean(NQ_ADDED, false)) {
+            val migrated = IndexSelection(market + NQ_FUTURES, briefing + NQ_FUTURES)
+            preferences.edit().putBoolean(NQ_ADDED, true).apply()
+            saveIndexSelection(migrated)
+            return migrated
+        }
         return IndexSelection(market, briefing)
     }
 
@@ -196,10 +247,12 @@ class WatchlistStore(context: Context) {
         const val WATCH_INTRADAY = "watch_chart_intraday_v1"
         const val INDEX_MARKET = "index_market_v1"
         const val INDEX_BRIEFING = "index_briefing_v1"
+        const val NQ_ADDED = "index_nq_futures_added_v1"
         const val HIDDEN_STATS = "hidden_stats"
         const val STAT_MARKET = "stat_market_v1"
         const val STAT_BRIEFING = "stat_briefing_v1"
         const val MACRO_SELECTED = "macro_selected_v1"
+        const val MACRO_BRIEFING = "macro_briefing_v1"
         const val KOFIA_HIDDEN = "kofia_hidden_v1"
         const val ITEMS = "items"
         const val PANEL = "panel_slots"
@@ -226,17 +279,18 @@ val KOREA_INDEXES = listOf(
     Instrument("^KQ11", "KOSDAQ", "KRW", Instrument.TYPE_INDEX)
 )
 
-/** 코스피·코스닥 아래 둘째·셋째 줄(3칸씩)의 칸 수. */
-const val PANEL_SLOT_COUNT = 6
+/** 코스피·코스닥 아래 기본 칸 수(S&P 500·Nasdaq·나스닥100 선물·환율·WTI·US 10Y·Gold). */
+const val PANEL_SLOT_COUNT = 7
 
 private fun idx(symbol: String, name: String) = Instrument(symbol, name, "USD", Instrument.TYPE_INDEX)
 private fun quoteOf(symbol: String, name: String) = Instrument(symbol, name, "USD", Instrument.TYPE_EQUITY)
 
 /** 둘째·셋째 줄에 고를 수 있는 시장 지표. 앞에서부터 [PANEL_SLOT_COUNT]개가 기본값이다. */
 val PANEL_CATALOG = listOf(
-    // 기본 6칸
+    // 기본 7칸
     idx("^GSPC", "S&P 500"),
     idx("^IXIC", "Nasdaq"),
+    idx("NQ=F", "Nasdaq 100 Futures (나스닥100선물)"),
     Instrument("KRW=X", "USD/KRW", "KRW", Instrument.TYPE_FX),
     quoteOf("CL=F", "WTI"),
     Instrument("^TNX", "US 10Y", "USD", Instrument.TYPE_RATE),
@@ -287,7 +341,11 @@ fun panelSlots(saved: List<String>): List<Instrument> {
 val INDEX_CHOICES: List<Instrument> = KOREA_INDEXES + PANEL_CATALOG
 
 /** 처음에 브리핑 시장 지표에서 뺀 항목: S&P 500, WTI, US 10Y, 필라델피아 반도체. */
+const val NQ_FUTURES = "NQ=F"
+
 val BRIEFING_EXCLUDED_DEFAULT = setOf("^GSPC", "CL=F", "^TNX", "^SOX")
+/** 오늘의 브리핑 시장 지표 기본값(사용자가 따로 고르기 전): KOSPI·KOSDAQ·나스닥·S&P 500·환율. */
+val BRIEFING_DEFAULT_INDEXES = setOf("^KS11", "^KQ11", "^IXIC", "^GSPC", "KRW=X")
 
 /** 사용자가 고른 증시 지표: 증시동향에 보일 것과 오늘의 브리핑에 보일 것(심볼). */
 data class IndexSelection(val market: Set<String>, val briefing: Set<String>) {
@@ -329,6 +387,7 @@ val POPULAR_INSTRUMENTS = listOf(
 private val INDEX_ALIASES = mapOf(
     "^IXIC" to "nasdaq composite ixic 나스닥 나스닥종합 나스닥지수",
     "^GSPC" to "s&p 500 sp500 snp 에스앤피 gspc",
+    "NQ=F" to "nasdaq 100 futures nq 나스닥100선물 나스닥선물 선물",
     "^DJI" to "dow jones djia 다우 다우지수",
     "^NDX" to "nasdaq 100 nasdaq100 나스닥100 ndx",
     "^SOX" to "philadelphia semiconductor sox 필라델피아 반도체지수",
@@ -524,7 +583,7 @@ class MarketClient(private val context: Context) {
             else -> return null
         }
         val day = java.time.LocalDate.now(ZoneId.of("Asia/Seoul")).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
-        val rows = JSONArray(get("https://api.stock.naver.com/chart/domestic/$path/minute5?startDateTime=${day}0900&endDateTime=${day}1600"))
+        val rows = JSONArray(get("https://api.stock.naver.com/chart/domestic/$path/minute5?startDateTime=${day}0900&endDateTime=${day}1700"))
         val points = (0 until rows.length()).map { rows.getJSONObject(it).optDouble("currentPrice", Double.NaN) }
             .filter { it.isFinite() && it > 0 }.toMutableList()
         if (points.size < 2) return null
@@ -545,12 +604,18 @@ class MarketClient(private val context: Context) {
         val bars: Int
         val h24 = symbol.endsWith("=X") || symbol.endsWith("=F")
         val kr: Boolean
+        var dayShift = 0L
+        var sStart: Long? = null
+        var sEnd: Long? = null
         if (naver != null) {
             zone = kst; days = naver.first; lastEpoch = naver.second; bars = 391; kr = true
         } else {
             val interval = if (h24) "5m" else "1m"
             val chart = yahooChart(symbol, if (h24) "3d" else "5d", interval)
-            zone = ZoneId.of(chart.getJSONObject("meta").optString("exchangeTimezoneName", "UTC"))
+            val meta = chart.getJSONObject("meta")
+            zone = ZoneId.of(meta.optString("exchangeTimezoneName", "UTC"))
+            val reg = meta.optJSONObject("currentTradingPeriod")?.optJSONObject("regular")
+            if (reg != null && reg.optLong("start") > 0 && reg.optLong("end") > 0) { sStart = reg.getLong("start"); sEnd = reg.getLong("end") }
             val ts = chart.optJSONArray("timestamp") ?: return null
             val quote = chart.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0)
             val cl = quote.getJSONArray("close")
@@ -558,20 +623,22 @@ class MarketClient(private val context: Context) {
             val closes = java.util.TreeMap<java.time.LocalDate, MutableList<Double>>()
             val opens = HashMap<java.time.LocalDate, Double>()
             var last = 0L
+            // 선물(=F)은 미국 동부 18:00(한국 08:00)에 새 거래일이 시작한다. 달력 날짜(자정)로 나누면 한국 저녁에 오늘 선이 일부만 채워진다.
+            if (symbol.endsWith("=F") && zone.id.startsWith("America/")) dayShift = 6 * 3600L
             for (i in 0 until ts.length()) {
                 val c = cl.optDouble(i, Double.NaN)
                 if (!c.isFinite() || c <= 0) continue
-                val day = java.time.Instant.ofEpochSecond(ts.getLong(i)).atZone(zone).toLocalDate()
+                val day = java.time.Instant.ofEpochSecond(ts.getLong(i) + dayShift).atZone(zone).toLocalDate()
                 closes.getOrPut(day) { ArrayList() } += c
                 val o = op?.optDouble(i, Double.NaN) ?: Double.NaN
                 if (o.isFinite() && o > 0) opens.putIfAbsent(day, o)
                 last = ts.getLong(i)
             }
             days = closes.entries.filter { it.value.size >= 2 }.map { SessionDay(it.key, it.value, opens[it.key]) }
-            lastEpoch = last; bars = if (h24) 288 else 390; kr = false
+            lastEpoch = last; bars = if (h24) 288 else ASIA_BARS[zone.id] ?: 390; kr = false
         }
         if (days.size < 2) return null
-        return buildCompare(days, zone, lastEpoch, bars, h24, kr, fallbackPrevious, price)
+        return buildCompare(days, zone, lastEpoch, bars, h24, kr, fallbackPrevious, price, sessionStart = sStart, sessionEnd = sEnd, dayShiftSec = dayShift, futuresDelay = symbol.endsWith("=F"))
     }
 
     /** NAVER 1분봉(09:00~15:30)을 최근 거래일별로 묶어 최소 2거래일을 돌려준다. 국내 지수·종목이 아니면 null. */
@@ -586,7 +653,7 @@ class MarketClient(private val context: Context) {
         val fmt = java.time.format.DateTimeFormatter.BASIC_ISO_DATE
         val today = java.time.LocalDate.now(kst)
         for (span in listOf(4L, 12L)) {
-            val rows = JSONArray(get("https://api.stock.naver.com/chart/domestic/$path/minute?startDateTime=${today.minusDays(span).format(fmt)}0900&endDateTime=${today.format(fmt)}1600"))
+            val rows = JSONArray(get("https://api.stock.naver.com/chart/domestic/$path/minute?startDateTime=${today.minusDays(span).format(fmt)}0900&endDateTime=${today.format(fmt)}1700"))
             val closes = java.util.TreeMap<String, MutableList<Double>>()
             val opens = HashMap<String, Double>()
             var lastKey = ""
@@ -596,7 +663,8 @@ class MarketClient(private val context: Context) {
                 if (dt.length < 12) continue
                 val hhmm = dt.substring(8, 12).toIntOrNull() ?: continue
                 val c = row.optDouble("currentPrice", Double.NaN)
-                if (hhmm < 900 || hhmm > 1530 || !c.isFinite() || c <= 0) continue
+                val limit = KRX_LATE_OPEN[java.time.LocalDate.parse(dt.substring(0, 8), fmt)]?.close?.let { it.hour * 100 + it.minute } ?: 1530
+                if (hhmm < 900 || hhmm > limit || !c.isFinite() || c <= 0) continue
                 closes.getOrPut(dt.substring(0, 8)) { ArrayList() } += c
                 val o = row.optDouble("openPrice", Double.NaN)
                 if (o.isFinite() && o > 0) opens.putIfAbsent(dt.substring(0, 8), o)
@@ -628,11 +696,13 @@ class MarketClient(private val context: Context) {
     }
 
     private fun encodeHistory(h: PriceHistory) =
-        JSONObject().put("closes", JSONArray(h.closes)).put("high", h.high).put("low", h.low)
+        JSONObject().put("closes", JSONArray(h.closes)).put("high", h.high).put("low", h.low).put("dates", JSONArray(h.dates))
 
     private fun decodeHistory(o: JSONObject): PriceHistory {
         val a = o.getJSONArray("closes")
-        return PriceHistory((0 until a.length()).map { a.getDouble(it) }, o.getDouble("high"), o.getDouble("low"))
+        val d = o.optJSONArray("dates")
+        val dates = if (d != null && d.length() == a.length()) (0 until d.length()).map { d.getString(it) } else emptyList()
+        return PriceHistory((0 until a.length()).map { a.getDouble(it) }, o.getDouble("high"), o.getDouble("low"), dates)
     }
 
     private fun yahooHistory(symbol: String): PriceHistory {
@@ -642,23 +712,29 @@ class MarketClient(private val context: Context) {
         val highs = values.getJSONArray("high")
         val lows = values.getJSONArray("low")
         val points = ArrayList<Double>()
+        val days = ArrayList<String>()
+        val stamps = chart.optJSONArray("timestamp")
+        val zone = ZoneId.of(chart.optJSONObject("meta")?.optString("exchangeTimezoneName", "UTC") ?: "UTC")
         var high = -Double.MAX_VALUE
         var low = Double.MAX_VALUE
         for (i in 0 until closes.length()) {
             val close = closes.optDouble(i, Double.NaN)
             if (!close.isFinite()) continue
+            days += if (stamps != null) java.time.Instant.ofEpochSecond(stamps.getLong(i)).atZone(zone).toLocalDate().toString().replace("-", "") else ""
+
             highs.optDouble(i, close).takeIf { it.isFinite() }?.let { high = maxOf(high, it) }
             lows.optDouble(i, close).takeIf { it.isFinite() }?.let { low = minOf(low, it) }
             points += close
         }
         if (points.size < 2) error("1년 차트 자료가 부족합니다")
-        return PriceHistory(points, high, low)
+        return PriceHistory(points, high, low, if (days.all { it.isNotEmpty() }) days else emptyList())
     }
 
     /** NAVER 일봉 XML: item data="날짜|시가|고가|저가|종가|거래량". */
     private fun naverHistory(code: String): PriceHistory {
         val xml = get("https://fchart.stock.naver.com/sise.nhn?symbol=$code&timeframe=day&count=260&requestType=0")
         val points = ArrayList<Double>()
+        val days = ArrayList<String>()
         var high = -Double.MAX_VALUE
         var low = Double.MAX_VALUE
         val cutoff = java.time.LocalDate.now(ZoneId.of("Asia/Seoul")).minusYears(1)
@@ -672,9 +748,10 @@ class MarketClient(private val context: Context) {
             high = maxOf(high, parseNumber(v[2]))
             low = minOf(low, parseNumber(v[3]))
             points += close
+            days += v[0]
         }
         if (points.size < 2) error("차트 자료 없음")
-        return PriceHistory(points, high, low)
+        return PriceHistory(points, high, low, days)
     }
 
     private fun etfCatalog(): List<Instrument> {

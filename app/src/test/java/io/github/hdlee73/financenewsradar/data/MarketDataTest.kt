@@ -6,7 +6,7 @@ import org.junit.Test
 
 class MarketDataTest {
     @Test
-    fun panelHasSixDistinctSlotsAndDefaultsWhenNothingSaved() {
+    fun panelHasDefaultDistinctSlotsAndDefaultsWhenNothingSaved() {
         assertEquals(listOf("^KS11", "^KQ11"), KOREA_INDEXES.map { it.symbol })
         val defaults = panelSlots(emptyList()).map { it.symbol }
         assertEquals(DEFAULT_PANEL_SLOTS, defaults)
@@ -99,5 +99,32 @@ class MarketDataTest {
         val fx = buildCompare(days, ny, epoch("2026-11-02T09:00:00"), 288, true, false, 2.0, 4.0, epoch("2026-11-02T09:05:00"))
         assertEquals(null, fx.status)
         assertTrue(fx.live)
+    }
+
+    @Test
+    fun compareSeriesFuturesShowDelayMinutesWhenFeedLags() {
+        val ny = java.time.ZoneId.of("America/New_York")
+        val days = listOf(day("2026-11-18", 1.0, 2.0), day("2026-11-19", 3.0, 4.0))
+        val now = java.time.LocalDateTime.parse("2026-11-19T04:44:00").atZone(ny).toEpochSecond()
+        val lag = buildCompare(days, ny, now - 600, 288, true, false, 2.0, 4.0, now, dayShiftSec = 6 * 3600L, futuresDelay = true)
+        assertEquals("지연 10분", lag.status)
+        val fresh = buildCompare(days, ny, now - 60, 288, true, false, 2.0, 4.0, now, dayShiftSec = 6 * 3600L, futuresDelay = true)
+        assertEquals(null, fresh.status)
+    }
+
+    @Test
+    fun compareSeriesAsianIndexUsesSessionHoursDespiteDelayedQuotes() {
+        val hk = java.time.ZoneId.of("Asia/Hong_Kong")
+        fun at(d: String) = java.time.LocalDateTime.parse(d).atZone(hk).toEpochSecond()
+        val days = listOf(day("2026-11-17", 1.0, 2.0), day("2026-11-18", 3.0, 4.0))
+        // 15분 넘게 지연된 시세여도 정규장 중이면 장중
+        val open = buildCompare(days, hk, at("2026-11-18T10:20:00"), 330, false, false, 2.0, 4.0, at("2026-11-18T10:36:00"), at("2026-11-18T09:30:00"), at("2026-11-18T16:10:00"))
+        assertEquals("장중", open.status)
+        val lunch = buildCompare(days, hk, at("2026-11-18T11:59:00"), 330, false, false, 2.0, 4.0, at("2026-11-18T12:30:00"), at("2026-11-18T09:30:00"), at("2026-11-18T16:10:00"))
+        assertEquals("점심 휴장", lunch.status)
+        val closed = buildCompare(days, hk, at("2026-11-18T16:00:00"), 330, false, false, 2.0, 4.0, at("2026-11-18T17:00:00"), at("2026-11-18T09:30:00"), at("2026-11-18T16:10:00"))
+        assertEquals("마감", closed.status)
+        val holiday = buildCompare(listOf(day("2026-11-16", 1.0, 2.0), day("2026-11-17", 3.0, 4.0)), hk, at("2026-11-17T16:00:00"), 330, false, false, 2.0, 4.0, at("2026-11-18T11:00:00"), at("2026-11-18T09:30:00"), at("2026-11-18T16:10:00"))
+        assertEquals("휴장 · 11/17 마감", holiday.status)
     }
 }

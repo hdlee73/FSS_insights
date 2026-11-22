@@ -2,6 +2,7 @@ package io.github.hdlee73.financenewsradar.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Description
@@ -44,7 +46,15 @@ import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.BusinessCenter
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.CurrencyBitcoin
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Balance
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material.icons.filled.StarBorder
 import io.github.hdlee73.financenewsradar.accounting.AccountingViewModel
 import io.github.hdlee73.financenewsradar.accounting.ui.screens.AuditScreen
@@ -60,6 +70,8 @@ import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Newspaper
 import androidx.compose.material.icons.outlined.ShowChart
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -139,6 +151,9 @@ private const val SCREEN_CONSUMER = 18
 private const val SCREEN_FINSIM = 19
 private const val SCREEN_CRYPTO = 20
 private const val SCREEN_RISK = 21
+private const val SCREEN_LAWNEWS = 22
+private const val SCREEN_BOARD = 23
+private const val SCREEN_COMMUNITY = 24
 
 // 서랍 메뉴에 나오는 모든 화면(순서 = 화면 번호). 오늘의 브리핑·뉴스·시장동향의 번호는 브리핑 화면의 바로가기와 같다.
 // 라벨은 익명 사용 통계의 메뉴 이름으로도 쓰인다.
@@ -164,29 +179,47 @@ private val appScreens = listOf(
     AppScreen("금융소비자 지킴이", Icons.Filled.VerifiedUser),
     AppScreen("(베타)제재 양정 시뮬레이터", Icons.Filled.Calculate),
     AppScreen("가상자산 시장 동향", Icons.Filled.CurrencyBitcoin),
-    AppScreen("금융사 리스크 대시보드", Icons.Filled.Analytics)
+    AppScreen("금융사 리스크 대시보드", Icons.Filled.Analytics),
+    AppScreen("최근 금융관련 법령개정 소식", Icons.Filled.Description),
+    AppScreen("익명게시판", Icons.Filled.Forum),
+    AppScreen("(베타) 커뮤니티 핫이슈(금융관련)", Icons.Filled.LocalFireDepartment)
 )
 
 /** 서랍 메뉴의 묶음. [title]이 없으면 맨 위의 낱개 메뉴, 있으면 접고 펼 수 있는 묶음이다. */
 private fun sectionIcon(title: String) = when (title) {
     "금융회사 현황 및 검사" -> Icons.Filled.AccountBalance
     "기업공시 및 회계" -> Icons.Filled.BusinessCenter
+    LAW_SECTION -> Icons.Filled.Balance
     "금융관련 자료" -> Icons.Filled.LibraryBooks
     FAV_TITLE -> Icons.Filled.Star
     else -> Icons.Filled.MoreHoriz
 }
 
 private const val FAV_TITLE = "즐겨찾기"
+private const val LAW_SECTION = "스마트 법령검색"
+
+/** v3.0 하단 탭: 뉴스검색·금융시장·소비자·법령은 어느 화면에서든 한 번에, 나머지는 '전체'(서랍)에서. */
+private class BottomTab(val screen: Int, val label: String, val icon: ImageVector)
+
+private val bottomTabs = listOf(
+    BottomTab(SCREEN_NEWS, "뉴스검색", Icons.Filled.Newspaper),
+    BottomTab(SCREEN_MARKET, "금융시장", Icons.Filled.ShowChart),
+    BottomTab(SCREEN_CONSUMER, "소비자", Icons.Filled.VerifiedUser),
+    BottomTab(SCREEN_LAW, "법령", Icons.Filled.Balance),
+    BottomTab(SCREEN_CRYPTO, "가상자산", Icons.Filled.CurrencyBitcoin)
+)
 
 private class DrawerSection(val title: String?, val ids: List<Int>)
 
 private val drawerSections = listOf(
-    DrawerSection(null, listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET, SCREEN_LAW, SCREEN_CONSUMER)),
+    DrawerSection(null, listOf(SCREEN_BRIEFING, SCREEN_NEWS, SCREEN_MARKET)),
+    DrawerSection(LAW_SECTION, listOf(SCREEN_LAW, SCREEN_LAWNEWS)),
+    DrawerSection(null, listOf(SCREEN_CONSUMER)),
     DrawerSection("금융회사 현황 및 검사", listOf(SCREEN_FISIS, SCREEN_SANCTION, SCREEN_FINSIM)),
     DrawerSection("기업공시 및 회계", listOf(SCREEN_DART, SCREEN_DISCLOSURE, SCREEN_AUDIT, SCREEN_ACC_SEARCH, SCREEN_SIMULATOR)),
     DrawerSection(null, listOf(SCREEN_CRYPTO)),
     DrawerSection("금융관련 자료", listOf(SCREEN_PRESS, SCREEN_REGULATORY, SCREEN_RESEARCH, SCREEN_LIBRARY)),
-    DrawerSection("더보기", listOf(SCREEN_SITES, SCREEN_ALERTS, SCREEN_INFO))
+    DrawerSection("더보기", listOf(SCREEN_BOARD, SCREEN_COMMUNITY, SCREEN_SITES, SCREEN_ALERTS, SCREEN_INFO))
 )
 
 /** 접어 둔 묶음 이름들을 기기에 기억한다(앱을 다시 열어도 유지). */
@@ -271,9 +304,11 @@ fun FinanceNewsRadarApp(
         scope.launch { drawerState.open() }
     }
     // 제재공시의 위반 조문을 누르면 스마트 법령검색을 그 조문으로 연다. 이때 뒤로가기는 제재공시로 바로 돌아간다.
+    var lawNewsRoute by remember { mutableStateOf<String?>(null) }
     var lawLaunch by remember { mutableStateOf<io.github.hdlee73.financenewsradar.law.LawLaunch?>(null) }
     var lawFromLink by rememberSaveable { mutableStateOf(false) }
     fun go(target: Int) {
+        lawNewsRoute = null
         keyboard?.hide()
         focusManager.clearFocus()
         lawFromLink = false
@@ -319,7 +354,7 @@ fun FinanceNewsRadarApp(
 
     // 웹 내장 화면(WebView)은 세로 스크롤·차트 터치 중 가로로 조금만 밀려도 메뉴가 튀어나오므로,
     // 이 화면들에서는 스와이프로 여는 것을 끈다(좌상단 메뉴 버튼·열린 메뉴 닫기 제스처는 유지).
-    val drawerSwipeEnabled = drawerState.isOpen || screen !in setOf(SCREEN_CONSUMER, SCREEN_FINSIM, SCREEN_CRYPTO, SCREEN_FISIS, SCREEN_RISK)
+    val drawerSwipeEnabled = drawerState.isOpen || screen !in setOf(SCREEN_CONSUMER, SCREEN_FINSIM, SCREEN_CRYPTO, SCREEN_FISIS, SCREEN_RISK, SCREEN_LAWNEWS, SCREEN_BOARD, SCREEN_COMMUNITY)
     ModalNavigationDrawer(
         drawerState = drawerState,
         gesturesEnabled = drawerSwipeEnabled,
@@ -362,7 +397,7 @@ fun FinanceNewsRadarApp(
                                 val sub = title != null
                                 NavigationDrawerItem(
                                     icon = { Icon(item.icon, contentDescription = null, modifier = if (sub) Modifier.size(20.dp) else Modifier) },
-                                    label = { Text(item.label, style = if (sub) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    label = { Text(if (title == LAW_SECTION && id == SCREEN_LAW) "법령 검색" else item.label, style = if (sub) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                     badge = {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             if (id == SCREEN_INFO && updateAvailable != null) {
@@ -431,14 +466,63 @@ fun FinanceNewsRadarApp(
             IconButton(onClick = ::openMenu) {
                 Icon(Icons.Filled.Menu, contentDescription = "메뉴 열기", tint = AppColors.onHero)
             }
-            Text("FSS Insights", color = AppColors.onHero, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+            // 제목을 누르면 홈(오늘의 브리핑)으로 간다.
+            Text(
+                "FSS Insights", color = AppColors.onHero, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f).clickable(onClickLabel = "홈(오늘의 브리핑)으로") { go(SCREEN_BRIEFING) }
+            )
+            IconButton(onClick = { go(SCREEN_BRIEFING) }) {
+                Icon(Icons.Filled.Home, contentDescription = "홈(오늘의 브리핑)", tint = AppColors.onHero)
+            }
+            // 홈 옆 ★: 어느 화면에서나 즐겨찾기를 펼쳐 바로 가고, 별을 눌러 해제하거나 메인 메뉴 항목을 추가한다.
+            var favMenuOpen by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { favMenuOpen = true }) {
+                    Icon(Icons.Filled.Star, contentDescription = "즐겨찾기 열기", tint = androidx.compose.ui.graphics.Color(0xFFF5B83D))
+                }
+                DropdownMenu(expanded = favMenuOpen, onDismissRequest = { favMenuOpen = false }) {
+                    Text("즐겨찾기", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                    if (favorites.isEmpty()) {
+                        Text("아직 없습니다. 아래에서 추가하거나 메뉴의 ★를 누르세요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).widthIn(max = 240.dp))
+                    }
+                    favorites.forEach { id ->
+                        DropdownMenuItem(
+                            text = { Text(appScreens[id].label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            leadingIcon = { Icon(appScreens[id].icon, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                            trailingIcon = {
+                                IconButton(onClick = { toggleFavorite(id) }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Filled.Star, contentDescription = "${appScreens[id].label} 즐겨찾기 해제", tint = androidx.compose.ui.graphics.Color(0xFFF5B83D), modifier = Modifier.size(20.dp))
+                                }
+                            },
+                            onClick = { favMenuOpen = false; go(id) }
+                        )
+                    }
+                    val addable = listOf(SCREEN_NEWS, SCREEN_MARKET, SCREEN_CONSUMER, SCREEN_LAW, SCREEN_CRYPTO).filter { it !in favorites }
+                    if (addable.isNotEmpty()) {
+                        HorizontalDivider()
+                        Text("메인 메뉴에서 추가", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                        addable.forEach { id ->
+                            DropdownMenuItem(
+                                text = { Text(appScreens[id].label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                leadingIcon = { Icon(appScreens[id].icon, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                                trailingIcon = {
+                                    IconButton(onClick = { toggleFavorite(id) }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Filled.StarBorder, contentDescription = "${appScreens[id].label} 즐겨찾기에 추가", modifier = Modifier.size(20.dp))
+                                    }
+                                },
+                                onClick = { favMenuOpen = false; go(id) }
+                            )
+                        }
+                    }
+                }
+            }
         }
         NoticeBanner()
         Box(Modifier.weight(1f).fillMaxWidth()) {
             // 화면을 오가도 각 화면의 검색어·스크롤 위치가 유지되도록 화면별로 상태를 보관한다.
             stateHolder.SaveableStateProvider(screen) {
                 when (screen) {
-                    SCREEN_BRIEFING -> BriefingScreen(newsViewModel, releasesViewModel, marketViewModel, onOpenTab = ::go)
+                    SCREEN_BRIEFING -> BriefingScreen(newsViewModel, releasesViewModel, marketViewModel, onOpenTab = ::go, onOpenLawNews = { route -> go(SCREEN_LAWNEWS); lawNewsRoute = route }, favorites = favorites.map { it to appScreens[it].label })
                     SCREEN_NEWS -> NewsScreen(newsViewModel, onOpenSettings = { settingsOpen = true })
                     SCREEN_MARKET -> MarketScreen(marketViewModel)
                     SCREEN_FISIS -> WebEmbedScreen("fisis", backEnabled = !drawerState.isOpen)
@@ -456,13 +540,17 @@ fun FinanceNewsRadarApp(
                     SCREEN_CONSUMER -> WebEmbedScreen("consumer", backEnabled = !drawerState.isOpen)
                     SCREEN_FINSIM -> WebEmbedScreen("finsim", backEnabled = !drawerState.isOpen)
                     SCREEN_CRYPTO -> WebEmbedScreen("crypto", backEnabled = !drawerState.isOpen)
+                    SCREEN_LAWNEWS -> WebEmbedScreen(lawNewsRoute ?: "lawnews", backEnabled = !drawerState.isOpen, onOpenLaw = ::openLaw)
+                    SCREEN_COMMUNITY -> WebEmbedScreen("community", backEnabled = !drawerState.isOpen)
                     SCREEN_RISK -> WebEmbedScreen("fisis?tool=risk&view=overview", backEnabled = !drawerState.isOpen)
+                    SCREEN_BOARD -> WebEmbedScreen("board", backEnabled = !drawerState.isOpen)
                     SCREEN_REGULATORY -> RegulatoryScreen(regulatoryViewModel)
                     SCREEN_SANCTION -> SanctionScreen(sanctionViewModel, onOpenLaw = ::openLaw)
                     SCREEN_LAW -> io.github.hdlee73.financenewsradar.law.LawScreen(
                         launch = lawLaunch,
                         onLaunchConsumed = { lawLaunch = null },
-                        onReturn = if (lawFromLink) ({ goBack() }) else null
+                        onReturn = if (lawFromLink) ({ goBack() }) else null,
+                        onOpenNews = { go(SCREEN_LAWNEWS) }
                     )
                     SCREEN_PRESS -> ReleasesScreen(AgencyGroup.PRESS, releasesViewModel)
                     SCREEN_RESEARCH -> ReleasesScreen(AgencyGroup.RESEARCH, releasesViewModel)
@@ -475,6 +563,29 @@ fun FinanceNewsRadarApp(
                     SCREEN_ALERTS -> AlertSettingsScreen(newsState.settings.keywords)
                     else -> AppInfoScreen()
                 }
+            }
+        }
+        // 하단 탭(키보드가 올라와 있는 동안은 숨겨 입력 화면을 가리지 않는다). 시스템 내비게이션 영역은 바깥 Column이 이미 비워 둔다.
+        val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+        if (!imeVisible) {
+            NavigationBar(windowInsets = WindowInsets(0, 0, 0, 0)) {
+                bottomTabs.forEach { tab ->
+                    NavigationBarItem(
+                        selected = screen == tab.screen,
+                        onClick = { go(tab.screen) },
+                        icon = { Icon(tab.icon, contentDescription = null) },
+                        label = { Text(tab.label, maxLines = 1) },
+                        alwaysShowLabel = true
+                    )
+                }
+                NavigationBarItem(
+                    selected = screen != SCREEN_BRIEFING && bottomTabs.none { it.screen == screen },
+                    onClick = ::openMenu,
+                    icon = { Icon(Icons.Filled.Apps, contentDescription = null) },
+                    label = { Text("전체", maxLines = 1) },
+                    alwaysShowLabel = true,
+                    modifier = Modifier.semantics { contentDescription = "전체 메뉴 열기" }
+                )
             }
         }
         }

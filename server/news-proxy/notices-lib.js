@@ -105,6 +105,9 @@ label{display:block;font-size:12px;color:var(--mut);margin:8px 0 2px}.row{displa
 <p><button id="bsave">게시판 공지 등록</button></p>
 <div id="blist"></div>
 <div class="leg">웹 게시판에서는 공지 작성·관리자 인증 단추가 없으므로, 게시판 공지는 여기서만 등록·삭제합니다.</div></div>
+<div class="card"><h2>익명게시판 글·댓글 관리</h2>
+<div class="leg">최신순 20건씩. ID는 사용 통계의 접속자 ID(앞 6자리)와 같은 값이며, 이전 글은 알 수 없음입니다. 삭제하면 되돌릴 수 없습니다(글 삭제 시 댓글·투표도 함께 삭제).</div>
+<div id="plist"></div><p><button id="pprev" class="g">이전</button> <button id="pnext" class="g">다음</button> <span id="pinfo" class="leg"></span></p></div>
 </div></main>
 <script>
 const $=i=>document.getElementById(i);$("tok").value=sessionStorage.getItem("t")||"";let items=[],editId=null,today="";
@@ -114,7 +117,8 @@ function reset(){editId=null;$("fh").textContent="새 공지 작성";$("ti").val
 function draw(){$("list").innerHTML=items.length?items.map(n=>{const st=n.end<today?"종료":n.start>today?"예정":"게시 중";return '<div class="n"><div class="t'+(n.level==="urgent"?' u':'')+'">'+esc(n.title)+'</div><div class="m">'+st+' · '+n.start+' ~ '+(n.end==="9999-12-31"?"계속":n.end)+(n.level==="urgent"?" · 중요":"")+'</div><div class="m">'+esc(n.body).slice(0,120)+'</div><p><button class="g" data-e="'+n.id+'">수정</button> <button class="d" data-d="'+n.id+'">삭제</button></p></div>'}).join(""):'<span class="leg">등록된 공지가 없습니다</span>'}
 async function load(){$("msg").textContent="불러오는 중…";sessionStorage.setItem("t",$("tok").value);const r=await api("GET");
 if(!r.ok){$("msg").textContent=r.status==401?"토큰이 맞지 않습니다":"오류 "+r.status;return}
-const d=await r.json();today=d.today;items=d.notices;$("msg").textContent="";$("out").hidden=false;if(editId===null&&!$("st").value)reset();draw();bload()}
+const d=await r.json();today=d.today;items=d.notices;$("msg").textContent="";$("out").hidden=false;if(editId===null&&!$("st").value)reset();draw();bload();pload()}
+const kst=t=>{const m=new Date(/[zZ]|[+-]\\d\\d:?\\d\\d$/.test(t)?t:String(t).replace(" ","T")+"Z");return isNaN(m)?String(t||"-"):new Date(m.getTime()+9*3600000).toISOString().replace("T"," ").slice(0,16)};
 const bapi=(m,p,b)=>fetch("/board/posts"+p,{method:m,headers:{"X-Admin-Token":$("tok").value,"Content-Type":"application/json"},body:b?JSON.stringify(b):undefined});
 let bitems=[];
 async function bload(){try{const r=await bapi("GET","?page=1");const d=await r.json();bitems=d.notices||[]}catch(e){bitems=[]}
@@ -122,6 +126,17 @@ $("blist").innerHTML=bitems.length?bitems.map(n=>'<div class="n"><div class="t">
 $("bsave").onclick=async()=>{const t=$("bti").value.trim(),b=$("bbo").value.trim();if(!t||!b){alert("제목과 내용을 모두 입력해 주세요");return}
 const r=await bapi("POST","",{title:t,body:b,author:"관리자",is_notice:true});if(!r.ok){alert((await r.json().catch(()=>({}))).error||"등록하지 못했습니다");return}$("bti").value="";$("bbo").value="";bload()};
 $("blist").onclick=async e=>{const id=e.target.dataset.bd;if(id&&confirm("이 게시판 공지를 삭제할까요?")){const r=await bapi("DELETE","/"+id);if(!r.ok)alert("삭제하지 못했습니다");bload()}};
+let pg=1,ptotal=0;
+const vtxt=(vs,k,m)=>{const a=vs.filter(v=>v.vote===k);if(!a.length)return "";const known=a.filter(v=>v.uid6).map(v=>"<code>"+esc(v.uid6)+"</code>"),un=a.length-known.length;return m+" "+a.length+"명: "+known.join(" ")+(un?(known.length?" ":"")+"알 수 없음 "+un+"명":"")};
+const idtag=u=>'<code>'+(u?esc(u):"알 수 없음")+'</code>';
+async function pload(){const r=await fetch("/board/admin/list?page="+pg,{headers:{"X-Admin-Token":$("tok").value}});if(!r.ok){$("plist").innerHTML='<span class="leg">불러오지 못했습니다 ('+r.status+')</span>';return}
+const d=await r.json();ptotal=d.total;
+$("plist").innerHTML=d.posts.length?d.posts.map(p=>'<div class="n"><div class="t">#'+p.id+' '+esc(p.title)+'</div><div class="m">'+esc(p.author)+' · ID '+idtag(p.uid6)+' · '+esc(kst(p.created_at))+' KST</div><div class="m" style="white-space:pre-wrap;color:var(--fg)">'+esc(p.body).slice(0,500)+'</div>'+(p.votes.length?'<div class="m">'+[vtxt(p.votes,1,"👍"),vtxt(p.votes,-1,"👎")].filter(Boolean).join(" · ")+'</div>':"")+p.comments.map(c=>'<div class="m" style="margin:6px 0 0 14px;white-space:pre-wrap">↳ '+esc(c.author)+' · ID '+idtag(c.uid6)+' · '+esc(kst(c.created_at))+' KST<br><span style="color:var(--fg)">'+esc(c.body).slice(0,300)+'</span> <button class="d" data-pc="'+c.id+'">댓글 삭제</button></div>').join("")+'<p><button class="d" data-pd="'+p.id+'">글 삭제</button></p></div>').join(""):'<span class="leg">글이 없습니다</span>';
+$("pinfo").textContent=pg+" / "+Math.max(1,Math.ceil(ptotal/20))+" 쪽 · 총 "+ptotal+"건"}
+$("pprev").onclick=()=>{if(pg>1){pg--;pload()}};$("pnext").onclick=()=>{if(pg*20<ptotal){pg++;pload()}};
+$("plist").onclick=async e=>{const t=e.target,c=t.dataset.pc,d=t.dataset.pd;
+if(d&&confirm("이 글과 댓글·투표를 모두 삭제할까요? 되돌릴 수 없습니다.")){const r=await fetch("/board/posts/"+d,{method:"DELETE",headers:{"X-Admin-Token":$("tok").value}});if(!r.ok)alert("삭제하지 못했습니다");pload()}
+if(c&&confirm("이 댓글을 삭제할까요? 되돌릴 수 없습니다.")){const r=await fetch("/board/comments/"+c,{method:"DELETE",headers:{"X-Admin-Token":$("tok").value}});if(!r.ok)alert("삭제하지 못했습니다");pload()}};
 $("go").onclick=load;$("reset").onclick=reset;
 $("save").onclick=async()=>{const b={title:$("ti").value,body:$("bo").value,start:$("st").value,end:$("en").value,level:$("lv").value};if(editId)b.id=editId;
 const r=await api("POST","",b);if(!r.ok){alert((await r.json()).error||"저장하지 못했습니다");return}reset();load()};

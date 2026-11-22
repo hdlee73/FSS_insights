@@ -12,7 +12,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
@@ -70,7 +76,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import io.github.hdlee73.financenewsradar.data.ADR_PLACEHOLDER
 import io.github.hdlee73.financenewsradar.data.BRIEFING_EXCLUDED_DEFAULT
@@ -86,6 +95,7 @@ import io.github.hdlee73.financenewsradar.data.PANEL_CATALOG
 import io.github.hdlee73.financenewsradar.data.POPULAR_INSTRUMENTS
 import io.github.hdlee73.financenewsradar.data.PriceHistory
 import io.github.hdlee73.financenewsradar.data.Quote
+import io.github.hdlee73.financenewsradar.data.DEFAULT_BRIEFING_MACRO
 import io.github.hdlee73.financenewsradar.data.DEFAULT_BRIEFING_STATS
 import io.github.hdlee73.financenewsradar.data.DEFAULT_MARKET_STATS
 import io.github.hdlee73.financenewsradar.data.DEFAULT_MACRO
@@ -145,6 +155,7 @@ data class MarketUiState(
     /** 거시경제 지표(한국은행 ECOS, 서버 /stats)와 사용자가 고른 지표 id. */
     val macro: List<StatItem> = emptyList(),
     val macroSelection: Set<String> = DEFAULT_MACRO.toSet(),
+    val macroBriefing: Set<String> = DEFAULT_BRIEFING_MACRO.toSet(),
     val macroMissing: Set<String> = emptySet(),
     val macroReasons: Map<String, String> = emptyMap(),
     val macroLoading: Boolean = false,
@@ -169,7 +180,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     private var statsRequest = 0
     private var macroLoadedAt = 0L
     private var macroRequest = 0
-    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection(), macroSelection = store.loadMacroSelection(), kofiaHidden = store.loadKofiaHidden(), watchIntraday = store.loadWatchIntraday(), indexIntraday = store.loadIndexIntraday()))
+    private val _state = MutableStateFlow(MarketUiState(watch = store.load(), indexes = store.loadIndexSelection(), statSelection = store.loadStatSelection(), macroSelection = store.loadMacroSelection(), macroBriefing = store.loadMacroBriefing(), kofiaHidden = store.loadKofiaHidden(), watchIntraday = store.loadWatchIntraday(), indexIntraday = store.loadIndexIntraday()))
     val state: StateFlow<MarketUiState> = _state.asStateFlow()
     private var refreshJob: Job? = null
     private val chartFailedAt = HashMap<String, Long>()
@@ -256,7 +267,7 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
         if (!force && System.currentTimeMillis() - macroLoadedAt < 1_800_000) return
         macroLoadedAt = System.currentTimeMillis()
         val request = ++macroRequest
-        val ids = MACRO_CATALOG.map { it.id }.filter { it in _state.value.macroSelection }
+        val ids = MACRO_CATALOG.map { it.id }.filter { it in _state.value.macroSelection || it in _state.value.macroBriefing }
         if (ids.isEmpty()) { _state.update { it.copy(macroLoading = false) }; return }
         _state.update { it.copy(macroLoading = true) }
         runCatching { statsApi.load(ids) }
@@ -271,9 +282,10 @@ class MarketViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /** 거시경제 지표 선택을 저장하고 바로 다시 받아 온다. */
-    fun setMacroSelection(ids: Set<String>) {
+    fun setMacroSelection(ids: Set<String>, briefing: Set<String>) {
         store.saveMacroSelection(ids)
-        _state.update { it.copy(macroSelection = ids) }
+        store.saveMacroBriefing(briefing)
+        _state.update { it.copy(macroSelection = ids, macroBriefing = briefing) }
         viewModelScope.launch { loadMacro(force = true) }
     }
 
@@ -464,14 +476,17 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
     var macroPicking by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    // 화면이 보이는 동안만 갱신한다(탭을 벗어나면 중단): 지수 5초, 전체 20초.
-    LaunchedEffect(Unit) {
-        viewModel.refresh()
-        var tick = 0
-        while (true) {
-            delay(5_000)
-            tick++
-            if (tick % 4 == 0) viewModel.refresh() else viewModel.refreshPanel()
+    // 화면이 보이는 동안만 갱신한다(탭을 벗어나거나 앱이 백그라운드로 가면 중단, 돌아오면 바로 한 번 갱신): 지수 5초, 전체 20초.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.refresh()
+            var tick = 0
+            while (true) {
+                delay(5_000)
+                tick++
+                if (tick % 4 == 0) viewModel.refresh() else viewModel.refreshPanel()
+            }
         }
     }
 
@@ -520,7 +535,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
         item {
             Text(
                 if (state.failed) "일부 시세를 불러오지 못했습니다. 새로고침으로 다시 시도해 주세요."
-                else "공개 시세 기반이라 지연되거나 중단될 수 있습니다. 국내는 NAVER, 해외·환율은 Yahoo Finance.",
+                else "공개 시세 기반이라 지연되거나 중단될 수 있습니다. 국내는 NAVER, 해외·환율은 Yahoo Finance. CME 선물(나스닥100선물 등)은 약 10분 지연됩니다.",
                 Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 14.dp),
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -544,7 +559,7 @@ fun MarketScreen(viewModel: MarketViewModel, modifier: Modifier = Modifier) {
         StatPickerDialog(state.statSelection, onDismiss = { statPicking = false }) { viewModel.setStatSelection(it); statPicking = false }
     }
     if (macroPicking) {
-        MacroPickerDialog(state.macroSelection, onDismiss = { macroPicking = false }) { viewModel.setMacroSelection(it); macroPicking = false }
+        MacroPickerDialog(state.macroSelection, state.macroBriefing, onDismiss = { macroPicking = false }) { market, briefing -> viewModel.setMacroSelection(market, briefing); macroPicking = false }
     }
     if (kofiaPicking) {
         KofiaPickerDialog(state.kofia, state.kofiaHidden, onDismiss = { kofiaPicking = false }) { viewModel.setKofiaHidden(it); kofiaPicking = false }
@@ -669,28 +684,22 @@ private fun IndexTile(
         if (wide) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1)
-                        if (showIntraday) StatusTag(series?.status)
-                    }
+                    NameWithTag(item.name, series?.status, nameStyle, MaterialTheme.colorScheme.primary, showIntraday)
                     Text(price, Modifier.padding(top = 2.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
                 }
                 if (showIntraday) IntradayChart(series, color, Modifier.weight(0.8f).height(30.dp))
-                else Sparkline(history?.closes.orEmpty(), Modifier.weight(0.8f).height(30.dp))
+                else YearChart(item, history, Modifier.weight(0.8f).height(86.dp))
             }
             // 등락률 괄호까지 들어가도록 차트 아래 칸 전체 폭을 쓴다(차트 옆 좁은 칸에서는 잘림).
             Text(delta, Modifier.padding(top = 2.dp), style = deltaStyle, color = color, maxLines = 1)
             if (showInvestors) InvestorRow(investors)
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(item.name, style = nameStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1, softWrap = false)
-                if (showIntraday) StatusTag(series?.status)
-            }
+            NameWithTag(item.name, series?.status, nameStyle, MaterialTheme.colorScheme.primary, showIntraday)
             // 코스피·코스닥 이외 칸은 수치를 오른쪽 끝에 맞춘다.
             Text(price, Modifier.fillMaxWidth().padding(top = 1.dp), style = priceStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
             Text(delta, Modifier.fillMaxWidth().padding(top = 1.dp), style = deltaStyle, color = color, maxLines = 1, textAlign = TextAlign.End)
             if (showIntraday) IntradayChart(series, color, Modifier.fillMaxWidth().padding(top = 4.dp).height(26.dp))
-            else Sparkline(history?.closes.orEmpty(), Modifier.fillMaxWidth().padding(top = 4.dp).height(26.dp))
+            else YearChart(item, history, Modifier.fillMaxWidth().padding(top = 2.dp).height(86.dp))
         }
     }
 }
@@ -814,15 +823,24 @@ private fun MacroPanel(state: MarketUiState, onPick: () -> Unit) {
     }
 }
 
-/** 거시경제 지표 선택: 지표마다 체크해 보일 것을 고른다(추가·삭제). */
+/** 거시경제 지표 선택: 지표마다 "시장동향" / "브리핑" 체크로 어디에 보일지 고른다. */
 @Composable
-private fun MacroPickerDialog(current: Set<String>, onDismiss: () -> Unit, onSave: (Set<String>) -> Unit) {
-    var selected by remember { mutableStateOf(current) }
+private fun MacroPickerDialog(current: Set<String>, currentBriefing: Set<String>, onDismiss: () -> Unit, onSave: (Set<String>, Set<String>) -> Unit) {
+    var market by remember { mutableStateOf(current) }
+    var briefing by remember { mutableStateOf(currentBriefing) }
+    fun toggle(set: Set<String>, id: String) = if (id in set) set - id else set + id
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("표시할 거시경제 지표 선택") },
         text = {
             LazyColumn(Modifier.heightIn(max = 460.dp)) {
+                item {
+                    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.weight(1f))
+                        Text("시장동향", Modifier.width(56.dp), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                        Text("브리핑", Modifier.width(56.dp), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                    }
+                }
                 MACRO_CATALOG.groupBy { it.group }.forEach { (group, defs) ->
                     item(key = "g-$group") {
                         Text(group, Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
@@ -830,16 +848,21 @@ private fun MacroPickerDialog(current: Set<String>, onDismiss: () -> Unit, onSav
                     items(defs, key = { it.id }) { def ->
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(def.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            Checkbox(def.id in selected, { selected = if (def.id in selected) selected - def.id else selected + def.id })
+                            Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) {
+                                Checkbox(def.id in market, { market = toggle(market, def.id) })
+                            }
+                            Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) {
+                                Checkbox(def.id in briefing, { briefing = toggle(briefing, def.id) })
+                            }
                         }
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(selected) }) { Text("저장") } },
+        confirmButton = { TextButton(onClick = { onSave(market, briefing) }) { Text("저장") } },
         dismissButton = {
             Row {
-                TextButton(onClick = { selected = DEFAULT_MACRO.toSet() }) { Text("기본값") }
+                TextButton(onClick = { market = DEFAULT_MACRO.toSet(); briefing = DEFAULT_BRIEFING_MACRO.toSet() }) { Text("기본값") }
                 TextButton(onClick = onDismiss) { Text("취소") }
             }
         }
@@ -967,12 +990,33 @@ internal fun IntradayChart(series: IntradaySeries?, color: Color, modifier: Modi
     }
 }
 
+/**
+ * 지표 이름과 상황 배지. 배지가 지연 표시(긴 문구)일 때는 이름이 긴 칸(나스닥100선물)에서 배지가 잘리지 않도록 이름 아래 줄에 둔다.
+ */
+@Composable
+internal fun NameWithTag(
+    name: String, status: String?, style: TextStyle, color: Color, showTag: Boolean = true,
+    gap: androidx.compose.ui.unit.Dp = 4.dp, modifier: Modifier = Modifier
+) {
+    if (showTag && status?.startsWith("지연") == true) {
+        Column(modifier) {
+            Text(name, style = style, color = color, maxLines = 2)
+            StatusTag(status, Modifier.padding(top = 2.dp))
+        }
+    } else {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(gap)) {
+            Text(name, style = style, color = color, maxLines = 1, softWrap = false)
+            if (showTag) StatusTag(status)
+        }
+    }
+}
+
 /** 지표 이름 옆 상황 배지(장중·마감·휴장·개장 전). 상황을 알 수 없으면 아무것도 그리지 않는다. */
 @Composable
 internal fun StatusTag(status: String?, modifier: Modifier = Modifier) {
-    // 장중만 표시한다. 마감·휴장·개장 전 같은 설명은 지수명을 가리므로 넣지 않는다.
-    if (status != "장중") return
-    val live = true
+    // 장중과 시세 지연(CME 선물)만 표시한다. 마감·휴장·개장 전 같은 설명은 지수명을 가리므로 넣지 않는다.
+    if (status != "장중" && status?.startsWith("지연") != true) return
+    val live = status == "장중"
     Text(
         status,
         modifier.background(
@@ -1119,12 +1163,12 @@ private fun WatchCell(
                 Modifier.weight(1f), style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp), color = color, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             if (showIntraday) IntradayChart(intraday, color, Modifier.width(44.dp).height(18.dp), compare = false)
-            else if (history != null) Sparkline(history.closes, Modifier.width(44.dp).height(18.dp))
         }
         Text(
             quote?.let { deltaText(item, it) } ?: "—",
             style = TextStyle(fontSize = 9.5.sp, fontWeight = FontWeight.Medium), color = color, maxLines = 1, overflow = TextOverflow.Ellipsis
         )
+        if (!showIntraday && history != null) YearChart(item, history, Modifier.fillMaxWidth().padding(top = 2.dp).height(86.dp))
         if (editing) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 IconButton(onClick = onUp, enabled = canUp, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.ArrowUpward, contentDescription = "앞으로", Modifier.size(16.dp)) }
@@ -1154,6 +1198,90 @@ private fun Sparkline(closes: List<Double>, modifier: Modifier = Modifier) {
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         drawPath(path, ChartColor, style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round))
+    }
+}
+
+/**
+ * 1년 그래프(지수 칸): 꺾은선에 시작·최고·최저 가격과 일자를 점과 글자로 표시한다(종가 기준).
+ * 글자는 선 위·아래 띠에 놓고, 서로 겹치면 반대 띠나 옆으로 옮기며, 그래도 안 되면 날짜를 뺀다. 최고는 빨강, 최저는 파랑, 시작은 회색.
+ */
+@Composable
+private fun YearChart(item: Instrument, history: PriceHistory?, modifier: Modifier = Modifier) {
+    val closes = history?.closes.orEmpty()
+    val dates = history?.dates.orEmpty()
+    val measurer = rememberTextMeasurer()
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Canvas(modifier) {
+        if (closes.size < 2) return@Canvas
+        val band = 22.dp.toPx()
+        val pad = 3.dp.toPx()
+        val chartH = size.height - 2 * band
+        val lo = closes.min()
+        val span = (closes.max() - lo).takeIf { it > 0 } ?: 1.0
+        fun xOf(i: Int) = pad + i / (closes.size - 1f) * (size.width - 2 * pad)
+        fun yOf(v: Double) = band + chartH * (1f - ((v - lo) / span).toFloat()) * 0.9f + chartH * 0.05f
+        val path = Path()
+        closes.forEachIndexed { i, v -> if (i == 0) path.moveTo(xOf(i), yOf(v)) else path.lineTo(xOf(i), yOf(v)) }
+        drawPath(path, ChartColor, style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+        val hi = closes.indices.maxByOrNull { closes[it] } ?: 0
+        val low = closes.indices.minByOrNull { closes[it] } ?: 0
+        val groups = LinkedHashMap<Int, MutableList<String>>()
+        if (closes[hi] != closes[low]) {
+            groups.getOrPut(hi) { mutableListOf() }.add("최고")
+            groups.getOrPut(low) { mutableListOf() }.add("최저")
+        }
+        groups.getOrPut(0) { mutableListOf() }.add("시작")
+        fun valueText(v: Double) =
+            if (v >= 1000 && item.type != Instrument.TYPE_FX && item.type != Instrument.TYPE_RATE) grouped(v, 0) else priceText(item, v).removeSuffix("원")
+        fun dateText(i: Int): String {
+            val d = dates.getOrNull(i) ?: return ""
+            return if (d.length >= 8) "${d.substring(2, 4)}.${d.substring(4, 6).toInt()}.${d.substring(6, 8).toInt()}" else ""
+        }
+        class Mark(val i: Int, val names: List<String>, val color: Color, val top: Boolean, val fixed: Boolean)
+        val marks = groups.map { (i, names) ->
+            val up = "최고" in names
+            val down = "최저" in names
+            val y = yOf(closes[i])
+            Mark(i, names, if (up) UpColor else if (down) DownColor else muted, if (up) true else if (down) false else y < band + chartH / 2, up || down)
+        }.sortedByDescending { it.fixed }
+        val bold = TextStyle(fontSize = 8.5.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
+        val regular = TextStyle(fontSize = 8.5.sp, letterSpacing = (-0.2).sp, lineHeight = 10.sp, textAlign = TextAlign.Center)
+        val placed = mapOf(true to mutableListOf<ClosedFloatingPointRange<Float>>(), false to mutableListOf<ClosedFloatingPointRange<Float>>())
+        fun clash(top: Boolean, l: Float, w: Float) = placed.getValue(top).firstOrNull { l < it.endInclusive + 3f && l + w + 3f > it.start }
+        for (m in marks) {
+            val head = m.names.joinToString("·") + " " + valueText(closes[m.i])
+            val date = dateText(m.i)
+            for (withDate in if (date.isEmpty()) listOf(false) else listOf(true, false)) {
+                val text = buildAnnotatedString {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(head) }
+                    if (withDate) {
+                        append("\n")
+                        withStyle(SpanStyle(fontSize = 7.5.sp)) { append("($date)") }
+                    }
+                }
+                val layout = measurer.measure(text, regular.copy(color = m.color))
+                val w = layout.size.width.toFloat()
+                var l = (xOf(m.i) - w / 2).coerceIn(0f, size.width - w)
+                var top = m.top
+                var ok = true
+                if (clash(top, l, w) != null) {
+                    if (clash(!top, l, w) == null) top = !top
+                    else {
+                        val c = clash(top, l, w)!!
+                        if (c.endInclusive + 3f + w <= size.width) l = c.endInclusive + 3f
+                        else if (c.start - 3f - w >= 0f) l = c.start - 3f - w
+                        else ok = false
+                    }
+                }
+                if (!ok) continue
+                placed.getValue(top).add(l..(l + w))
+                drawText(layout, topLeft = Offset(l, if (top) 0f else size.height - band + 1.dp.toPx()))
+                break
+            }
+            drawCircle(Color.White, 4.dp.toPx(), Offset(xOf(m.i), yOf(closes[m.i])))
+            drawCircle(m.color, 3.dp.toPx(), Offset(xOf(m.i), yOf(closes[m.i])))
+        }
     }
 }
 

@@ -8,7 +8,7 @@ export const DISCLAIMER_DETAIL =
   "FSS Insights는 개인이 만든 비공식 서비스이며 금융감독원 등 어떤 기관과도 제휴·위탁 관계가 없습니다. " +
   "화면에 표시되는 보도자료, 통계, 법령 등은 외부 출처의 공개 자료를 모아 보여주는 것으로, 정확성과 최신성을 보장하지 않습니다. " +
   "중요한 판단에는 반드시 원문과 공식 자료를 확인하시기 바랍니다.";
-export const APP_VERSION = "2.25.1";
+export const APP_VERSION = "3.10.21";
 
 // 서버(Cloudflare Worker). 앱과 같은 서버를 쓰고, 웹 주소(Origin)로 들어온 요청만 토큰 없이 받는다.
 const DEFAULT_SERVER = "https://news-proxy.hdlee73.workers.dev";
@@ -77,17 +77,81 @@ export function markStale(at) {
 export function reportError(name) {
   import("./usage.js").then((u) => u.recordError(name)).catch(() => {});
 }
-const errName = (path, status) => "api:/" + (path.split("?")[0].split("/")[1] || "") + ":" + (status || "net");
+// 서버 자료 읽기(/fetch)는 어느 사이트가 문제인지 알 수 있게 대상 도메인 이름만 오류 이름에 붙인다(주소·내용은 남기지 않음).
+function errName(path, status) {
+  const p = path.split("?")[0];
+  let name = "api:/" + (p.split("/")[1] || "");
+  if (p === "/fetch") {
+    try {
+      name += "(" + new URL(new URLSearchParams(path.split("?")[1] || "").get("url")).hostname.replace(/^www\./, "") + ")";
+    } catch {}
+  }
+  return name + ":" + (status || "net");
+}
+
+const RETRY_STATUS = new Set([502, 503, 504, 520, 522, 523, 524]);
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** 화면이 보이고 인터넷이 연결되어 있을 때만 서버를 주기적으로 읽는다(숨은 탭·오프라인에서는 멈춘다). */
+export const canPoll = () => document.visibilityState === "visible" && navigator.onLine !== false;
+/** 숨었던 탭이 다시 보이거나 인터넷이 다시 연결되면 cb를 한 번 부른다. 반환값은 해제 함수. */
+export function onResume(cb) {
+  const f = () => canPoll() && cb();
+  document.addEventListener("visibilitychange", f);
+  addEventListener("online", f);
+  return () => {
+    document.removeEventListener("visibilitychange", f);
+    removeEventListener("online", f);
+  };
+}
+
+// 같은 주소가 계속 실패하면 서버를 두드리지 않도록 지수 백오프(4초부터 2배씩, 최대 2분, 지터 ±20%)로 쉰다. 성공하면 즉시 풀린다.
+const BACKOFF_BASE = 4000;
+const BACKOFF_CAP = 2 * 60 * 1000;
+const backoff = new Map(); // key → { n, until }
+const backoffKey = (path) => path.split("&ref=")[0];
+export function backoffDelay(n, rnd = Math.random()) {
+  return Math.min(BACKOFF_CAP, BACKOFF_BASE * 2 ** n) * (0.8 + rnd * 0.4);
+}
+function noteFailure(path) {
+  const k = backoffKey(path);
+  const n = backoff.get(k)?.n ?? 0;
+  if (backoff.size > 300) backoff.clear();
+  backoff.set(k, { n: n + 1, until: Date.now() + backoffDelay(n) });
+}
+const noteSuccess = (path) => backoff.delete(backoffKey(path));
 
 async function request(path, init = {}) {
-  let res;
-  try {
-    res = await fetch(SERVER + path, init);
-  } catch {
-    if (!path.startsWith("/usage/")) reportError(errName(path, 0));
-    throw new ApiError("서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.", 0);
+  // 읽기(GET) 요청은 일시적인 연결 끊김·원본 시간 초과(522 등)일 때 한 번만 조용히 다시 시도한다. 그래도 실패하면 그때 오류로 남긴다.
+  const canRetry = (init.method || "GET") === "GET" && !path.startsWith("/usage/");
+  if (canRetry) {
+    if (navigator.onLine === false) throw new ApiError("인터넷에 연결되어 있지 않습니다.", 0);
+    const b = backoff.get(backoffKey(path));
+    if (b && Date.now() < b.until) throw new ApiError("서버가 응답하지 않아 잠시 쉬고 있습니다. 잠시 뒤 다시 시도해 주세요.", 503);
   }
-  if (res.ok) markFresh();
+  let res;
+  for (let attempt = 0; ; attempt++) {
+    let netFail = false;
+    try {
+      res = await fetch(SERVER + path, init);
+    } catch {
+      netFail = true;
+    }
+    if (canRetry && attempt === 0 && (netFail || RETRY_STATUS.has(res.status))) {
+      await wait(700);
+      continue;
+    }
+    if (netFail) {
+      if (canRetry) noteFailure(path);
+      if (!path.startsWith("/usage/")) reportError(errName(path, 0));
+      throw new ApiError("서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.", 0);
+    }
+    break;
+  }
+  if (res.ok) {
+    markFresh();
+    if (canRetry) noteSuccess(path);
+  } else if (canRetry && (res.status === 429 || res.status >= 500)) noteFailure(path);
   if (!res.ok && !path.startsWith("/usage/")) reportError(errName(path, res.status));
   if (res.status === 429) throw new ApiError("요청이 많아 잠시 쉬고 있습니다. 1분 뒤 다시 시도해 주세요.", 429);
   if (!res.ok) {
@@ -182,6 +246,23 @@ export function forget(prefix) {
   };
 }
 
+/** 외부 데이터(JSON·RSS 등)에서 온 주소를 http:/https: 로만 허용한다. 아니면 "" (javascript:, data: 등 차단). */
+export function safeHttpUrl(url, base) {
+  if (typeof url !== "string" || !url.trim()) return "";
+  try {
+    const u = new URL(url.trim(), base || undefined);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : "";
+  } catch {
+    return "";
+  }
+}
+// href 로 허용하는 방식: http(s)·mailto·tel·blob, 그리고 방식이 없는 상대 주소(#/화면 등)
+const HREF_OK = /^(https?|mailto|tel|blob):/i;
+function safeHref(v) {
+  const s = String(v).replace(/[\u0000-\u001f\u007f\s]+/g, "");
+  return /^[a-z][a-z0-9+.-]*:/i.test(s) && !HREF_OK.test(s) ? null : v;
+}
+
 export function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
   if (attrs) {
@@ -191,6 +272,7 @@ export function h(tag, attrs, ...children) {
       else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
       else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2).toLowerCase(), v);
       else if (k === "html") el.innerHTML = v;
+      else if (k === "href" && safeHref(v) == null) continue;
       else if (v === true) el.setAttribute(k, "");
       else el.setAttribute(k, v);
     }
@@ -261,8 +343,10 @@ export function toast(text) {
 }
 
 export function openUrl(url) {
-  if (window.FssNative) return window.FssNative.openUrl(String(url));
-  window.open(url, "_blank", "noopener");
+  const safe = safeHttpUrl(url);
+  if (!safe) return toast("열 수 없는 주소입니다.");
+  if (window.FssNative) return window.FssNative.openUrl(safe);
+  window.open(safe, "_blank", "noopener");
 }
 
 export async function share(title, url) {
@@ -352,7 +436,7 @@ export function download(blob, name, opt = {}) {
 export function dialog({ title, text, body, fields, ok = "확인", cancel = "취소", danger = false, wide = false }) {
   return new Promise((resolve) => {
     const inputs = (fields || []).map((f) =>
-      h("label", { class: "field" }, h("span", null, f.label), h(f.multiline ? "textarea" : "input", { name: f.name, value: f.value || "", placeholder: f.placeholder || "", rows: f.multiline ? 3 : null }))
+      h("label", { class: "field" }, h("span", null, f.label), h(f.multiline ? "textarea" : "input", { name: f.name, value: f.value || "", placeholder: f.placeholder || "", rows: f.multiline ? 3 : null, type: f.multiline ? null : f.type || "text", autocomplete: f.type === "password" ? "off" : null }))
     );
     for (const [i, f] of (fields || []).entries()) if (f.multiline) inputs[i].querySelector("textarea").value = f.value || "";
     const close = (v) => {

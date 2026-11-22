@@ -1,13 +1,15 @@
 // 운용사·증권사별 펀드 순자산총액(공모/사모). GitHub Actions가 금융투자협회 종합통계 포털(FreeSIS) '회사별설정규모'를
 // 매일 모아 fund-data 브랜치에 올리는 fund-aum.json을 받는다. 앱의 FundAum.kt를 옮겼다. 받은 자료는 브라우저 캐시에 6시간 보관한다.
 import { errorText, h, loading, message } from "../core.js";
+import { hangulize } from "./dartmatch.js";
 
 export const DATA_URL = "https://raw.githubusercontent.com/hdlee73/FSS_insights/fund-data/fund-aum.json";
 const REFRESH_MS = 6 * 3600 * 1000;
 const CACHE = "fss-data";
 
 const noise = /주식회사|유한회사|\(주\)|㈜|\(유\)|\s|[.,·]/g;
-const key = (n) => String(n || "").replace(noise, "").toLowerCase();
+// 영문 약어는 한글 읽기로 맞춘다: FISIS 'KB자산운용' = 협회 '케이비자산운용'(이전에는 달라서 KB·DB·IBK 등이 순자산 자료 없음으로 맨 뒤로 갔다).
+const key = (n) => hangulize(String(n || "").replace(noise, "").toLowerCase());
 const stem = (n) => key(n).replace(/(자산운용|투자운용|투자자문|자산관리|운용|증권)$/, "");
 
 function parse(o) {
