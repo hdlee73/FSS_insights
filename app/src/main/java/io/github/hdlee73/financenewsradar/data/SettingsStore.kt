@@ -183,6 +183,13 @@ class SettingsStore(context: Context) {
         preferences.edit().putBoolean(LIBRARY_ALERT, enabled).apply()
     }
 
+    /** 제재 알림(제재공시·공시조사결과제재·회계감리결과제재)에 새 건이 올라오면 알리는 설정. 기본은 꺼짐. */
+    fun sanctionAlertEnabled(kind: String): Boolean = preferences.getBoolean("$SANCTION_ALERT_PREFIX$kind", false)
+
+    fun setSanctionAlertEnabled(kind: String, enabled: Boolean) {
+        preferences.edit().putBoolean("$SANCTION_ALERT_PREFIX$kind", enabled).apply()
+    }
+
     /** 오늘의 브리핑 알림 사용 여부(기본 꺼짐)와 시각(자정부터의 분, 기본 오전 8시 30분). */
     fun briefingAlertEnabled(): Boolean = preferences.getBoolean(BRIEFING_ALERT, false)
 
@@ -271,6 +278,7 @@ class SettingsStore(context: Context) {
         private const val KEYWORD_ALERTS = "keyword_alerts_enabled"   // v0.20 이하의 전체 스위치(새 설정의 기본값 판단에만 쓴다)
         private const val ALERT_MODE_PREFIX = "alert_mode_"
         private const val MATERIAL_ALERT_PREFIX = "material_alert_"
+        private const val SANCTION_ALERT_PREFIX = "sanction_alert_"
         private const val LIBRARY_ALERT = "library_alert_enabled"
         private const val BRIEFING_ALERT = "briefing_alert_enabled"
         private const val BRIEFING_ALERT_MINUTES = "briefing_alert_minutes"
