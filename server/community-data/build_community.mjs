@@ -320,18 +320,15 @@ async function naverGet(kind, query, display) {
         : { "X-Naver-Client-Id": key.id, "X-Naver-Client-Secret": key.secret, "User-Agent": UA };
       const res = await fetch(url, { headers, signal: ctl.signal });
       key.stat[res.status] = (key.stat[res.status] || 0) + 1;
-      if (key.hub && (res.status === 403 || res.status === 404) && !key.denyLogged?.has(kind)) {
+      if (key.hub && [401, 403, 404].includes(res.status)) {
         // HUB Application이 이 검색 종류(블로그·카페글 등)를 구독하지 않은 경우: 이 종류만 다른 키로 넘긴다. 오류 본문은 키 값 없이 짧게만 남긴다.
-        (key.denyLogged ||= new Set()).add(kind);
         key.deny.add(kind);
-        const body = (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200);
-        console.log(`naver key#${key.n}(HUB) ${kind}: ${res.status} ${body}`);
+        console.log(`naver key#${key.n}(HUB) ${kind}: ${res.status} → 이 종류는 1번 키로 처리`);
         lastErr = `hub-denied(${res.status})`; continue;
       }
       if (res.status === 429) { key.dead = true; lastErr = "rate-limit(429)"; continue; }
       if (res.status === 401 || res.status === 403) {
         key.dead = true; lastErr = `auth(${res.status})`;
-        if (key.hub && res.status === 401) console.log(`naver key#${key.n}(HUB) ${kind}: 401 ${(await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200)}`);
         continue;
       }
       if (!res.ok) return { err: `error(${res.status})` };
