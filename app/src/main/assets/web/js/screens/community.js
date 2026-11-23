@@ -1,4 +1,4 @@
-// 커뮤니티 핫이슈(금융관련): 디시·클리앙·보배드림 게시판, 네이버 블로그·카페 언급 신호, 유튜브 영상을 '출처별 칸'으로 나눠 보여 준다.
+// 커뮤니티 핫이슈(금융관련): 디시·클리앙·뽐뿌·팍스넷·보배드림 게시판, 네이버 블로그·카페 언급 신호, 유튜브 영상을 '출처별 칸'으로 나눠 보여 준다.
 // 자료는 FSS_insights 레포 community-data 브랜치(GitHub Actions community-data.yml이 평일 업무시간 30분·그 밖 2시간마다 갱신하는 hot.json). 별도 서버 없음.
 // 제목·출처·시간·조회/댓글 수와 원문 링크만 담으며 본문·닉네임은 수집하지 않는다. 출처가 서로 다른 지표를 가지므로 하나의 순위표에 섞지 않고, 각 칸 안에서만 순위를 매긴다.
 import { setHeader } from "../app.js";
@@ -29,16 +29,21 @@ const URL_ARCHIVE = "https://raw.githubusercontent.com/hdlee73/FSS_insights/comm
 const GROUPS = [
   ["dc", "디시인사이드", "주식·미국주식·비트코인·텐배거·코스피·ETF·달러 갤러리의 개념글과 최신 글"],
   ["clien", "클리앙", "주식한당·모두의공원 최신 글(사이트가 인기 목록 수집을 허용하지 않음)"],
+  ["pp", "뽐뿌", "증권·재테크포럼 RSS(조회·댓글 수 없이 제목·시각만)"],
+  ["pax", "팍스넷", "종목 ‘강추이종목’ 게시판(조회·추천·댓글 수 포함)"],
   ["bobae", "보배드림", "베스트·자유게시판 중 금융 키워드 글(보조)"],
   ["naver", "네이버 블로그·카페", "조회·댓글 수가 없어 순위가 아닌 ‘언급량 신호’"],
   ["yt", "유튜브", "금융 관련 인기 영상(조회·댓글·좋아요)"],
 ];
 const TAB_IDS = ["all", ...GROUPS.map((g) => g[0])];
-const TAB_LABELS = ["출처별 보기", "디시", "클리앙", "보배드림", "네이버", "유튜브"];
-const groupOf = (sk) => (sk.startsWith("dc-") ? "dc" : sk.startsWith("clien") ? "clien" : sk === "bobae" ? "bobae" : sk === "youtube" ? "yt" : sk);
+const TAB_LABELS = ["출처별 보기", "디시", "클리앙", "뽐뿌", "팍스넷", "보배드림", "네이버", "유튜브"];
+const groupOf = (sk) => (sk.startsWith("dc-") ? "dc" : sk.startsWith("clien") ? "clien" : sk.startsWith("ppomppu") ? "pp" : sk.startsWith("paxnet") ? "pax" : sk === "bobae" ? "bobae" : sk === "youtube" ? "yt" : sk);
 
 export const LIMITS = [
-  "일부 커뮤니티만 수집합니다. 사이트가 수집을 허용하지 않거나 막는 곳(네이버 종토방·뽐뿌·에펨코리아 등)은 제외했습니다.",
+  "일부 커뮤니티만 수집합니다. 사이트가 수집을 허용하지 않거나 막는 곳(네이버 종토방·에펨코리아 등)은 제외했고, 인스티즈·더쿠는 금융 글이 적고 차단이 잦아 수집하지 않습니다.",
+  "뽐뿌는 사이트가 HTML 목록을 막고 RSS만 열어 두어 조회·댓글 수 없이 제목·시각만 씁니다. 그래서 증가 속도 순위가 아니라 ‘최근 글 + 금융 키워드 일치’로 점수를 매기며, 같은 출처 칸 안에서만 비교하세요.",
+  "뽐뿌·팍스넷은 수집 전에 robots.txt를 확인하고 허용된 목록만 읽습니다. 사이트가 구조를 바꾸거나 막으면 해당 칸이 일시적으로 비고(출처 상태에 ‘수집 실패’ 표시), 우회하지 않고 자동 복구를 기다립니다.",
+  "수집한 게시판이 일반 이용자 글이라 같은 이슈가 출처마다 다른 표현으로 올라올 수 있고, 출처별 점수는 서로 직접 비교할 수 없습니다. 비공개·로그인 전용 글과 댓글 내용은 보지 않습니다.",
   "약 30분(업무시간) 또는 2시간(야간·주말) 주기로 갱신하므로 실제 게시 시점보다 늦게 보일 수 있습니다.",
   "순위는 누적 조회보다 최근 1~4시간의 증가 속도를 중심으로 매기고, 오래 머문 글은 점수를 깎습니다. 급상승 키워드(▲)는 같은 시간대 최근 2주 평균보다 얼마나 튀었는지로 판정하며, 기록이 3일 이상 쌓이기 전에는 직전 3시간과 비교합니다.",
   "‘새로 뜨는 단어’는 사전에 없는 단어를 제목에서 자동으로 뽑은 것이라 조사·합성어가 어색하거나 관련 없는 단어가 섞일 수 있습니다. ‘같은 이슈’ 묶음은 제목의 단어가 겹치는 글을 묶은 추정입니다.",
@@ -103,7 +108,8 @@ function link(url, label, cls = "") {
 
 function itemRow(it, rank) {
   const meta = [h("span", { class: "tag blue" }, it.s), it.b && it.sk !== "youtube" ? h("span", { class: "cm-b" }, it.b) : it.b ? h("span", { class: "cm-b" }, it.b) : null, h("span", null, rel(it.ts))];
-  meta.push(h("span", null, `조회 ${num(it.v)}`), h("span", null, `댓글 ${num(it.c)}`));
+  if (it.nm) meta.push(h("span", { class: "cm-b", title: "이 출처는 조회·댓글 수를 제공하지 않아 제목·시각만으로 판단합니다" }, "조회·댓글 없음"));
+  else meta.push(h("span", null, `조회 ${num(it.v)}`), h("span", null, `댓글 ${num(it.c)}`));
   if (it.sk === "youtube" && it.l) meta.push(h("span", null, `좋아요 ${num(it.l)}`));
   if (it.nw) meta.push(h("span", { class: "tag green", title: "최근 3시간 안에 처음 포착된 글" }, "신규"));
   if (it.rv > 0) meta.push(h("span", { class: "cm-up", title: "최근 1~4시간 평균 시간당 조회 증가량" }, `▲ 시간당 +${num(it.rv)}`));
@@ -250,7 +256,7 @@ export async function render(root, params, ctx) {
   if (tab === "all" && !kw) {
     // 전체 급상승: 출처별 최대 2건, 같은 출처 안 순위로만 뽑는다(출처 간 점수 직접 비교 없음)
     const top = [];
-    for (let r = 0; r < 2; r++) for (const id of ["dc", "clien", "bobae", "yt"]) { const it = apply(groups[id])[r]; if (it) top.push(it); }
+    for (let r = 0; r < 2; r++) for (const id of ["dc", "clien", "pp", "pax", "bobae", "yt"]) { const it = apply(groups[id])[r]; if (it) top.push(it); }
     top.sort((a, b) => (b.rv || b.dv || 0) - (a.rv || a.dv || 0) || b.score - a.score);
     const topCard = h("section", { class: "card cm-card cm-top" },
       h("div", { class: "ch" }, icon("trending-up"), h("h3", null, "지금 눈에 띄는 글")),
@@ -264,7 +270,7 @@ export async function render(root, params, ctx) {
   }
 
   // 출처 상태
-  const stRows = (data.sources || []).map((s) => h("span", { class: "cm-st " + (s.pending ? "pend" : s.ok ? "ok" : "bad"), title: s.error || "" }, `${s.name}${s.board && s.key.startsWith("clien") ? "·" + s.board : ""}`, " ", s.pending ? "준비 중" : s.ok ? "정상" : "수집 실패"));
+  const stRows = (data.sources || []).map((s) => h("span", { class: "cm-st " + (s.pending ? "pend" : s.ok ? "ok" : "bad"), title: s.error || "" }, `${s.name}${s.board && /^(clien|ppomppu)/.test(s.key) ? "·" + s.board : ""}`, " ", s.pending ? "준비 중" : s.ok ? "정상" : "수집 실패"));
   const foot = h("div", { class: "cm-foot" },
     h("div", { class: "cm-sts" }, h("b", null, "출처 상태"), stRows, h("small", null, ` · 마지막 갱신 ${hhmm(data.updated)}`, stale ? " (오래됨: 수집이 지연되고 있습니다)" : "")),
     h("div", { class: "cm-disc" }, icon("info"), " 일부 커뮤니티만 약 30분 주기로 수집하며 지연·누락이 있을 수 있습니다. 제목·지표·원문 링크만 제공하고, 커뮤니티 글은 검증되지 않은 의견으로 투자·감독 판단의 근거가 아닙니다."));
