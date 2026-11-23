@@ -1,0 +1,11 @@
+name = "fss-cron-trigger"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+workers_dev = false
+
+[triggers]
+# UTC 기준. 평일 KST 09~22시 30분마다, 2시간마다(업무시간 중에는 코드에서 건너뜀).
+crons = ["7,37 0-13 * * 1-5", "7 */2 * * *"]
+
+[observability]
+enabled = true
