@@ -2,7 +2,7 @@
 // 사용: node server/community-data/build_community.mjs <출력폴더> [이전 데이터 폴더]
 //
 // 원칙
-//  - 사이트마다 robots.txt가 허용하는 공개 목록 페이지(인기·최신 각 1장)만 읽는다. 본문·이미지·닉네임·IP는 읽지도 저장하지도 않는다.
+//  - 사이트마다 robots.txt가 허용하는 공개 목록 페이지(인기·최신 각 1장)만 읽는다(뽐뿌·팍스넷은 실행 때마다 robots.txt를 직접 확인하고, 못 읽으면 건너뜀). 본문·이미지·닉네임·IP는 읽지도 저장하지도 않는다(뽐뿌 RSS의 본문 요약·작성자도 버림).
 //  - 요청 사이 3초 이상 쉬고, 식별 가능한 User-Agent를 쓴다. 403·429·타임아웃이면 그 출처는 이번 회차를 건너뛰고 상태에 "blocked/error"로 적는다(우회 없음, 재시도 없음).
 //  - 저장하는 것: 제목, 출처, 시간, 조회·댓글·추천 수, 원문 주소.
 //  - 직전 스냅샷과 비교해 조회·댓글 증가량(급상승)을 구한다. 스냅샷은 72시간만 보관한다.
@@ -31,6 +31,10 @@ const SOURCES = [
   { key: "dc-dollar", name: "디시 달러", board: "달러 마이너갤러리", kind: "dc", host: "https://gall.dcinside.com", base: "/mgallery/board/lists/?id=dollar", prior: "환율", w: 0.9 },
   { key: "clien-stock", name: "클리앙", board: "주식한당", kind: "clien", host: "https://www.clien.net", base: "/service/board/cm_stock", prior: "증시", latestOnly: true },
   { key: "clien-park", name: "클리앙", board: "모두의공원", kind: "clien", host: "https://www.clien.net", base: "/service/board/park", prior: null, latestOnly: true },
+  // 뽐뿌: HTML 목록은 봇을 막지만 공식 RSS는 열려 있다. RSS에는 조회·댓글 수가 없어 제목·시각만 쓴다(본문 요약·작성자는 버린다).
+  { key: "ppomppu-stock", name: "뽐뿌", board: "증권포럼", kind: "rss", host: "https://www.ppomppu.co.kr", base: "/rss.php?id=stock", boardId: "stock", prior: "증시", robots: true },
+  { key: "ppomppu-money", name: "뽐뿌", board: "재테크포럼", kind: "rss", host: "https://www.ppomppu.co.kr", base: "/rss.php?id=money", boardId: "money", prior: null, robots: true, w: 0.9 },
+  { key: "paxnet-pick", name: "팍스넷", board: "강추이종목", kind: "pax", host: "https://www.paxnet.co.kr", base: "/tbbs/list?tbbsType=L&id=N00820", boardId: "N00820", prior: "증시", robots: true },
   { key: "bobae", name: "보배드림", board: "베스트·자유게시판", kind: "bobae", host: "https://www.bobaedream.co.kr", pages: [["/list?code=best", true], ["/list?code=freeb", false]], prior: null },
 ];
 
@@ -69,6 +73,39 @@ async function getHtml(url) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// robots.txt 확인(새로 추가한 출처용): User-agent: * 그룹의 Allow/Disallow를 가장 긴 일치 규칙 우선으로 해석한다.
+// robots.txt를 못 읽거나(403·429·5xx·타임아웃) 챌린지 페이지면 허용으로 보지 않고 그 출처를 건너뛴다. 실행 한 번에 호스트당 한 번만 읽는다.
+const robotsCache = new Map();
+async function robotsRules(host) {
+  if (robotsCache.has(host)) return robotsCache.get(host);
+  const r = await getHtml(host + "/robots.txt");
+  await sleep(DELAY_MS);
+  let rules = null;
+  if (r.status === "ok" && !/<html/i.test(r.html.slice(0, 500))) {
+    rules = [];
+    let applies = false, sawAgent = false;
+    for (const raw of r.html.split(/\r?\n/)) {
+      const line = raw.replace(/#.*/, "").trim();
+      const m = line.match(/^([A-Za-z-]+)\s*:\s*(.*)$/);
+      if (!m) continue;
+      const k = m[1].toLowerCase(), v = m[2].trim();
+      if (k === "user-agent") { if (!sawAgent) applies = false; sawAgent = true; if (v === "*") applies = true; }
+      else { sawAgent = false; if (applies && (k === "allow" || k === "disallow") && v) rules.push({ allow: k === "allow", re: new RegExp("^" + v.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\\\$$/, "$")), len: v.length }); }
+    }
+  }
+  robotsCache.set(host, rules);
+  return rules;
+}
+async function robotsAllows(url) {
+  const u = new URL(url);
+  const rules = await robotsRules(u.origin);
+  if (!rules) return false; // 읽지 못하면 수집하지 않는다
+  const target = u.pathname + u.search;
+  let best = null;
+  for (const r of rules) if (r.re.test(target) && (!best || r.len > best.len || (r.len === best.len && r.allow))) best = r;
+  return !best || best.allow;
 }
 
 // ---------- 목록 파서(제목·지표만) ----------
@@ -153,6 +190,50 @@ function parseBobae(html, src, popular, code) {
   return out;
 }
 
+// 뽐뿌 RSS: 제목·링크·시각만 읽는다. <description>(본문 일부)·<author>·<hits>는 버린다. 조회·댓글 수가 없는 출처(views=null).
+function parsePpomppuRss(xml, src) {
+  const out = [];
+  for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+    const b = m[1];
+    const title = decode((b.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? "").replace(/<!\[CDATA\[|\]\]>/g, ""));
+    const link = decode(b.match(/<link>([\s\S]*?)<\/link>/)?.[1] ?? "");
+    const no = link.match(/[?&]no=(\d+)/)?.[1];
+    const pub = b.match(/<pubDate>([^<]+)</)?.[1];
+    const t = pub ? new Date(pub) : null;
+    if (!title || !no) continue;
+    out.push({
+      id: `ppomppu:${src.boardId}:${no}`, title,
+      url: `${src.host}/zboard/view.php?id=${src.boardId}&no=${no}`,
+      ts: t && !Number.isNaN(+t) ? t.toISOString() : null,
+      views: null, comments: 0, likes: 0, pop: false, nm: true,
+    });
+  }
+  return out;
+}
+// 팍스넷 종목 게시판 목록: 제목·조회·추천·댓글 수·시각만 읽는다(작성자·닉네임은 읽지 않는다).
+function parsePaxnet(html, src) {
+  const out = [];
+  for (const m of html.matchAll(/<div class="category" data-seq="(\d+)">([\s\S]*?)(?=<div class="category" data-seq=|$)/g)) {
+    const seq = m[1], body = m[2];
+    const a = body.match(/<a class="best-title"[^>]*>([\s\S]*?)<\/a>/);
+    if (!a) continue;
+    const title = decode(a[1]).replace(/^[●○◆■▶\s]+/, "");
+    if (!title) continue;
+    const cm = body.match(/class="comment-num"[^>]*>(\d+)</);
+    const hit = body.match(/id="hitsNum_\d+"[^>]*><span>조회 <\/span>([\d,]+)/);
+    const rec = body.match(/id="recmNum_\d+"[^>]*><span>추천 <\/span>([\d,]+)/);
+    const dt = body.match(/data-date-format="\w{3} (\w{3}) (\d{1,2}) (\d{2}):(\d{2}):\d{2} KST (\d{4})"/);
+    const mon = dt ? ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(dt[1]) + 1 : 0;
+    out.push({
+      id: `pax:${src.boardId}:${seq}`, title,
+      url: `${src.host}/tbbs/view?id=${src.boardId}&seq=${seq}`,
+      ts: mon ? toIso(+dt[5], mon, +dt[2], +dt[3], +dt[4]) : null,
+      views: toNum(hit?.[1]), comments: cm ? +cm[1] : 0, likes: toNum(rec?.[1]) ?? 0, pop: false,
+    });
+  }
+  return out;
+}
+
 async function collect() {
   const items = new Map();
   const status = [];
@@ -160,18 +241,19 @@ async function collect() {
     const st = { key: src.key, name: src.name, board: src.board, ok: false, count: 0, checkedAt: now.toISOString() };
     let first = true;
     const pages = src.kind === "bobae" ? src.pages.map(([p, pop]) => ({ url: src.host + p, pop, code: new URL(src.host + p).searchParams.get("code") }))
-      : src.latestOnly ? [{ url: src.host + src.base, pop: false }]
+      : src.latestOnly || src.kind === "rss" || src.kind === "pax" ? [{ url: src.host + src.base, pop: false }]
       : [{ url: src.host + src.base + "&exception_mode=recommend", pop: true }, { url: src.host + src.base, pop: false }];
     for (const pg of pages) {
       if (!first) await sleep(DELAY_MS);
       first = false;
+      if (src.robots && !(await robotsAllows(pg.url))) { st.error = "robots-disallowed-or-unreadable"; st.blocked = true; break; }
       const r = await getHtml(pg.url);
       if (r.status !== "ok") {
         st.error = r.status === "blocked" ? `blocked(${r.code})` : `error(${r.code}${r.msg ? " " + r.msg : ""})`;
         if (r.status === "blocked") { st.blocked = true; break; } // 막히면 이 출처의 나머지 요청도 하지 않는다
         continue;
       }
-      const rows = src.kind === "dc" ? parseDc(r.html, src, pg.pop) : src.kind === "clien" ? parseClien(r.html, src) : parseBobae(r.html, src, pg.pop, pg.code);
+      const rows = src.kind === "dc" ? parseDc(r.html, src, pg.pop) : src.kind === "clien" ? parseClien(r.html, src) : src.kind === "rss" ? parsePpomppuRss(r.html, src) : src.kind === "pax" ? parsePaxnet(r.html, src) : parseBobae(r.html, src, pg.pop, pg.code);
       if (!rows.length) { st.error = st.error || "parse-empty"; continue; }
       for (const it of rows) {
         const old = items.get(it.id);
@@ -513,6 +595,7 @@ async function run() {
     // 순위의 중심은 '지금 얼마나 빨리 늘고 있나'. 누적 조회·댓글은 보조(가중치 절반 이하)
     let raw_ = 0.18 * Math.log(1 + v / m.v) + 0.15 * Math.log(1 + it.comments / m.c) + 0.07 * Math.log(1 + it.likes / m.l);
     if (rv != null) raw_ += 0.9 * Math.log(1 + rv / m.v) + 0.5 * Math.log(1 + (rc / Math.max(1, m.c)) * 2);
+    if (it.nm) raw_ += 0.3; // 조회·댓글 수가 없는 출처(뽐뿌 RSS)는 지표 대신 '최근 글 + 금융 키워드 일치'를 기본 신호로 본다(아래 시간 감쇠가 적용됨)
     if (it.pop) raw_ += 0.2;
     if (cl.priorOnly) raw_ *= 0.45; // 금융 키워드 없이 금융 게시판이라는 이유만으로 들어온 글은 키워드가 맞은 글보다 낮게
     raw_ *= Math.pow(0.5, ageH / 6) * (it.w ?? 1); // 출처별 가중치(보조 갤러리는 약간 낮춤)
@@ -567,7 +650,7 @@ async function run() {
   const top = kept.slice(0, 100).map((c) => ({
     id: c.id, t: c.title, u: c.url, s: c.source, sk: c.src, b: c.board, ts: c.ts,
     v: c.views, c: c.comments, l: c.likes, score: c.score, cat: c.cat, sup: c.sup || undefined,
-    dv: c.dv ?? undefined, dc: c.dc ?? undefined, rv: c.rvh || undefined, nw: c.isNew || undefined, cn: c.cn > 1 ? c.cn : undefined, rel: c.cn > 1 ? c.rel : undefined, co: c.cos?.length ? c.cos : undefined, pop: c.pop || undefined, also: c.also?.length ? c.also : undefined,
+    dv: c.dv ?? undefined, dc: c.dc ?? undefined, rv: c.rvh || undefined, nw: c.isNew || undefined, nm: c.nm || undefined, cn: c.cn > 1 ? c.cn : undefined, rel: c.cn > 1 ? c.rel : undefined, co: c.cos?.length ? c.cos : undefined, pop: c.pop || undefined, also: c.also?.length ? c.also : undefined,
   }));
 
   // 급상승 키워드: 최근 3시간 새 글 언급 수 vs 직전 3시간
