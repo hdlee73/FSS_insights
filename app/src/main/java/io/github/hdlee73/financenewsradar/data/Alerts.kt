@@ -272,7 +272,7 @@ object BriefingAlert {
                     "$name 개인 ${s(f.personal)} 외국인 ${s(f.foreign)} 기관 ${s(f.institutional)}"
                 }
             }
-            if (flows.isNotEmpty()) lines += "순매수(억원) " + flows.joinToString(" · ")
+            if (flows.isNotEmpty()) lines += "순매수(억원·KRX+NXT 합산) " + flows.joinToString(" · ")
         }
 
         runCatching {

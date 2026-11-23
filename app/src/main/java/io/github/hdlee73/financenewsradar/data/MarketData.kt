@@ -2,6 +2,8 @@ package io.github.hdlee73.financenewsradar.data
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -34,8 +36,12 @@ data class Quote(val price: Double, val previous: Double?, val timeSeconds: Long
     val changePercent: Double? get() = previous?.takeIf { it > 0 }?.let { (price - it) / it * 100 }
 }
 
-/** 투자자별 순매수(억원). 장중에는 잠정치이며 [bizdate]는 yyyyMMdd. */
-data class InvestorFlow(val bizdate: String, val personal: Double, val foreign: Double, val institutional: Double)
+/** 투자자별 순매수(억원, KRX+NXT 합산). 장중에는 잠정치이며 [bizdate]는 yyyyMMdd. */
+data class InvestorFlow(
+    val bizdate: String, val personal: Double, val foreign: Double, val institutional: Double,
+    /** 합산에서 빠진 거래소 안내(예: "NXT 미반영(KRX만 합산)"). 둘 다 반영됐으면 빈 문자열. */
+    val partial: String = ""
+)
 
 /** 최근 1년 일별 종가와 기간 최고가·최저가. */
 data class PriceHistory(val closes: List<Double>, val high: Double, val low: Double, val dates: List<String> = emptyList())
@@ -478,17 +484,47 @@ class MarketClient(private val context: Context) {
         }
     }
 
-    /** 코스피(^KS11)·코스닥(^KQ11) 투자자별 순매수 금액(억원, NAVER). */
+    /**
+     * 코스피(^KS11)·코스닥(^KQ11) 투자자별 순매수 금액(억원) = KRX + NXT 합산(NAVER 증권 '투자자 동향' 자료).
+     * 한쪽만 읽히거나 날짜가 다르면 같은 날짜 값만 합치고 [InvestorFlow.partial]에 빠진 쪽을 적는다. 둘 다 실패하면 예외.
+     */
     suspend fun investors(raw: String): InvestorFlow = withContext(Dispatchers.IO) {
         val symbol = checkedSymbol(raw)
         require(symbol == "^KS11" || symbol == "^KQ11") { "투자자별 매매동향은 코스피·코스닥만 제공" }
-        val o = JSONObject(get("https://m.stock.naver.com/api/index/${if (symbol == "^KS11") "KOSPI" else "KOSDAQ"}/trend"))
+        val market = if (symbol == "^KS11") "KOSPI" else "KOSDAQ"
+        val results = coroutineScope {
+            listOf("KRX", "NXT").map { ex -> ex to async { runCatching { exchangeFlow(market, ex) } } }.map { (ex, d) -> ex to d.await() }
+        }
+        val ok = results.mapNotNull { (ex, r) -> r.getOrNull()?.let { ex to it } }
+        if (ok.isEmpty()) throw results.firstNotNullOfOrNull { it.second.exceptionOrNull() } ?: IllegalStateException("투자자 동향 조회 실패")
+        val date = ok.maxOf { it.second.bizdate }
+        val used = ok.filter { it.second.bizdate == date }
+        val missing = listOf("KRX", "NXT").filter { n -> used.none { it.first == n } }
         InvestorFlow(
-            o.optString("bizdate"),
-            parseNumber(o.getString("personalValue")),
-            parseNumber(o.getString("foreignValue")),
-            parseNumber(o.getString("institutionalValue"))
+            date,
+            used.sumOf { it.second.personal },
+            used.sumOf { it.second.foreign },
+            used.sumOf { it.second.institutional },
+            if (missing.isEmpty()) "" else "${missing.joinToString("·")} 미반영(${used.joinToString("+") { it.first }}만 합산)"
         )
+    }
+
+    /** 한 거래소(KRX 또는 NXT)의 시장별 투자자 순매수(억원). 한 번 실패하면 한 번 더 읽는다. */
+    private fun exchangeFlow(market: String, exchange: String): InvestorFlow {
+        val url = "https://m.stock.naver.com/front-api/market/investorTrend?marketType=$market&tradeType=$exchange&periodType=DAILY"
+        val o = try { JSONObject(get(url)) } catch (e: Exception) { Thread.sleep(1_500); JSONObject(get(url)) }
+        val res = o.optJSONObject("result")
+        if (!o.optBoolean("isSuccess", true) || res == null) error("투자자 동향 응답 오류")
+        val items = res.optJSONArray("items") ?: error("투자자 동향 응답 오류")
+        val v = mutableMapOf<String, Double>()
+        for (i in 0 until items.length()) {
+            val it = items.getJSONObject(i)
+            val n = it.optDouble("netBuyAmount", Double.NaN)
+            if (n.isFinite()) v[it.optString("investorType")] = n / 1e8 // 원 → 억원
+        }
+        val p = v["individual"]; val f = v["foreigner"]; val inst = v["organization"]
+        if (p == null || f == null || inst == null) error("투자자 동향 값 없음")
+        return InvestorFlow(res.optString("toDate").ifEmpty { res.optString("fromDate") }, p, f, inst)
     }
 
     private fun naverQuote(url: String): Quote {
