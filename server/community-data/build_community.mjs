@@ -33,7 +33,7 @@ const SOURCES = [
   { key: "clien-park", name: "클리앙", board: "모두의공원", kind: "clien", host: "https://www.clien.net", base: "/service/board/park", prior: null, latestOnly: true },
   // 뽐뿌: HTML 목록은 봇을 막지만 공식 RSS는 열려 있다. RSS에는 조회·댓글 수가 없어 제목·시각만 쓴다(본문 요약·작성자는 버린다).
   { key: "ppomppu-stock", name: "뽐뿌", board: "증권포럼", kind: "rss", host: "https://www.ppomppu.co.kr", base: "/rss.php?id=stock", boardId: "stock", prior: "증시", robots: true },
-  { key: "ppomppu-money", name: "뽐뿌", board: "재테크포럼", kind: "rss", host: "https://www.ppomppu.co.kr", base: "/rss.php?id=money", boardId: "money", prior: null, robots: true, w: 0.9 },
+  { key: "ppomppu-free", name: "뽐뿌", board: "자유게시판", kind: "rss", host: "https://www.ppomppu.co.kr", base: "/rss.php?id=freeboard", boardId: "freeboard", prior: null, robots: true, w: 0.9 },
   { key: "paxnet-pick", name: "팍스넷", board: "강추이종목", kind: "pax", host: "https://www.paxnet.co.kr", base: "/tbbs/list?tbbsType=L&id=N00820", boardId: "N00820", prior: "증시", robots: true },
   { key: "bobae", name: "보배드림", board: "베스트·자유게시판", kind: "bobae", host: "https://www.bobaedream.co.kr", pages: [["/list?code=best", true], ["/list?code=freeb", false]], prior: null },
 ];
