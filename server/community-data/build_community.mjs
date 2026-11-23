@@ -300,7 +300,7 @@ function kwZ(buckets, k) {
 const NV_KEYS = [
   [process.env.NAVER_CLIENT_ID, process.env.NAVER_CLIENT_SECRET],
   [process.env.NAVER_CLIENT_ID_2, process.env.NAVER_CLIENT_SECRET_2],
-].map(([id, secret], i) => ({ n: i + 1, id, secret, dead: false, stat: {}, hub: i === 1 })).filter((k) => k.id && k.secret);
+].map(([id, secret], i) => ({ n: i + 1, id: (id || "").trim(), secret: (secret || "").trim(), dead: false, deny: new Set(), stat: {}, hub: i === 1 })).filter((k) => k.id && k.secret);
 // 2번 키는 네이버 클라우드 NAVER API HUB 키: 주소·경로·헤더가 다르고(응답 필드는 동일) 호출 한도도 따로 계산된다.
 const NV_HUB = "https://naverapihub.apigw.ntruss.com/search/v1";
 let nvTurn = 0;
@@ -308,7 +308,7 @@ async function naverGet(kind, query, display) {
   const q = `query=${encodeURIComponent(query)}&display=${display}&sort=date`;
   let lastErr = "키 없음";
   for (let tries = 0; tries < NV_KEYS.length; tries++) {
-    const alive = NV_KEYS.filter((k) => !k.dead);
+    const alive = NV_KEYS.filter((k) => !k.dead && !k.deny.has(kind));
     if (!alive.length) break;
     const key = alive[nvTurn++ % alive.length];
     const ctl = new AbortController();
@@ -320,8 +320,20 @@ async function naverGet(kind, query, display) {
         : { "X-Naver-Client-Id": key.id, "X-Naver-Client-Secret": key.secret, "User-Agent": UA };
       const res = await fetch(url, { headers, signal: ctl.signal });
       key.stat[res.status] = (key.stat[res.status] || 0) + 1;
+      if (key.hub && (res.status === 403 || res.status === 404) && !key.denyLogged?.has(kind)) {
+        // HUB Application이 이 검색 종류(블로그·카페글 등)를 구독하지 않은 경우: 이 종류만 다른 키로 넘긴다. 오류 본문은 키 값 없이 짧게만 남긴다.
+        (key.denyLogged ||= new Set()).add(kind);
+        key.deny.add(kind);
+        const body = (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200);
+        console.log(`naver key#${key.n}(HUB) ${kind}: ${res.status} ${body}`);
+        lastErr = `hub-denied(${res.status})`; continue;
+      }
       if (res.status === 429) { key.dead = true; lastErr = "rate-limit(429)"; continue; }
-      if (res.status === 401 || res.status === 403) { key.dead = true; lastErr = `auth(${res.status})`; continue; }
+      if (res.status === 401 || res.status === 403) {
+        key.dead = true; lastErr = `auth(${res.status})`;
+        if (key.hub && res.status === 401) console.log(`naver key#${key.n}(HUB) ${kind}: 401 ${(await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200)}`);
+        continue;
+      }
       if (!res.ok) return { err: `error(${res.status})` };
       return { json: await res.json() };
     } catch (e) {
@@ -329,6 +341,20 @@ async function naverGet(kind, query, display) {
     } finally { clearTimeout(timer); }
   }
   return { err: lastErr };
+}
+// 2번(HUB) 키 점검: 구독한 검색 종류별 응답코드와 응답 필드 이름만 로그에 남긴다(값·본문 없음).
+async function probeHub() {
+  const key = NV_KEYS.find((k) => k.hub);
+  if (!key) return;
+  for (const kind of ["news", "blog", "cafearticle"]) {
+    try {
+      const res = await fetch(`${NV_HUB}/${kind}?query=${encodeURIComponent("금융")}&display=1&format=json`, { headers: { "X-NCP-APIGW-API-KEY-ID": key.id, "X-NCP-APIGW-API-KEY": key.secret, "User-Agent": UA } });
+      let info = "";
+      if (res.ok) { const j = await res.json(); info = ` 필드=${Object.keys(j).join(",")} items[0]=${Object.keys(j.items?.[0] || {}).join(",")}`; }
+      else info = " " + (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200);
+      console.log(`hub probe ${kind}: ${res.status}${info}`);
+    } catch (e) { console.log(`hub probe ${kind}: error ${e?.name}`); }
+  }
 }
 function logNaverKeys() {
   for (const k of NV_KEYS) console.log(`naver key#${k.n}${k.hub ? "(HUB)" : ""}: ${JSON.stringify(k.stat)}${k.dead ? " (제외됨)" : ""}`);
@@ -483,6 +509,7 @@ async function run() {
   const snaps = loadSnaps();
   const hist = loadHist();
   const { items: raw, status } = await collect();
+  await probeHub();
   const nv = await collectNaver(snaps);
   logNaverKeys();
   const yt = await collectYoutube();
