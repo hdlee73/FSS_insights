@@ -300,10 +300,12 @@ function kwZ(buckets, k) {
 const NV_KEYS = [
   [process.env.NAVER_CLIENT_ID, process.env.NAVER_CLIENT_SECRET],
   [process.env.NAVER_CLIENT_ID_2, process.env.NAVER_CLIENT_SECRET_2],
-].map(([id, secret], i) => ({ n: i + 1, id, secret, dead: false, stat: {} })).filter((k) => k.id && k.secret);
+].map(([id, secret], i) => ({ n: i + 1, id, secret, dead: false, stat: {}, hub: i === 1 })).filter((k) => k.id && k.secret);
+// 2번 키는 네이버 클라우드 NAVER API HUB 키: 주소·경로·헤더가 다르고(응답 필드는 동일) 호출 한도도 따로 계산된다.
+const NV_HUB = "https://naverapihub.apigw.ntruss.com/search/v1";
 let nvTurn = 0;
 async function naverGet(kind, query, display) {
-  const url = `https://openapi.naver.com/v1/search/${kind}.json?query=${encodeURIComponent(query)}&display=${display}&sort=date`;
+  const q = `query=${encodeURIComponent(query)}&display=${display}&sort=date`;
   let lastErr = "키 없음";
   for (let tries = 0; tries < NV_KEYS.length; tries++) {
     const alive = NV_KEYS.filter((k) => !k.dead);
@@ -312,7 +314,11 @@ async function naverGet(kind, query, display) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 15000);
     try {
-      const res = await fetch(url, { headers: { "X-Naver-Client-Id": key.id, "X-Naver-Client-Secret": key.secret, "User-Agent": UA }, signal: ctl.signal });
+      const url = key.hub ? `${NV_HUB}/${kind}?${q}&format=json` : `https://openapi.naver.com/v1/search/${kind}.json?${q}`;
+      const headers = key.hub
+        ? { "X-NCP-APIGW-API-KEY-ID": key.id, "X-NCP-APIGW-API-KEY": key.secret, "User-Agent": UA }
+        : { "X-Naver-Client-Id": key.id, "X-Naver-Client-Secret": key.secret, "User-Agent": UA };
+      const res = await fetch(url, { headers, signal: ctl.signal });
       key.stat[res.status] = (key.stat[res.status] || 0) + 1;
       if (res.status === 429) { key.dead = true; lastErr = "rate-limit(429)"; continue; }
       if (res.status === 401 || res.status === 403) { key.dead = true; lastErr = `auth(${res.status})`; continue; }
@@ -325,7 +331,7 @@ async function naverGet(kind, query, display) {
   return { err: lastErr };
 }
 function logNaverKeys() {
-  for (const k of NV_KEYS) console.log(`naver key#${k.n}: ${JSON.stringify(k.stat)}${k.dead ? " (제외됨)" : ""}`);
+  for (const k of NV_KEYS) console.log(`naver key#${k.n}${k.hub ? "(HUB)" : ""}: ${JSON.stringify(k.stat)}${k.dead ? " (제외됨)" : ""}`);
 }
 async function collectNaver(snaps) {
   const st = { key: "naver", name: "네이버", board: "블로그·카페 언급량(검색 API)", ok: false, count: 0, checkedAt: now.toISOString(), signal: true };
