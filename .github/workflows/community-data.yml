@@ -55,6 +55,8 @@ jobs:
           # 있으면 쓰고 없으면 해당 칸을 '준비 중'으로 건너뛴다(값은 로그·파일에 남기지 않는다).
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          NAVER_CLIENT_ID_2: ${{ secrets.NAVER_CLIENT_ID_2 }}
+          NAVER_CLIENT_SECRET_2: ${{ secrets.NAVER_CLIENT_SECRET_2 }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: node server/community-data/build_community.mjs out /tmp/prev
       - name: Publish to community-data branch

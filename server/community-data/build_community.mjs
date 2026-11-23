@@ -296,24 +296,40 @@ function kwZ(buckets, k) {
 // ---------- 네이버(검색 API: 블로그·카페글) — 순위가 아니라 '언급 신호' ----------
 // 응답에 조회·댓글 수가 없다. 관찰어별로 최신 블로그 글 100건 중 오늘 올라온 글 수(포화되면 100+)와 최신 카페글 제목을 보여 준다.
 // 블로거 이름·본문 요약(description)은 저장하지 않는다. 호출: 관찰어당 2건(블로그 1, 카페 1).
-const NV_ID = process.env.NAVER_CLIENT_ID, NV_SECRET = process.env.NAVER_CLIENT_SECRET;
+// 키는 최대 2개(NAVER_CLIENT_ID/SECRET, NAVER_CLIENT_ID_2/SECRET_2). 호출마다 번갈아 쓰고, 한 키가 한도 초과(429)·인증 오류(401/403)이면 이번 실행에서는 그 키를 빼고 남은 키로 넘어간다. 값은 로그에 남기지 않는다(번호·상태코드만).
+const NV_KEYS = [
+  [process.env.NAVER_CLIENT_ID, process.env.NAVER_CLIENT_SECRET],
+  [process.env.NAVER_CLIENT_ID_2, process.env.NAVER_CLIENT_SECRET_2],
+].map(([id, secret], i) => ({ n: i + 1, id, secret, dead: false, stat: {} })).filter((k) => k.id && k.secret);
+let nvTurn = 0;
 async function naverGet(kind, query, display) {
   const url = `https://openapi.naver.com/v1/search/${kind}.json?query=${encodeURIComponent(query)}&display=${display}&sort=date`;
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 15000);
-  try {
-    const res = await fetch(url, { headers: { "X-Naver-Client-Id": NV_ID, "X-Naver-Client-Secret": NV_SECRET, "User-Agent": UA }, signal: ctl.signal });
-    if (res.status === 429) return { err: "rate-limit(429)" };
-    if (res.status === 401 || res.status === 403) return { err: `auth(${res.status})` };
-    if (!res.ok) return { err: `error(${res.status})` };
-    return { json: await res.json() };
-  } catch (e) {
-    return { err: e?.name === "AbortError" ? "timeout" : "error" };
-  } finally { clearTimeout(timer); }
+  let lastErr = "키 없음";
+  for (let tries = 0; tries < NV_KEYS.length; tries++) {
+    const alive = NV_KEYS.filter((k) => !k.dead);
+    if (!alive.length) break;
+    const key = alive[nvTurn++ % alive.length];
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const res = await fetch(url, { headers: { "X-Naver-Client-Id": key.id, "X-Naver-Client-Secret": key.secret, "User-Agent": UA }, signal: ctl.signal });
+      key.stat[res.status] = (key.stat[res.status] || 0) + 1;
+      if (res.status === 429) { key.dead = true; lastErr = "rate-limit(429)"; continue; }
+      if (res.status === 401 || res.status === 403) { key.dead = true; lastErr = `auth(${res.status})`; continue; }
+      if (!res.ok) return { err: `error(${res.status})` };
+      return { json: await res.json() };
+    } catch (e) {
+      return { err: e?.name === "AbortError" ? "timeout" : "error" };
+    } finally { clearTimeout(timer); }
+  }
+  return { err: lastErr };
+}
+function logNaverKeys() {
+  for (const k of NV_KEYS) console.log(`naver key#${k.n}: ${JSON.stringify(k.stat)}${k.dead ? " (제외됨)" : ""}`);
 }
 async function collectNaver(snaps) {
   const st = { key: "naver", name: "네이버", board: "블로그·카페 언급량(검색 API)", ok: false, count: 0, checkedAt: now.toISOString(), signal: true };
-  if (!NV_ID || !NV_SECRET) { st.pending = true; st.error = "키 없음"; return { st, terms: [] }; }
+  if (!NV_KEYS.length) { st.pending = true; st.error = "키 없음"; return { st, terms: [] }; }
   const kd = KST(now);
   const ymd = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
   const today = ymd(kd), yday = ymd(new Date(kd - 86400000));
@@ -462,6 +478,7 @@ async function run() {
   const hist = loadHist();
   const { items: raw, status } = await collect();
   const nv = await collectNaver(snaps);
+  logNaverKeys();
   const yt = await collectYoutube();
   status.push(nv.st, yt.st);
   const okCount = status.filter((s) => s.ok).length;
