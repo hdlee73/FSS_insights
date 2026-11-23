@@ -101,13 +101,36 @@ export const STALE_MS = 20 * 60_000;
 /** 현재가와 전일 종가. at=시세 기준 시각(ms), source=출처. */
 export function quote(raw) {
   const sym = checked(raw);
-  return cached("q:" + sym, QUOTE_TTL, async () => {
-    if (sym === "^KS11" || sym === "^KQ11") {
-      return naverQuote(`https://m.stock.naver.com/api/index/${sym === "^KS11" ? "KOSPI" : "KOSDAQ"}/basic`).catch(() => yahooQuote(sym));
-    }
-    if (KR.test(sym)) return naverQuote(`https://m.stock.naver.com/api/stock/${sym.slice(0, 6)}/basic`).catch(() => yahooQuote(sym));
-    return yahooQuote(sym);
-  });
+  return cached("q:" + sym, QUOTE_TTL, async () => keepNewest(sym, await rawQuote(sym)));
+}
+
+function rawQuote(sym) {
+  if (sym === "^KS11" || sym === "^KQ11") {
+    return naverQuote(`https://m.stock.naver.com/api/index/${sym === "^KS11" ? "KOSPI" : "KOSDAQ"}/basic`).catch(() => yahooQuote(sym));
+  }
+  if (KR.test(sym)) return naverQuote(`https://m.stock.naver.com/api/stock/${sym.slice(0, 6)}/basic`).catch(() => yahooQuote(sym));
+  return yahooQuote(sym);
+}
+
+/**
+ * NAVER는 서버마다 갱신 시점이 달라, 같은 주소를 연달아 읽어도 새 분(11:38)과 옛 분(11:37) 값이 번갈아 올 때가 있다.
+ * 같은 출처에서 직전에 받은 값보다 시세 기준 시각이 과거인 응답은 버리고 직전 값을 그대로 쓴다(숫자가 뒤로 튀는 것을 막는다).
+ * 시각 차가 30분을 넘으면(출처 교체·거래일 변경 등) 새 응답을 그대로 받아들인다.
+ */
+const newest = new Map();
+function keepNewest(sym, q) {
+  const prev = newest.get(sym);
+  if (prev && q.at > 0 && prev.at > 0 && prev.source === q.source && q.at < prev.at && prev.at - q.at < 30 * 60_000) return prev;
+  newest.set(sym, q);
+  return q;
+}
+
+/** 시세 기준 시각을 화면에 보일 글자로(오늘이면 HH:MM, 아니면 M/D HH:MM). 시각이 없으면 빈 글자. */
+export function quoteTimeText(q) {
+  if (!q?.at) return "";
+  const d = new Date(q.at);
+  const hm = d.toLocaleTimeString("ko-KR", { hour12: false, hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString() ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
 }
 
 export const changeOf = (q) => (q?.previous > 0 ? q.price - q.previous : null);

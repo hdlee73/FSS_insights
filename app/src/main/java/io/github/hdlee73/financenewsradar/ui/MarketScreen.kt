@@ -645,7 +645,7 @@ private fun IndexPanel(state: MarketUiState) {
 @Composable
 internal fun InvestorRow(flow: InvestorFlow?) {
     HorizontalDivider(Modifier.padding(top = 6.dp, bottom = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-    Text("투자자별 순매수(억원)", style = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary, maxLines = 1)
+    Text("투자자별 순매수(억원·NAVER 기준)", style = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary, maxLines = 1)
     Row(Modifier.fillMaxWidth()) {
         listOf("개인" to flow?.personal, "외국인" to flow?.foreign, "기관계" to flow?.institutional).forEach { (label, value) ->
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
