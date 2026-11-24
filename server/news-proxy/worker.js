@@ -222,6 +222,27 @@ async function withMoveNotice(res, request, url) {
   }
 }
 
+// 네이버 검색 키 2개를 번갈아 쓴다. 1번: developers.naver.com 키(2027-06 종료 예정), 2번: 네이버 클라우드 NAVER API HUB 키(NAVER_CLIENT_ID_2/SECRET_2).
+// 한쪽이 429(한도 초과)·401·403이면 다른 키로 한 번 더 시도한다. 2번 키가 없으면 1번만 쓴다(기존과 동일). 키 값은 로그에 남기지 않는다.
+const NAVER_HUB = "https://naverapihub.apigw.ntruss.com/search/v1/news";
+let naverTurn = 0;
+async function naverNews(target, display, start, query, env) {
+  const q = `query=${encodeURIComponent(query)}&display=${display}&start=${start}&sort=date`;
+  const keys = [];
+  if (env.NAVER_CLIENT_ID && env.NAVER_CLIENT_SECRET) keys.push({ url: target, headers: { "X-Naver-Client-Id": env.NAVER_CLIENT_ID, "X-Naver-Client-Secret": env.NAVER_CLIENT_SECRET } });
+  const id2 = (env.NAVER_CLIENT_ID_2 || "").trim(), secret2 = (env.NAVER_CLIENT_SECRET_2 || "").trim();
+  if (id2 && secret2) keys.push({ url: `${NAVER_HUB}?${q}&format=json`, headers: { "X-NCP-APIGW-API-KEY-ID": id2, "X-NCP-APIGW-API-KEY": secret2 } });
+  if (!keys.length) return fetch(target); // 키가 없으면 네이버가 인증 오류를 돌려준다
+  const first = naverTurn++ % keys.length;
+  let last;
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[(first + i) % keys.length];
+    last = await fetch(k.url, { headers: k.headers });
+    if (![429, 401, 403].includes(last.status)) return last;
+  }
+  return last;
+}
+
 async function news(url, env, ctx) {
   const query = (url.searchParams.get("query") || "").trim().slice(0, 200);
   if (!query) return new Response("query required", { status: 400 });
@@ -234,9 +255,7 @@ async function news(url, env, ctx) {
   const snap = await shared(cacheKey.url, 120000, async () => {
     const hit = await cache.match(cacheKey);
     if (hit) return snapOf(hit);
-    const upstream = await fetch(target, {
-      headers: { "X-Naver-Client-Id": env.NAVER_CLIENT_ID, "X-Naver-Client-Secret": env.NAVER_CLIENT_SECRET },
-    });
+    const upstream = await naverNews(target, display, start, query, env);
     const fresh = { status: upstream.status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": cacheControl(120, 120) }, body: await upstream.arrayBuffer() };
     if (upstream.ok) ctx.waitUntil(cache.put(cacheKey, toResponse(fresh)));
     return fresh;
