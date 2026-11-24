@@ -518,7 +518,9 @@ class MarketClient(private val context: Context) {
     }
 
     private fun yahooQuote(symbol: String): Quote {
-        val chart = yahooChart(symbol, "5d")
+        // 선물(=F)은 일봉에 진행 중인 오늘 봉이 비어 와서 전일 종가를 이틀 전 종가로 잘못 잡는다. 5분봉 응답은 직전 거래일 정산가(previousClose)를 함께 주므로 그것을 쓴다.
+        val future = symbol.endsWith("=F")
+        val chart = yahooChart(symbol, "5d", if (future) "5m" else "1d")
         val meta = chart.getJSONObject("meta")
         val price = meta.getDouble("regularMarketPrice")
         if (!price.isFinite() || price <= 0) error("유효한 가격 없음")
@@ -527,11 +529,13 @@ class MarketClient(private val context: Context) {
         var previous = if (symbol.startsWith("^") || symbol.endsWith("=X")) Double.NaN else meta.optDouble("previousClose", Double.NaN)
         if (!previous.isFinite()) {
             val zone = ZoneId.of(meta.optString("exchangeTimezoneName", "America/New_York"))
-            val latest = java.time.Instant.ofEpochSecond(marketTime).atZone(zone).toLocalDate()
+            // 선물은 미국 동부 18:00(한국 08:00)에 새 거래일이 시작하므로 그 기준으로 "전 거래일"을 가린다.
+            val shift = if (future) 6 * 3600L else 0L
+            val latest = java.time.Instant.ofEpochSecond(marketTime + shift).atZone(zone).toLocalDate()
             val timestamps = chart.optJSONArray("timestamp")
             val closes = chart.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0).getJSONArray("close")
             for (i in 0 until (timestamps?.length() ?: 0)) {
-                val day = java.time.Instant.ofEpochSecond(timestamps!!.getLong(i)).atZone(zone).toLocalDate()
+                val day = java.time.Instant.ofEpochSecond(timestamps!!.getLong(i) + shift).atZone(zone).toLocalDate()
                 val close = closes.optDouble(i, Double.NaN)
                 if (day.isBefore(latest) && close.isFinite() && close > 0) previous = close
             }
