@@ -45,6 +45,8 @@ jobs:
             APP_TOKEN
             NAVER_CLIENT_ID
             NAVER_CLIENT_SECRET
+            NAVER_CLIENT_ID_2
+            NAVER_CLIENT_SECRET_2
             GOOGLE_API_KEY
             GDRIVE_FOLDER_ID
             FISIS_API_KEY
@@ -56,6 +58,8 @@ jobs:
           APP_TOKEN: ${{ secrets.NEWS_PROXY_TOKEN }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          NAVER_CLIENT_ID_2: ${{ secrets.NAVER_CLIENT_ID_2 }}
+          NAVER_CLIENT_SECRET_2: ${{ secrets.NAVER_CLIENT_SECRET_2 }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
           FISIS_API_KEY: ${{ secrets.FISIS_API_KEY }}
