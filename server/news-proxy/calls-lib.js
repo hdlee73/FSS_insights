@@ -11,6 +11,7 @@ export const CATS = {
   usage: "사용 통계 신호(/usage/ping)",
   quote: "실시간 시세(/fetch 네이버·야후)",
   fetch: "기관·사이트 읽기(/fetch 기타)",
+  heatmap: "시총 히트맵(/heatmap)",
   news: "뉴스(/news)",
   stats: "거시 통계(/stats)",
   law: "법령(/law)",
@@ -42,6 +43,7 @@ export function categorize(method, pathname, searchParams) {
       return "fetch";
     }
   }
+  if (pathname === "/heatmap") return "heatmap";
   if (pathname === "/news") return "news";
   if (pathname === "/stats") return "stats";
   if (pathname === "/notices") return "notices";
