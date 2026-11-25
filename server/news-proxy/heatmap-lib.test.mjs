@@ -1,6 +1,6 @@
 // node server/news-proxy/heatmap-lib.test.mjs — 시총 히트맵 자료 정리·캐시 검증
 import assert from "node:assert/strict";
-import { buildHeatmap, heatmap, TOP } from "./heatmap-lib.js";
+import { buildHeatmap, buildEtfHeatmap, heatmap, TOP, ETF_TOP } from "./heatmap-lib.js";
 import { resetShared } from "./cache-lib.js";
 import { categorize } from "./calls-lib.js";
 
@@ -53,6 +53,48 @@ try {
   await assert.rejects(() => heatmap(url, null));
 } finally {
   globalThis.fetch = realFetch;
+  resetShared();
+}
+
+// 5) ETF: 정리(순자산 큰 순·중복/깨진 값 제외·분류 범위 밖은 7)·전체 합계·상위 ETF_TOP
+const et = (code, name, cap, pct, tab) => ({ itemcode: code, itemname: name, marketSum: cap, changeRate: pct, etfTabCode: tab });
+const de = buildEtfHeatmap({ result: { etfItemList: [et("a", "KODEX 200", 1000, -6.4, 1), et("b", "TIGER 미국S&P500", 2000, -1.4, 4), et("a", "중복", 5, 0, 1), et("c", "깨짐", "x", 1, 1), et("d", "분류밖", 50, 0.5, 99)] } }, 9);
+assert.deepEqual(de.rows, [["b", "TIGER 미국S&P500", 2000, -1.4, 4], ["a", "KODEX 200", 1000, -6.4, 1], ["d", "분류밖", 50, 0.5, 7]]);
+assert.equal(de.total, 3050);
+assert.equal(de.count, 3);
+assert.equal(buildEtfHeatmap({}).rows.length, 0);
+const bigList = Array.from({ length: 300 }, (_, i) => et("e" + i, "n" + i, 300 - i, 0, 2));
+assert.equal(buildEtfHeatmap({ result: { etfItemList: bigList } }).rows.length, ETF_TOP);
+
+// 6) ETF 서버 처리: EUC-KR 해독, 1분 캐시, 빈 응답 재시도, 계속 비면 오류
+const euc = (obj) => {
+  // 테스트용 EUC-KR 인코딩: "한" 같은 한글을 직접 만들 수 없어 TextDecoder 가 같은 바이트를 한글로 읽는지만 본다(0xC7 0xD1 = 한).
+  const head = new TextEncoder().encode('{"result":{"etfItemList":[{"itemcode":"069500","itemname":"KODEX ');
+  const tail = new TextEncoder().encode('","changeRate":-6.51,"marketSum":188998,"etfTabCode":1}]}}');
+  return new Uint8Array([...head, 0xc7, 0xd1, ...tail]);
+};
+const realFetch2 = globalThis.fetch;
+let ecalls = 0, emptyFirst = 2;
+globalThis.fetch = async () => {
+  ecalls++;
+  if (emptyFirst-- > 0) return new Response("", { status: 200 });
+  return new Response(euc(), { status: 200 });
+};
+try {
+  resetShared();
+  const eurl = new URL("https://x/heatmap?market=ETF");
+  const e1 = await (await heatmap(eurl, null)).json();
+  assert.equal(ecalls, 3, "빈 응답 두 번 뒤 세 번째에 성공");
+  assert.equal(e1.market, "ETF");
+  assert.equal(e1.rows[0][1], "KODEX 한", "EUC-KR 해독");
+  assert.equal(e1.rows[0][4], 1);
+  await heatmap(eurl, null);
+  assert.equal(ecalls, 3, "1분 안에는 NAVER 를 다시 부르지 않는다");
+  resetShared();
+  globalThis.fetch = async () => new Response("", { status: 200 });
+  await assert.rejects(() => heatmap(eurl, null));
+} finally {
+  globalThis.fetch = realFetch2;
   resetShared();
 }
 console.log("heatmap-lib OK");
