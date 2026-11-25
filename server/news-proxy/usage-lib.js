@@ -38,6 +38,8 @@ async function ensureSchema(db) {
   await db.batch(SCHEMA.map((sql) => db.prepare(sql)));
   // 마지막으로 신호를 받은 시각(epoch ms). 이미 있으면 오류가 나므로 무시한다.
   try { await db.prepare("ALTER TABLE usage_activity ADD COLUMN last_at INTEGER").run(); } catch { /* 이미 있음 */ }
+  // 그날 처음 신호를 받은 시각(epoch ms). 이 기능 배포 전 행은 비어 있다.
+  try { await db.prepare("ALTER TABLE usage_activity ADD COLUMN first_at INTEGER").run(); } catch { /* 이미 있음 */ }
   schemaReady = true;
 }
 
@@ -139,8 +141,8 @@ export async function usagePing(request, env) {
   for (const { day, menus, hours, errors, visits, secs } of ping.days) {
     if (visits != null || secs != null) {
       statements.push(
-        env.DB.prepare("INSERT INTO usage_activity (day, uid, visits, secs, last_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(day, uid) DO UPDATE SET visits = MAX(visits, excluded.visits), secs = MAX(secs, excluded.secs), last_at = COALESCE(excluded.last_at, last_at)")
-          .bind(day, uid, visits ?? 0, secs ?? 0, day === lastDay ? nowMs : null)
+        env.DB.prepare("INSERT INTO usage_activity (day, uid, visits, secs, last_at, first_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(day, uid) DO UPDATE SET visits = MAX(visits, excluded.visits), secs = MAX(secs, excluded.secs), last_at = COALESCE(excluded.last_at, last_at), first_at = CASE WHEN first_at IS NULL AND last_at IS NULL THEN excluded.first_at ELSE first_at END")
+          .bind(day, uid, visits ?? 0, secs ?? 0, day === lastDay ? nowMs : null, day === lastDay ? nowMs : null)
       );
     }
     for (const [hour, hits] of Object.entries(hours)) {
@@ -438,6 +440,12 @@ export function engagement({ allRows, activityRows = [], firstRows = [], from, t
     if (fa != null && (fd == null || new Date(fa + 9 * 3600000).toISOString().slice(0, 10) <= fd)) return { fa, fd: null };
     return { fa: null, fd };
   };
+  // 연속 접속일: 그 날짜를 포함해 하루도 빠지지 않고 접속 신호를 받은 날수(조회 기간과 무관, 접속 신호 기준).
+  const streakOf = (d, uid) => {
+    let n = 0;
+    for (let x = d; present.has(key(x, uid)); x = dayShift(x, -1)) n++;
+    return n;
+  };
   const byDay = new Map();
   for (const a of act) {
     if (!byDay.has(a.day)) byDay.set(a.day, []);
@@ -461,12 +469,12 @@ export function engagement({ allRows, activityRows = [], firstRows = [], from, t
     const unRows = (unByDay.get(d) ?? []).slice().sort((a, b) => String(a.uid).localeCompare(String(b.uid)));
     series.push({
       day: d, dau: dau.get(d) ?? 0, users: n, unmeasured: unRows.length,
-      unList: unRows.slice(0, 300).map((r) => ({ id: String(r.uid).slice(0, 6), p: platOf.get(key(d, r.uid)), ver: verOf.get(key(d, r.uid)) ?? null, at: anyAct.get(key(d, r.uid))?.last_at ?? null, ...firstOf(r.uid), cd: connDays.get(r.uid) ?? 0, cm: cum.get(r.uid)?.days ?? 0, cv: cum.get(r.uid)?.visits ?? 0, cs: cum.get(r.uid)?.secs ?? 0 })),
+      unList: unRows.slice(0, 300).map((r) => ({ id: String(r.uid).slice(0, 6), p: platOf.get(key(d, r.uid)), ver: verOf.get(key(d, r.uid)) ?? null, at: anyAct.get(key(d, r.uid))?.last_at ?? null, ft: anyAct.get(key(d, r.uid))?.first_at ?? null, st: streakOf(d, r.uid), ...firstOf(r.uid), cd: connDays.get(r.uid) ?? 0, cm: cum.get(r.uid)?.days ?? 0, cv: cum.get(r.uid)?.visits ?? 0, cs: cum.get(r.uid)?.secs ?? 0 })),
       avgVisits: n ? sum(list, (x) => x.visits) / n : null, maxVisits: max(list, (x) => x.visits),
       avgSecs: n ? sum(list, (x) => x.secs) / n : null, maxSecs: max(list, (x) => x.secs),
       // 익명 사용자 목록(해시 앞 6자리만, 사용 시간 긴 순). 날짜당 최대 300명.
       list: list.slice().sort((a, b) => b.secs - a.secs || b.visits - a.visits).slice(0, 300)
-        .map((x) => ({ id: String(x.uid).slice(0, 6), p: platOf.get(key(d, x.uid)), ver: verOf.get(key(d, x.uid)) ?? null, visits: x.visits, secs: x.secs, at: x.last_at ?? null, ...firstOf(x.uid), cd: connDays.get(x.uid) ?? 0, cm: cum.get(x.uid)?.days ?? 0, cv: cum.get(x.uid)?.visits ?? 0, cs: cum.get(x.uid)?.secs ?? 0 })),
+        .map((x) => ({ id: String(x.uid).slice(0, 6), p: platOf.get(key(d, x.uid)), ver: verOf.get(key(d, x.uid)) ?? null, visits: x.visits, secs: x.secs, at: x.last_at ?? null, ft: x.first_at ?? null, st: streakOf(d, x.uid), ...firstOf(x.uid), cd: connDays.get(x.uid) ?? 0, cm: cum.get(x.uid)?.days ?? 0, cv: cum.get(x.uid)?.visits ?? 0, cs: cum.get(x.uid)?.secs ?? 0 })),
     });
   }
   // 기간별 접속자 합산(ufrom~uto): 접속자별 접속일수·방문 합계·사용 시간 합계·마지막 신호 시각. 조회 기간(from~to)과 무관하다.
@@ -683,7 +691,7 @@ export async function adminApi(request, url, env) {
     env.DB.prepare("SELECT day, hour, uid, hits FROM usage_hour WHERE day >= ?").bind(from).all(),
     env.DB.prepare("SELECT day, name, uid, hits FROM usage_error WHERE day >= ?").bind(from).all(),
     env.DB.prepare("SELECT uid, dev, br, os, sc, inst FROM usage_env").all(),
-    env.DB.prepare("SELECT day, uid, visits, secs, last_at FROM usage_activity WHERE day >= ?").bind(dayShift(to, -400)).all(),
+    env.DB.prepare("SELECT day, uid, visits, secs, last_at, first_at FROM usage_activity WHERE day >= ?").bind(dayShift(to, -400)).all(),
     env.DB.prepare("SELECT uid, first_at FROM usage_first").all(),
   ]);
   const keep = (rows) => (rows.results ?? []).filter((r) => !isEx(r.uid));
@@ -723,7 +731,7 @@ ${CALLS_CARD}
 <h2 style="margin-top:10px">일자별 평균 (선: 방문 횟수 <span style="color:var(--a)">●</span> · 사용 시간(분) <span style="color:var(--b)">●</span>, 각자 최대값 기준 비율)</h2><svg id="engc" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
 <h2 style="margin-top:10px">하루 방문 횟수 분포 (사용자·일 기준)</h2><div id="engv"></div><h2 style="margin-top:8px">하루 사용 시간 분포</h2><div id="engt"></div>
 <details style="margin-top:8px"><summary class="leg">일자별 표</summary><table id="engd"></table></details>
-<h2 style="margin-top:10px">날짜별 접속자 상세 <select id="engday"></select></h2><div id="engusum" class="leg"></div><div style="margin:6px 0"><input id="tf" type="search" placeholder="ID·태그 검색(아래 두 접속자 표에 적용)" maxlength="40" style="width:100%;box-sizing:border-box"></div><div style="overflow-x:auto"><table id="engu" style="white-space:nowrap;min-width:700px"></table></div><div class="leg">접속자는 익명 ID(설치별 해시의 앞 6자리)로만 표시되며 이름·기기 정보와 연결되지 않습니다. 사용 시간이 긴 순입니다. 누적 접속일은 접속 신호를 받은 모든 날(측정 여부와 무관)을 센 값이고, 미측정 행의 누적 방문·시간은 다른 날 측정된 기록이 있을 때만 채워지며(없으면 -), 누적 방문·시간은 방문·시간이 측정된 날(웹·앱 방문·시간 기록 시작일 이후)만 더한 값이라 실제 사용 이력보다 적을 수 있으며, 접속일보다 측정일이 적으면 방문 옆에 '측정 N일'을 작게 표시합니다(제외한 접속자는 빠집니다). 표가 넓으면 옆으로 밀어 보세요. 버전 = 그날(기간 표는 기간 중 가장 최근 날) 쓴 앱·웹 버전이며 기록이 없으면 -입니다. 최초 접속 = 그 사용자의 신호를 서버가 처음 받은 시각(한국시간)이며, 이 기능이 배포된 뒤 처음 접속한 사용자부터 시각이 기록되고 그 이전 사용자는 접속 기록이 처음 남은 날짜만 표시됩니다(연도가 올해와 다르면 앞에 연도 두 자리). 최종 접속 = 서버가 마지막으로 그 사용자의 신호(열기·사용 중 전송·닫기)를 받은 시각(한국시간)이며, 오늘 접속분부터 기록됩니다. 미측정 = 그날 접속 신호는 받았지만 방문·사용 시간 기록이 없는 사용자입니다(방문·시간 측정 기능이 들어가기 전 웹·앱 버전을 쓰거나, 새 버전으로 아직 갱신되지 않은 기기). 버전 열로 확인할 수 있으며 갱신되면 측정으로 바뀝니다. 사용 시간 0초는 열자마자 닫는 등으로 시간 전송 전에 끝난 경우입니다(웹 v2.21.2부터 보완).</div>
+<h2 style="margin-top:10px">날짜별 접속자 상세 <select id="engday"></select></h2><div id="engusum" class="leg"></div><div style="margin:6px 0"><input id="tf" type="search" placeholder="ID·태그 검색(아래 두 접속자 표에 적용)" maxlength="40" style="width:100%;box-sizing:border-box"></div><div style="overflow-x:auto"><table id="engu" style="white-space:nowrap;min-width:700px"></table></div><div class="leg">접속자는 익명 ID(설치별 해시의 앞 6자리)로만 표시되며 이름·기기 정보와 연결되지 않습니다. 사용 시간이 긴 순입니다. 누적 접속일은 접속 신호를 받은 모든 날(측정 여부와 무관)을 센 값이고, 미측정 행의 누적 방문·시간은 다른 날 측정된 기록이 있을 때만 채워지며(없으면 -), 누적 방문·시간은 방문·시간이 측정된 날(웹·앱 방문·시간 기록 시작일 이후)만 더한 값이라 실제 사용 이력보다 적을 수 있으며, 접속일보다 측정일이 적으면 방문 옆에 '측정 N일'을 작게 표시합니다(제외한 접속자는 빠집니다). 표가 넓으면 옆으로 밀어 보세요. 버전 = 그날(기간 표는 기간 중 가장 최근 날) 쓴 앱·웹 버전이며 기록이 없으면 -입니다. 최초 접속 = 그 사용자의 신호를 서버가 처음 받은 시각(한국시간)이며, 이 기능이 배포된 뒤 처음 접속한 사용자부터 시각이 기록되고 그 이전 사용자는 접속 기록이 처음 남은 날짜만 표시됩니다(연도가 올해와 다르면 앞에 연도 두 자리). 당일 최초 = 선택한 날짜에 서버가 처음 신호를 받은 시각(한국시간, 이 기능 배포 이후 접속분부터 기록되며 이전은 -)이며 위 최초 접속(전체 기준)과 다릅니다. 연속 접속일 = 선택한 날짜까지 하루도 빠지지 않고 접속한 일수입니다. 최종 접속 머리글을 누르면 최종 접속 시각 순(내림차순 → 오름차순 → 기본 순)으로 정렬됩니다. 최종 접속 = 서버가 마지막으로 그 사용자의 신호(열기·사용 중 전송·닫기)를 받은 시각(한국시간)이며, 오늘 접속분부터 기록됩니다. 미측정 = 그날 접속 신호는 받았지만 방문·사용 시간 기록이 없는 사용자입니다(방문·시간 측정 기능이 들어가기 전 웹·앱 버전을 쓰거나, 새 버전으로 아직 갱신되지 않은 기기). 버전 열로 확인할 수 있으며 갱신되면 측정으로 바뀝니다. 사용 시간 0초는 열자마자 닫는 등으로 시간 전송 전에 끝난 경우입니다(웹 v2.21.2부터 보완).</div>
 <h2 style="margin-top:14px">기간별 접속자 합산</h2>
 <div><select id="uq"><option value="7">최근 7일</option><option value="30">최근 30일</option><option value="all">전체(측정 시작 이후)</option><option value="custom">직접 선택</option></select> <input type="date" id="ufrom"> ~ <input type="date" id="uto"> <button id="ugo">보기</button></div>
 <div id="usum" class="leg" style="margin:6px 0"></div><div style="overflow-x:auto"><table id="uper" style="white-space:nowrap;min-width:620px"></table></div>
@@ -769,7 +777,7 @@ const ms=Object.entries(d.menus).sort((a,b)=>b[1].users-a[1].users||b[1].hits-a[
 $("menu").innerHTML="<tr><th>메뉴</th><th>사용자</th><th>이전 기간</th><th>횟수</th>"+d.weekDays.map(x=>"<th>"+x.slice(5)+"</th>").join("")+"</tr>"+(ms.length?ms.map(([k,v])=>"<tr><td>"+esc(k)+"</td><td>"+v.users+"</td><td>"+(d.detail.prevMenuUsers[k]??0)+"</td><td>"+v.hits+"</td>"+d.weekDays.map(x=>"<td>"+(v.daily[x]||"")+"</td>").join("")+"</tr>").join(""):"<tr><td colspan=11>자료 없음</td></tr>");
 
 $("exlist").innerHTML=d.excluded.length?"제외 중: "+d.excluded.map(x=>"<code>"+esc(x)+"</code> <a href='#' data-rm='"+esc(x)+"' onclick='return false'>해제</a>").join(" · "):"제외 중인 접속자 없음";
-const fy=new Date(Date.now()+9*3600000).getUTCFullYear(),ff=u=>{if(u.fa){const k=new Date(u.fa+9*3600000).toISOString();return(+k.slice(0,4)!==fy?k.slice(2,4)+"/":"")+k.slice(5,10).replace("-","/")+" "+k.slice(11,16)}if(u.fd)return"<span title='시각 미기록(이 기능 이전 사용자) — 접속 기록이 처음 남은 날짜'>"+(+u.fd.slice(0,4)!==fy?u.fd.slice(2,4)+"/":"")+u.fd.slice(5,10).replace("-","/")+"</span>";return"-"},fk=t=>{if(!t)return"-";const k=new Date(t+9*3600000).toISOString();return k.slice(5,10).replace("-","/")+" "+k.slice(11,16)},E=d.engagement,mn=(m,d)=>m!=null&&d>m?" <small style='color:#888'>(측정 "+m+"일)</small>":"",fm=v=>v==null?"-":(Math.round(v*10)/10).toString(),ft=v=>{if(v==null)return"-";v=Math.round(v);return v<60?v+"초":Math.floor(v/60)+"분"+(v%60?" "+v%60+"초":"")};
+const fy=new Date(Date.now()+9*3600000).getUTCFullYear(),ff=u=>{if(u.fa){const k=new Date(u.fa+9*3600000).toISOString();return(+k.slice(0,4)!==fy?k.slice(2,4)+"/":"")+k.slice(5,10).replace("-","/")+" "+k.slice(11,16)}if(u.fd)return"<span title='시각 미기록(이 기능 이전 사용자) — 접속 기록이 처음 남은 날짜'>"+(+u.fd.slice(0,4)!==fy?u.fd.slice(2,4)+"/":"")+u.fd.slice(5,10).replace("-","/")+"</span>";return"-"},fk=(t,o)=>{if(!t)return"-";const k=new Date(t+9*3600000).toISOString();if(o)return k.slice(11,16);return k.slice(5,10).replace("-","/")+" "+k.slice(11,16)},E=d.engagement,mn=(m,d)=>m!=null&&d>m?" <small style='color:#888'>(측정 "+m+"일)</small>":"",fm=v=>v==null?"-":(Math.round(v*10)/10).toString(),ft=v=>{if(v==null)return"-";v=Math.round(v);return v<60?v+"초":Math.floor(v/60)+"분"+(v%60?" "+v%60+"초":"")};
 $("eng").innerHTML=[[fm(E.avgVisits)+"회","평균 방문 / 사용자·일"],[E.userDays?E.maxVisits+"회":"-","최대 방문(한 사람·하루)"],[ft(E.avgSecs),"평균 사용 시간 / 사용자·일"],[E.userDays?ft(E.maxSecs):"-","최대 사용 시간"]].map(x=>"<div><b>"+x[0]+"</b><span>"+x[1]+"</span></div>").join("");
 $("engnote").textContent=E.firstDay?("측정 시작일 "+E.firstDay+" · 기간 내 측정된 사용자·일 "+E.userDays+"건 · 중앙값 방문 "+fm(E.medianVisits)+"회, 시간 "+ft(E.medianSecs)):"아직 측정된 자료가 없습니다(새 앱·웹과 서버 배포 뒤부터 쌓입니다).";
 (function(){const all=E.series,s=all.filter(p=>p.users>0),n=s.length;
@@ -782,10 +790,11 @@ $("engc").innerHTML='<line x1="10" x2="590" y1="178" y2="178" stroke="currentCol
 if($("uq").value==="all")$("ufrom").value=P.from;
 $("usum").textContent=P.from+" ~ "+P.to+" · 측정 접속자 "+P.total+"명"+(P.unmeasured?" + 미측정 "+P.unmeasured+"명":"")+(P.total+P.unmeasured>P.users.length?" (상위 "+P.users.length+"명 표시)":"");
 $("uper").innerHTML="<tr><th>사용자(익명 ID)</th><th>구분</th><th>버전</th><th>접속일수</th><th>방문</th><th>사용 시간</th><th>최초 접속</th><th>최종 접속</th></tr>"+(P.users.length?P.users.map(u=>"<tr"+(u.un?" style='opacity:.65'":"")+"><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code>"+chip(u.id)+"</td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+esc(u.ver||"-")+"</td><td>"+u.days+"일</td>"+(u.un?"<td colspan=2>미측정</td>":"<td>"+u.visits+"회"+mn(u.md,u.days)+"</td><td>"+ft(u.secs)+"</td>")+"<td>"+ff(u)+"</td><td>"+fk(u.at)+"</td></tr>").join(""):"<tr><td colspan=8>자료 없음</td></tr>")})();
-(function(){const days=E.series.filter(p=>p.users>0||p.unmeasured>0).map(p=>p.day).reverse(),sel=$("engday");const old=sel.value;
+let ENG_SORT="";(function(){const days=E.series.filter(p=>p.users>0||p.unmeasured>0).map(p=>p.day).reverse(),sel=$("engday");const old=sel.value;
 sel.innerHTML=days.length?days.map(x=>'<option>'+x+'</option>').join(""):'<option value="">측정된 날짜 없음</option>';if(days.includes(old))sel.value=old;
-const show=()=>{const p=E.series.find(x=>x.day===sel.value);$("engu").innerHTML=p?"<tr><th>사용자(익명 ID)</th><th>구분</th><th>버전</th><th>방문</th><th>사용 시간</th><th>최초 접속</th><th>최종 접속</th><th>누적 접속일</th><th>누적 방문</th><th>누적 시간</th></tr>"+p.list.map(u=>"<tr><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code>"+chip(u.id)+"</td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+esc(u.ver||"-")+"</td><td>"+u.visits+"회</td><td>"+ft(u.secs)+"</td><td>"+ff(u)+"</td><td>"+fk(u.at)+"</td><td>"+u.cd+"일</td><td>"+u.cv+"회"+mn(u.cm,u.cd)+"</td><td>"+ft(u.cs)+"</td></tr>").join("")+(p.users>p.list.length?"<tr><td colspan=10>외 "+(p.users-p.list.length)+"명</td></tr>":"")+p.unList.map(u=>"<tr style='opacity:.65'><td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code>"+chip(u.id)+"</td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+esc(u.ver||"-")+"</td><td colspan=2>미측정</td><td>"+ff(u)+"</td><td>"+fk(u.at)+"</td><td>"+(u.cd==null?"-":u.cd+"일")+"</td>"+(u.cm?"<td>"+u.cv+"회"+mn(u.cm,u.cd)+"</td><td>"+ft(u.cs)+"</td>":"<td>-</td><td>-</td>")+"</tr>").join("")+(p.unmeasured>p.unList.length?"<tr><td colspan=10>미측정 외 "+(p.unmeasured-p.unList.length)+"명</td></tr>":""):"";
-$("engusum").textContent=p?"측정 "+p.users+"명"+(p.unmeasured?" + 미측정 "+p.unmeasured+"명":"")+" / 그날 DAU "+p.dau+"명 · 평균 방문 "+fm(p.avgVisits)+"회 · 평균 시간 "+ft(p.avgSecs):""};sel.onchange=show;show();applyTF()})();
+const sortAt=(l,k)=>k?l.slice().sort((a,b)=>a.at==null?(b.at==null?0:1):b.at==null?-1:(k==="asc"?a.at-b.at:b.at-a.at)):l;
+const show=()=>{const p=E.series.find(x=>x.day===sel.value);const ar=ENG_SORT==="asc"?" ▲":ENG_SORT==="desc"?" ▼":"",H="<tr><th>사용자(익명 ID)</th><th>구분</th><th>버전</th><th>방문</th><th>사용 시간</th><th>최초 접속</th><th>당일 최초</th><th id='engsort' style='cursor:pointer;user-select:none' title='눌러서 최종 접속 순 정렬(내림차순 → 오름차순 → 기본)'>최종 접속"+ar+"</th><th>연속 접속일</th><th>누적 접속일</th><th>누적 방문</th><th>누적 시간</th></tr>",ID=u=>"<td><code class='exb' data-id='"+esc(u.id)+"' style='cursor:pointer' title='눌러서 통계에서 제외'>"+esc(u.id)+"</code>"+chip(u.id)+"</td><td>"+(u.p==="web"?"웹":"앱")+"</td><td>"+esc(u.ver||"-")+"</td>",TM=u=>"<td>"+ff(u)+"</td><td>"+fk(u.ft,1)+"</td><td>"+fk(u.at)+"</td><td>"+(u.st==null?"-":u.st+"일")+"</td>";$("engu").innerHTML=p?H+sortAt(p.list,ENG_SORT).map(u=>"<tr>"+ID(u)+"<td>"+u.visits+"회</td><td>"+ft(u.secs)+"</td>"+TM(u)+"<td>"+u.cd+"일</td><td>"+u.cv+"회"+mn(u.cm,u.cd)+"</td><td>"+ft(u.cs)+"</td></tr>").join("")+(p.users>p.list.length?"<tr><td colspan=12>외 "+(p.users-p.list.length)+"명</td></tr>":"")+sortAt(p.unList,ENG_SORT).map(u=>"<tr style='opacity:.65'>"+ID(u)+"<td colspan=2>미측정</td>"+TM(u)+"<td>"+(u.cd==null?"-":u.cd+"일")+"</td>"+(u.cm?"<td>"+u.cv+"회"+mn(u.cm,u.cd)+"</td><td>"+ft(u.cs)+"</td>":"<td>-</td><td>-</td>")+"</tr>").join("")+(p.unmeasured>p.unList.length?"<tr><td colspan=12>미측정 외 "+(p.unmeasured-p.unList.length)+"명</td></tr>":""):"";
+$("engusum").textContent=p?"측정 "+p.users+"명"+(p.unmeasured?" + 미측정 "+p.unmeasured+"명":"")+" / 그날 DAU "+p.dau+"명 · 평균 방문 "+fm(p.avgVisits)+"회 · 평균 시간 "+ft(p.avgSecs):""};sel.onchange=show;$("engu").onclick=e=>{if(e.target.closest("#engsort")){ENG_SORT=ENG_SORT===""?"desc":ENG_SORT==="desc"?"asc":"";show();applyTF()}};show();applyTF()})();
 applyTF();bars($("engv"),E.visitDist,1);bars($("engt"),E.timeDist,1);
 $("engd").innerHTML="<tr><th>날짜</th><th>DAU</th><th>측정</th><th>평균 방문</th><th>최대 방문</th><th>평균 시간</th><th>최대 시간</th></tr>"+E.series.slice().reverse().map(p=>"<tr><td>"+p.day+"</td><td>"+p.dau+"</td><td>"+p.users+"</td><td>"+fm(p.avgVisits)+"</td><td>"+(p.users?p.maxVisits:"-")+"</td><td>"+ft(p.avgSecs)+"</td><td>"+(p.users?ft(p.maxSecs):"-")+"</td></tr>").join("");
 
