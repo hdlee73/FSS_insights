@@ -89,7 +89,7 @@ e = engagement({ allRows, activityRows, from: "2026-11-11", to: "2026-11-13", uf
 const d12u = e.series.find((x) => x.day === "2026-11-12");
 assert.equal(d12u.unmeasured, 1);
 assert.equal(d12u.users + d12u.unmeasured, d12u.dau); // 측정 + 미측정 = DAU
-assert.deepEqual(d12u.unList, [{ id: "u3", p: "web", ver: "2.19.0", at: null, fa: null, fd: "2026-11-12", cd: 1, cm: 0, cv: 0, cs: 0 }]);
+assert.deepEqual(d12u.unList, [{ id: "u3", p: "web", ver: "2.19.0", at: null, ft: null, st: 1, fa: null, fd: "2026-11-12", cd: 1, cm: 0, cv: 0, cs: 0 }]);
 assert.equal(e.series.find((x) => x.day === "2026-11-13").unmeasured, 0);
 assert.equal(e.period.unmeasured, 1);
 assert.deepEqual(e.period.users.map((x) => [x.id, !!x.un]), [["u2", false], ["u1", false], ["u3", true]]);
@@ -226,5 +226,37 @@ console.log("first-visit OK");
   sq.prepare("DELETE FROM usage_first").run();
   await ping("0123456789abcdef0123");
   assert.equal(sq.prepare("SELECT COUNT(*) n FROM usage_first").get().n, 0);
+  // 당일 최초 접속 시각(usage_activity.first_at): 첫 신호 때만 적고 재접속은 유지, last_at 은 갱신
+  const row = () => sq.prepare("SELECT first_at, last_at FROM usage_activity WHERE day = ?").get(today);
+  sq.prepare("DELETE FROM usage_activity").run();
+  await ping("0123456789abcdef0123");
+  const r1 = row();
+  assert.ok(Math.abs(r1.first_at - Date.now()) < 10000);
+  await new Promise((r) => setTimeout(r, 15));
+  await ping("0123456789abcdef0123");
+  const r2 = row();
+  assert.equal(r2.first_at, r1.first_at);
+  assert.ok(r2.last_at > r1.last_at);
+  // 배포 전부터 있던 행(first_at 없음·last_at 있음)은 중간에 채우지 않는다
+  sq.prepare("UPDATE usage_activity SET first_at = NULL").run();
+  await ping("0123456789abcdef0123");
+  assert.equal(row().first_at, null);
 }
 console.log("first-visit ping OK");
+
+// 당일 최초 접속(ft)·연속 접속일(st)
+{
+  const mk = (day, uid) => ({ day, uid, version: "web-3.0" });
+  const allRows = [mk("2026-11-20", "a"), mk("2026-11-21", "a"), mk("2026-11-22", "a"), mk("2026-11-24", "a"), mk("2026-11-25", "a"), mk("2026-11-25", "b")];
+  const activityRows = [
+    { day: "2026-11-25", uid: "a", visits: 2, secs: 30, last_at: 2000, first_at: 1000 },
+    { day: "2026-11-25", uid: "b", visits: 1, secs: 10, last_at: 1500, first_at: null },
+  ];
+  const e = engagement({ allRows, activityRows, from: "2026-11-25", to: "2026-11-25" });
+  const l = e.series[0].list;
+  const A = l.find((x) => x.id === "a"), B = l.find((x) => x.id === "b");
+  assert.deepEqual([A.ft, A.st, B.ft, B.st], [1000, 2, null, 1]); // a: 11/24~25 연속 2일(11/23 빠짐)
+  const e2 = engagement({ allRows, activityRows: [], from: "2026-11-22", to: "2026-11-22" });
+  assert.equal(e2.series[0].unList[0].st, 3); // 11/20~22
+}
+console.log("day-first/streak OK");
