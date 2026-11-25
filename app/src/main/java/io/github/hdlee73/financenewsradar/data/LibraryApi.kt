@@ -69,7 +69,12 @@ class LibraryApi(private val context: Context) {
                 location = o.optString("location"),
                 bodyMatch = o.optBoolean("bodyMatch")
             )
-        }
+        }.sortedWith(
+            // 폴더는 위(이름순), 파일은 최근 날짜가 위, 같은 날짜는 이름순
+            compareByDescending<LibraryEntry> { it.isFolder }
+                .thenByDescending { if (it.isFolder) "" else it.modified.take(10) }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
+        )
         val allTags = root.optJSONArray("tags")
         return LibraryListing(
             root.optString("folder", folderId), root.optBoolean("root"), items,
