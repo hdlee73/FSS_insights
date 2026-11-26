@@ -141,6 +141,8 @@ export async function proxyFetch(request, url, ctx) {
 /** 실시간 시세(NAVER 현재가·분봉, Yahoo 차트)는 짧게, 그 밖의 시세는 1분, 나머지는 10분 캐시한다. */
 export function cacheSeconds(target) {
   const host = target.hostname, path = target.pathname;
+  // NAVER 실시간(polling) 지수·종목 시세는 초 단위로 바뀌므로 3초만 캐시한다.
+  if (host === "polling.finance.naver.com" && path.startsWith("/api/realtime/")) return 3;
   const quoteSite = /(^|\.)(stock\.naver\.com|finance\.yahoo\.com)$/.test(host);
   if (!quoteSite) return 600;
   if (/(^|\.)finance\.yahoo\.com$/.test(host) && path.startsWith("/v8/finance/chart/")) return 3;
