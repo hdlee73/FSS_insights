@@ -11,6 +11,20 @@ const TTL_SEC = 60;
 export const ETF_TOP = 100;
 const ETF_UPSTREAM = "https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0&targetColumn=market_sum&sortOrder=desc";
 
+/**
+ * NAVER 분류(etfTabCode)는 운용사마다 들쭉날쭉하다(예: KODEX 머니마켓액티브만 혼합·기타, RISE·TIGER 는 채권).
+ * 종목명으로 성격이 분명한 것만 운용사와 무관하게 같은 분류로 맞춘다. 1 국내 시장지수 · 2 국내 업종·테마 · 3 레버리지·인버스 · 4 해외주식 · 5 원자재 · 6 채권 · 7 혼합·기타.
+ */
+export function fixEtfCategory(name, cat) {
+  const n = String(name || "");
+  if (/레버리지|인버스|2X/.test(n)) return 3;
+  if (/혼합/.test(n)) return 7; // 채권혼합·미국채혼합 등: 채권/시장지수로 갈린 것을 한곳으로
+  if (/커버드콜|밸런스/.test(n)) return cat;
+  if (/머니마켓|CD\s*(1년)?금리|KOFR|SOFR|통안채|단기채|초단기|단기금융|전단채|종합채권|회사채|국공채|채권\(/.test(n)) return 6;
+  if (/골드선물|골드현물|금현물|금선물|은선물|은현물|구리선물|원유선물|WTI|농산물|천연가스선물|원자재/.test(n)) return 5;
+  return cat;
+}
+
 /** NAVER ETF 전체 목록(JSON, EUC-KR 해독 후) → 히트맵 자료. rows: [코드, 이름, 순자산총액(억원), 등락률(%), 분류(1~7)] 순자산 큰 순 상위 ETF_TOP개. total·count 는 전체 ETF 기준. */
 export function buildEtfHeatmap(json, now = Date.now()) {
   const list = json?.result?.etfItemList;
@@ -25,7 +39,7 @@ export function buildEtfHeatmap(json, now = Date.now()) {
     if (!e?.itemcode || !e?.itemname || !(cap > 0) || !Number.isFinite(pct) || seen.has(e.itemcode)) continue;
     seen.add(e.itemcode);
     total += cap;
-    rows.push([String(e.itemcode), String(e.itemname), Math.round(cap), pct, cat >= 1 && cat <= 7 ? cat : 7]);
+    rows.push([String(e.itemcode), String(e.itemname), Math.round(cap), pct, fixEtfCategory(e.itemname, cat >= 1 && cat <= 7 ? cat : 7)]);
   }
   rows.sort((a, b) => b[2] - a[2]);
   return { market: "ETF", at: now, rows: rows.slice(0, ETF_TOP), total: Math.round(total), count: rows.length };

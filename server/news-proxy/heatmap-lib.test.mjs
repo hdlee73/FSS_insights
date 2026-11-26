@@ -1,6 +1,6 @@
 // node server/news-proxy/heatmap-lib.test.mjs — 시총 히트맵 자료 정리·캐시 검증
 import assert from "node:assert/strict";
-import { buildHeatmap, buildEtfHeatmap, heatmap, TOP, ETF_TOP } from "./heatmap-lib.js";
+import { buildHeatmap, buildEtfHeatmap, fixEtfCategory, heatmap, TOP, ETF_TOP } from "./heatmap-lib.js";
 import { resetShared } from "./cache-lib.js";
 import { categorize } from "./calls-lib.js";
 
@@ -65,6 +65,19 @@ assert.equal(de.count, 3);
 assert.equal(buildEtfHeatmap({}).rows.length, 0);
 const bigList = Array.from({ length: 300 }, (_, i) => et("e" + i, "n" + i, 300 - i, 0, 2));
 assert.equal(buildEtfHeatmap({ result: { etfItemList: bigList } }).rows.length, ETF_TOP);
+
+// 5-1) 분류 보정: NAVER 가 운용사마다 다르게 준 값을 종목명 기준으로 맞춤
+assert.equal(fixEtfCategory("KODEX 머니마켓액티브", 7), 6);
+assert.equal(fixEtfCategory("RISE 머니마켓액티브", 6), 6);
+assert.equal(fixEtfCategory("TIGER CD1년금리액티브(합성)", 7), 6);
+assert.equal(fixEtfCategory("KODEX 200미국채혼합50", 6), 7);
+assert.equal(fixEtfCategory("KODEX 삼성전자채권혼합", 1), 7);
+assert.equal(fixEtfCategory("TIGER 미국나스닥100레버리지(합성)", 4), 3);
+assert.equal(fixEtfCategory("KODEX 국채선물10년인버스", 6), 3);
+assert.equal(fixEtfCategory("TIGER 골드선물(H)", 4), 5);
+assert.equal(fixEtfCategory("KIWOOM 미국원유에너지기업", 4), 4);
+assert.equal(fixEtfCategory("TIGER 미국30년국채커버드콜액티브(H)", 6), 6);
+assert.equal(fixEtfCategory("KODEX 200", 1), 1);
 
 // 6) ETF 서버 처리: EUC-KR 해독, 1분 캐시, 빈 응답 재시도, 계속 비면 오류
 const euc = (obj) => {
