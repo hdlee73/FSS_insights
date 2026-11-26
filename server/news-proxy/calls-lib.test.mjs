@@ -123,4 +123,6 @@ upstream = 0;
 await proxyFetch(req("/fetch", {}, "POST"), listUrl, fctx); await proxyFetch(req("/fetch", {}, "POST"), listUrl, fctx);
 assert.equal(upstream, 2, "POST 는 캐시하지 않는다");
 assert.equal(cacheSeconds(new URL(target)), 3);
+assert.equal(cacheSeconds(new URL("https://polling.finance.naver.com/api/realtime/domestic/index/KOSPI")), 3);
+assert.equal(cacheSeconds(new URL("https://finance.naver.com/sise/")), 600);
 console.log("calls-lib / cache-lib tests passed");
