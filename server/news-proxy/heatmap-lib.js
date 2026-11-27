@@ -1,15 +1,30 @@
 // 코스피·코스닥 시가총액 히트맵 자료(/heatmap?market=KOSPI|KOSDAQ)와 ETF 순자산 히트맵 자료(/heatmap?market=ETF).
 // NAVER 증권의 시가총액순 목록(1페이지 100종목)을 서버가 2페이지 읽어 상위 150개 일반 종목(ETF 제외)만 남긴 작은 JSON으로 돌려준다.
-// 1분 캐시(인스턴스 메모리 → Cache API)라서 접속자가 많아도 NAVER 로 나가는 호출은 시장당 분당 2회 안팎이다. 화면은 이 JSON 한 번만 읽는다.
+// 10초 캐시(인스턴스 메모리 → Cache API)라서 접속자가 많아도 NAVER 로 나가는 호출은 시장당 분당 최대 약 12회(페이지 2개×6)이다. 화면은 이 JSON 한 번만 읽는다.
 import { cacheControl, shared, snapOf, toResponse } from "./cache-lib.js";
 
 const UPSTREAM = "https://m.stock.naver.com/api/stocks/marketValue/";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 export const TOP = 150;
 const PAGES = [1, 2]; // 페이지당 100종목. 200을 넘기면 NAVER 가 응답을 끊는다.
-const TTL_SEC = 60;
+const TTL_SEC = 10; // 서버(인스턴스 메모리·Cache API) 보관 시간. 화면은 15초마다 읽으므로 자료 나이는 최대 약 25초.
+const BROWSER_SEC = 3; // 브라우저 HTTP 캐시는 짧게(길면 화면이 읽어도 낡은 응답이 다시 나온다).
 export const ETF_TOP = 100;
 const ETF_UPSTREAM = "https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0&targetColumn=market_sum&sortOrder=desc";
+
+/**
+ * NAVER 분류(etfTabCode)는 운용사마다 들쭉날쭉하다(예: KODEX 머니마켓액티브만 혼합·기타, RISE·TIGER 는 채권).
+ * 종목명으로 성격이 분명한 것만 운용사와 무관하게 같은 분류로 맞춘다. 1 국내 시장지수 · 2 국내 업종·테마 · 3 레버리지·인버스 · 4 해외주식 · 5 원자재 · 6 채권 · 7 혼합·기타.
+ */
+export function fixEtfCategory(name, cat) {
+  const n = String(name || "");
+  if (/레버리지|인버스|2X/.test(n)) return 3;
+  if (/혼합/.test(n)) return 7; // 채권혼합·미국채혼합 등: 채권/시장지수로 갈린 것을 한곳으로
+  if (/커버드콜|밸런스/.test(n)) return cat;
+  if (/머니마켓|CD\s*(1년)?금리|KOFR|SOFR|통안채|단기채|초단기|단기금융|전단채|종합채권|회사채|국공채|채권\(/.test(n)) return 6;
+  if (/골드선물|골드현물|금현물|금선물|은선물|은현물|구리선물|원유선물|WTI|농산물|천연가스선물|원자재/.test(n)) return 5;
+  return cat;
+}
 
 /** NAVER ETF 전체 목록(JSON, EUC-KR 해독 후) → 히트맵 자료. rows: [코드, 이름, 순자산총액(억원), 등락률(%), 분류(1~7)] 순자산 큰 순 상위 ETF_TOP개. total·count 는 전체 ETF 기준. */
 export function buildEtfHeatmap(json, now = Date.now()) {
@@ -25,7 +40,7 @@ export function buildEtfHeatmap(json, now = Date.now()) {
     if (!e?.itemcode || !e?.itemname || !(cap > 0) || !Number.isFinite(pct) || seen.has(e.itemcode)) continue;
     seen.add(e.itemcode);
     total += cap;
-    rows.push([String(e.itemcode), String(e.itemname), Math.round(cap), pct, cat >= 1 && cat <= 7 ? cat : 7]);
+    rows.push([String(e.itemcode), String(e.itemname), Math.round(cap), pct, fixEtfCategory(e.itemname, cat >= 1 && cat <= 7 ? cat : 7)]);
   }
   rows.sort((a, b) => b[2] - a[2]);
   return { market: "ETF", at: now, rows: rows.slice(0, ETF_TOP), total: Math.round(total), count: rows.length };
@@ -84,7 +99,7 @@ async function page(market, n) {
   throw last;
 }
 
-/** GET /heatmap?market=KOSPI|KOSDAQ → 정리한 JSON(1분 캐시). 1페이지가 실패하면 오류, 2페이지만 실패하면 있는 만큼만(partial). */
+/** GET /heatmap?market=KOSPI|KOSDAQ → 정리한 JSON(10초 캐시). 1페이지가 실패하면 오류, 2페이지만 실패하면 있는 만큼만(partial). */
 export async function heatmap(url, ctx, now = Date.now()) {
   const q = url.searchParams.get("market");
   const market = q === "KOSDAQ" ? "KOSDAQ" : q === "ETF" ? "ETF" : "KOSPI";
@@ -105,12 +120,12 @@ export async function heatmap(url, ctx, now = Date.now()) {
     if (!data.rows.length) throw new Error("시총 자료가 비었습니다");
     const fresh = {
       status: 200,
-      headers: { "content-type": "application/json; charset=utf-8", "cache-control": cacheControl(20) },
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": cacheControl(BROWSER_SEC) },
       body: new TextEncoder().encode(JSON.stringify(data)).buffer,
       volatile: !!data.partial, // 일부만 받았으면 기억하지 않고 곧 다시 시도한다
     };
     if (cache && !data.partial && ctx) ctx.waitUntil(cache.put(key, toResponse(fresh, { "cache-control": cacheControl(TTL_SEC) })));
     return fresh;
   });
-  return toResponse(snap);
+  return toResponse(snap, { "cache-control": cacheControl(BROWSER_SEC) }); // Cache API 에서 꺼낸 응답의 보관용 max-age 가 브라우저로 새지 않게 덮어쓴다.
 }
