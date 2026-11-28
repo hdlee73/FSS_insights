@@ -5,7 +5,7 @@
 
 import { cacheControl, shared, snapOf, toResponse } from "./cache-lib.js";
 
-const WEB_PATHS = /^\/(news|law|dart|fisis|stats|library|fetch|heatmap|notices|usage\/ping)(\/|$)/;
+const WEB_PATHS = /^\/(news|law|dart|fisis|stats|library|fetch|heatmap|notices|funds|usage\/ping)(\/|$)/;
 
 // /fetch 가 대신 읽어 줄 수 있는 사이트(앱이 기기에서 직접 읽던 곳). 이 밖의 주소는 거절한다.
 const FETCH_HOSTS = [

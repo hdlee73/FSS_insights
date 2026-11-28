@@ -18,6 +18,7 @@ import { adminCalls, recordCall } from "./calls-lib.js";
 import { cacheControl, shared, snapOf, toResponse } from "./cache-lib.js";
 import { company as dartCompany, corpCount, filings as dartFilings, finance as dartFinance, holders as dartHolders, redact as dartRedact, searchCorps, webSearchCorps, withDartClass } from "./dart-lib.js";
 import { heatmap } from "./heatmap-lib.js";
+import { handleFunds } from "./fund-lib.js";
 import { corsPreflight, proxyFetch, webAccess, withCors } from "./web-lib.js";
 import { CLOSED, FISIS_SECTORS, buildMetrics, fetchTable, fisisFetch, num, rowsOf, specListNos, statementOf } from "./fisis-lib.js";
 
@@ -121,6 +122,14 @@ async function route(request, url, env, ctx, fromWeb) {
         return await proxyFetch(request, url, ctx);
       } catch (e) {
         return fail(502, `사이트 읽기 오류: ${e.message}`);
+      }
+    }
+    // 펀드 순자산 공유(fund-lib.js): 앱이 한국 망에서 받은 자료를 올리고(앱 토큰), 웹·앱이 읽는다.
+    if (url.pathname === "/funds/aum" && (request.method === "GET" || request.method === "POST")) {
+      try {
+        return await handleFunds(request, env, fromWeb);
+      } catch (e) {
+        return fail(502, "펀드 자료 오류");
       }
     }
     if (url.pathname === "/heatmap" && request.method === "GET") {
