@@ -1,6 +1,6 @@
 // 운용사·증권사별 펀드 순자산총액(공모/사모). GitHub Actions가 금융투자협회 종합통계 포털(FreeSIS) '회사별설정규모'를
-// 매일 모아 fund-data 브랜치에 올리는 fund-aum.json을 받는다. 앱의 FundAum.kt를 옮겼다. 받은 자료는 브라우저 캐시에 6시간 보관한다.
-import { errorText, h, loading, message } from "../core.js";
+// 매일 모아 fund-data 브랜치에 올리는 fund-aum.json과, 앱이 한국 망에서 받아 서버(/funds/aum)에 올린 자료 중 더 새것을 쓴다(FreeSIS가 해외 IP를 막아 GitHub 수집이 막힐 때를 대비). 앱의 FundAum.kt를 옮겼다. 받은 자료는 브라우저 캐시에 6시간 보관한다.
+import { SERVER, errorText, h, loading, message } from "../core.js";
 import { hangulize } from "./dartmatch.js";
 
 export const DATA_URL = "https://raw.githubusercontent.com/hdlee73/FSS_insights/fund-data/fund-aum.json";
@@ -20,6 +20,12 @@ function parse(o) {
     asOf: { recent: a.recent || "", quarter: a.quarter || "", year: a.year || "" },
     companies: (o.companies || []).map((c) => ({ name: String(c.n || ""), pub: three(c.pub), pri: three(c.pri) })),
   };
+}
+
+/** 여러 출처의 자료 중 generatedAt이 가장 늦은 것(시각을 못 읽으면 앞의 것). */
+export function pickNewest(list) {
+  const t = (x) => Date.parse(x.data.generatedAt) || 0;
+  return list.reduce((best, x) => (t(x) > t(best) ? x : best));
 }
 
 let memo = null;
@@ -42,10 +48,16 @@ export async function loadFundAum(force = false) {
     }
   }
   try {
-    const res = await fetch(DATA_URL, { cache: "no-cache" });
-    if (!res.ok) throw new Error("서버 응답 " + res.status);
-    const text = await res.text();
-    const data = parse(JSON.parse(text));
+    // GitHub 수집본과 앱이 올린 서버본을 함께 받아 만든 시각이 더 늦은 것을 쓴다. 한쪽만 되어도 된다.
+    const get = async (url, init) => {
+      const res = await fetch(url, init);
+      if (!res.ok) throw new Error("서버 응답 " + res.status);
+      const text = await res.text();
+      return { text, data: parse(JSON.parse(text)) };
+    };
+    const got = (await Promise.allSettled([get(DATA_URL, { cache: "no-cache" }), get(SERVER + "/funds/aum")])).filter((r) => r.status === "fulfilled").map((r) => r.value);
+    if (!got.length) throw new Error("자료를 받지 못했습니다");
+    const { text, data } = pickNewest(got);
     if (cache) cache.put(DATA_URL, new Response(text, { headers: { "Content-Type": "application/json", "X-Saved-At": String(Date.now()) } })).catch(() => {});
     return (memo = data);
   } catch (e) {

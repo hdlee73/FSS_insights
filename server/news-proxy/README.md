@@ -109,3 +109,11 @@ GitHub 저장소 → Settings → Secrets and variables → Actions 에서:
 - **공용 자료 캐시**(`cache-lib.js`): 시세·기관 사이트(`/fetch`)·뉴스·법령·거시 통계·공지·DART는 같은 요청이 동시에 와도 상류 호출을 한 번으로 합치고, 인스턴스 메모리 → 데이터센터 캐시 → 상류 순으로 찾습니다. 실시간 시세는 3초, 뉴스 2분, 목록 10분, 법령·통계 1시간. 사용자별·관리자 응답(`/usage`, `/board`, `/admin*`)은 캐시하지 않습니다.
   - 주의: 서버 캐시는 **외부 사이트 호출**을 줄일 뿐, Worker 요청 수(10만 건 한도)는 줄이지 못합니다. 요청 수는 브라우저·앱이 덜 부를 때만 줄어듭니다(`Cache-Control`의 max-age·stale-while-revalidate는 브라우저 캐시용).
 - **Workers Logs**(`wrangler.toml`의 `[observability]`, 절반 표본): 배포하면 Cloudflare 대시보드 → Workers & Pages → news-proxy → **Observability**(Logs)에서 요청별 경로·상태·소요시간을 걸러 볼 수 있습니다. 무료 한도는 하루 20만 건이며 넘으면 그날은 기록만 멈춥니다. 끄려면 `enabled = false`, 표본을 줄이려면 `head_sampling_rate`를 낮춥니다.
+
+## 펀드 순자산 공유 (`/funds/aum`)
+
+금융투자협회 FreeSIS가 해외 IP를 막아 GitHub Actions 수집(`fund-data.yml`)이 실패할 때를 대비한 경로다.
+한국 망의 앱이 FreeSIS에서 받은 자료를 `POST /funds/aum`(앱 토큰 `X-App-Token` 필요, 웹 출처는 403)으로 올리고,
+웹·앱은 `GET /funds/aum`으로 읽는다. D1(`DB`)의 `fund_aum` 테이블에 최신(id 1)과 직전(id 2) 자료만 둔다.
+검증: 회사 100곳 이상, 기준일 형식, 직전 자료보다 이전 기준일 거절(409), 합계가 직전의 50~150%를 벗어나면 거절(422),
+10분 안 재업로드 거절(429), 알려진 필드만 다시 저장. 테스트: `node server/news-proxy/fund-lib.test.mjs`.

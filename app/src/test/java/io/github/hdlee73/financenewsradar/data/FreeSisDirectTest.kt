@@ -66,4 +66,15 @@ class FreeSisDirectTest {
         assertTrue(FundAumRepository.isStale("2026-11-26T07:30:00+09:00", now))
         assertTrue(FundAumRepository.isStale("", now))
     }
+
+    @Test
+    fun picksNewerOfTwoSources() {
+        val old = """{"generatedAt":"2026-11-26T07:30:00+09:00"}"""
+        val new = """{"generatedAt":"2026-11-28T10:00:00+09:00"}"""
+        assertEquals(new, FundAumRepository.newest(old, new))
+        assertEquals(new, FundAumRepository.newest(new, old))
+        assertEquals(old, FundAumRepository.newest(old, null))
+        assertEquals(new, FundAumRepository.newest(null, new))
+        assertEquals(null, FundAumRepository.newest(null, null))
+    }
 }

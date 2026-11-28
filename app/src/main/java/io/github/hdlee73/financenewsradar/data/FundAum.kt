@@ -68,14 +68,15 @@ class FundAumRepository(private val context: Context) {
     }
 
     /**
-     * 1) GitHub의 fund-aum.json(매일 07:30 수집)을 받는다. 2) 그 자료가 없거나 하루 반 넘게 묵었으면(FreeSIS가 해외 IP를 막아
-     * 수집이 실패하는 경우) 기기에서 FreeSIS를 직접 받아 만든다. 3) 둘 다 안 되면 기기에 있는 자료를 보여 준다.
+     * 1) GitHub의 fund-aum.json(매일 07:30 수집)과 서버(앱이 올려 둔 자료)에서 받아 더 새것을 고른다.
+     * 2) 그것이 없거나 30시간 넘게 묵었으면(FreeSIS가 해외 IP를 막아 서버 수집이 실패하는 경우) 기기에서 FreeSIS를 직접 받아
+     * 만들고, 서버에 올려 웹·다른 기기도 쓰게 한다. 3) 모두 안 되면 기기에 있는 자료를 보여 준다.
      * 어느 쪽이든 결과를 보관해 6시간 동안은 다시 받지 않는다(직접 받기가 막힌 망에서 매번 기다리지 않도록).
      */
     suspend fun load(force: Boolean = false): FundAumDataset = withContext(Dispatchers.IO) {
         val fresh = file.exists() && System.currentTimeMillis() - file.lastModified() < REFRESH_MS
         if (!force && fresh) runCatching { return@withContext parseFundAum(file.readText()) }
-        var text: String? = runCatching { download(DATA_URL) }.getOrNull()
+        var text: String? = newest(runCatching { download(DATA_URL) }.getOrNull(), runCatching { downloadShared() }.getOrNull())
         var data: FundAumDataset? = text?.let { runCatching { parseFundAum(it) }.getOrNull() }
         if (data == null || isStale(data.generatedAt)) {
             val direct = runCatching { FreeSisDirect.build(FreeSisDirect.networkPost()) }.getOrNull()
@@ -83,6 +84,7 @@ class FundAumRepository(private val context: Context) {
             if (directData != null) {
                 text = direct
                 data = directData
+                runCatching { uploadShared(direct) } // 실패해도 이 기기 화면에는 영향 없다
             }
         }
         if (data == null || text == null) {
@@ -96,12 +98,37 @@ class FundAumRepository(private val context: Context) {
         data
     }
 
-    private fun download(url: String): String {
+    /** 앱 서버(Worker)에 올라 있는 자료. 서버 주소가 없으면 null. */
+    private fun downloadShared(): String? {
+        if (!NewsProxy.isConfigured) return null
+        return download(NewsProxy.url.trimEnd('/') + "/funds/aum", NewsProxy.token)
+    }
+
+    /** 기기에서 직접 받은 자료를 서버에 올린다. 서버가 검증(회사 수·합계·기준일)해 받는다. */
+    private fun uploadShared(body: String) {
+        if (!NewsProxy.isConfigured) return
+        val c = URI(NewsProxy.url.trimEnd('/') + "/funds/aum").toURL().openConnection() as HttpURLConnection
+        try {
+            c.connectTimeout = 10_000
+            c.readTimeout = 30_000
+            c.requestMethod = "POST"
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            c.setRequestProperty("X-App-Token", NewsProxy.token)
+            c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            c.responseCode // 응답을 읽어 요청을 끝낸다(결과는 쓰지 않는다)
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    private fun download(url: String, token: String = ""): String {
         val c = URI(url).toURL().openConnection() as HttpURLConnection
         try {
             c.connectTimeout = 10_000
             c.readTimeout = 30_000
             c.setRequestProperty("Accept-Encoding", "gzip")
+            if (token.isNotEmpty()) c.setRequestProperty("X-App-Token", token)
             val code = c.responseCode
             if (code !in 200..299) error("서버 응답 $code")
             val stream = if ("gzip".equals(c.contentEncoding, true)) java.util.zip.GZIPInputStream(c.inputStream) else c.inputStream
@@ -118,6 +145,21 @@ class FundAumRepository(private val context: Context) {
         internal fun isStale(generatedAt: String, now: java.time.Instant = java.time.Instant.now()): Boolean {
             val t = runCatching { java.time.OffsetDateTime.parse(generatedAt).toInstant() }.getOrNull() ?: return true
             return java.time.Duration.between(t, now).toHours() >= STALE_HOURS
+        }
+
+        /** 두 자료 중 만든 시각이 더 늦은 것(시각을 못 읽으면 읽히는 쪽). 둘 다 없으면 null. */
+        internal fun newest(a: String?, b: String?): String? {
+            fun at(t: String?): java.time.Instant? = t?.let {
+                runCatching { java.time.OffsetDateTime.parse(JSONObject(it).optString("generatedAt")).toInstant() }.getOrNull()
+            }
+            val ta = at(a)
+            val tb = at(b)
+            return when {
+                ta == null && tb == null -> a ?: b
+                ta == null -> b
+                tb == null -> a
+                else -> if (tb.isAfter(ta)) b else a
+            }
         }
 
         const val DATA_URL = "https://raw.githubusercontent.com/hdlee73/FSS_insights/fund-data/fund-aum.json"
