@@ -67,16 +67,31 @@ class FundAumRepository(private val context: Context) {
         runCatching { if (file.exists()) parseFundAum(file.readText()) else null }.getOrNull()
     }
 
+    /**
+     * 1) GitHub의 fund-aum.json(매일 07:30 수집)을 받는다. 2) 그 자료가 없거나 하루 반 넘게 묵었으면(FreeSIS가 해외 IP를 막아
+     * 수집이 실패하는 경우) 기기에서 FreeSIS를 직접 받아 만든다. 3) 둘 다 안 되면 기기에 있는 자료를 보여 준다.
+     * 어느 쪽이든 결과를 보관해 6시간 동안은 다시 받지 않는다(직접 받기가 막힌 망에서 매번 기다리지 않도록).
+     */
     suspend fun load(force: Boolean = false): FundAumDataset = withContext(Dispatchers.IO) {
         val fresh = file.exists() && System.currentTimeMillis() - file.lastModified() < REFRESH_MS
         if (!force && fresh) runCatching { return@withContext parseFundAum(file.readText()) }
-        val text = try {
-            download(DATA_URL)
-        } catch (e: Throwable) {
-            if (file.exists()) return@withContext parseFundAum(file.readText())
-            throw IllegalStateException("펀드 순자산 자료를 받지 못했습니다. 인터넷 연결을 확인해 주세요. (${e.message})")
+        var text: String? = runCatching { download(DATA_URL) }.getOrNull()
+        var data: FundAumDataset? = text?.let { runCatching { parseFundAum(it) }.getOrNull() }
+        if (data == null || isStale(data.generatedAt)) {
+            val direct = runCatching { FreeSisDirect.build(FreeSisDirect.networkPost()) }.getOrNull()
+            val directData = direct?.let { runCatching { parseFundAum(it) }.getOrNull() }
+            if (directData != null) {
+                text = direct
+                data = directData
+            }
         }
-        val data = parseFundAum(text)
+        if (data == null || text == null) {
+            if (file.exists()) {
+                file.setLastModified(System.currentTimeMillis()) // 6시간 동안은 다시 시도하지 않는다
+                return@withContext parseFundAum(file.readText())
+            }
+            throw IllegalStateException("펀드 순자산 자료를 받지 못했습니다. 인터넷 연결을 확인해 주세요.")
+        }
         File(context.filesDir, "fund-aum.json.tmp").apply { writeText(text); renameTo(file) }
         data
     }
@@ -97,6 +112,14 @@ class FundAumRepository(private val context: Context) {
     }
 
     companion object {
+        private const val STALE_HOURS = 30L
+
+        /** 자료를 만든 지 [STALE_HOURS]시간이 넘었으면 true. 시각을 읽지 못해도 true(직접 받아 보게 한다). */
+        internal fun isStale(generatedAt: String, now: java.time.Instant = java.time.Instant.now()): Boolean {
+            val t = runCatching { java.time.OffsetDateTime.parse(generatedAt).toInstant() }.getOrNull() ?: return true
+            return java.time.Duration.between(t, now).toHours() >= STALE_HOURS
+        }
+
         const val DATA_URL = "https://raw.githubusercontent.com/hdlee73/FSS_insights/fund-data/fund-aum.json"
         private const val REFRESH_MS = 6L * 60 * 60 * 1000
     }
